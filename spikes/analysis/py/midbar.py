@@ -10,8 +10,8 @@ CLI (from spikes/analysis):
   python py/midbar.py [--out out] [--only GLOB] [--beats 1,2,3]
 
 Reads <out>/manifest.json, writes <out>/derived/<base>__mid<K>.wav|.truth.json and
-<out>/derived/manifest.trim.json (level "M"). Bases: BASES below, or --only GLOB over the level-0
-non-held-out, non-click variants. Held-out variants are never used (R10).
+<out>/derived/manifest.trim.json (level "M"). Bases: BASES below, or --only GLOB over the manifest's
+non-held-out, non-click, constant-tempo variants (any level). Held-out variants are never used (R10).
 """
 import argparse
 import copy
@@ -73,7 +73,7 @@ def trim_truth(truth, cut_sec, name, base, k):
 def select_bases(manifest, only=None):
     out = []
     for v in manifest["variants"]:
-        if (v.get("level") or 0) != 0 or v.get("heldOut") or v.get("click"):
+        if v.get("heldOut") or v.get("click") or v.get("tempoCurve"):
             continue
         if (fnmatch.fnmatch(v["name"], only) if only else v["name"] in BASES):
             out.append(v)

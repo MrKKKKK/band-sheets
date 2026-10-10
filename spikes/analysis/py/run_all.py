@@ -248,7 +248,9 @@ def levels_markdown(rows):
     lines = ["# レベル別・曲別の平均", "",
              "調整に使う変化形のみの平均（ホールドアウトは除く）。n は変化形の数。値が無い項目は平均から除く。", ""]
     lines += _table("レベル別（調整用）", "level", group_means(tuned, lambda r: (r["level"], r["analyzer"])), lk)
-    lines += _table("曲ごと（調整用）", "song", group_means(tuned, lambda r: (r["song"], r["analyzer"])), sk)
+    # level "M" (mid-bar starts, py/midbar.py) is a separate stress test: kept out of the per-song means
+    lines += _table("曲ごと（調整用、M を除く）", "song",
+                    group_means([r for r in tuned if r["level"] != "M"], lambda r: (r["song"], r["analyzer"])), sk)
     lines += ["## ホールドアウト（平均に含めない）", ""]
     if not held:
         lines += ["なし", ""]
