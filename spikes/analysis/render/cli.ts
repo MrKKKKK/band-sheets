@@ -1,28 +1,32 @@
 // Renders all variants into spikes/analysis/out/ (run from spikes/analysis:
-// `npx tsx render/cli.ts`). Writes <song>/<name>.wav + .truth.json, manifest.json
-// and out/etude/etude.bandsheet. Clears the generated files of out/saints and
-// out/etude first. Variants may be prefixed with a lead-in silence and every wav
+// `npx tsx render/cli.ts [--out DIR] [--only GLOB]`). Writes <song>/<name>.wav +
+// .truth.json, manifest.json and out/etude/etude.bandsheet. Without --only it
+// clears the generated files of out/saints and out/etude first; with --only
+// (a glob on variant names, `*` and `?`) it renders just those, deletes
+// nothing and merges them into the existing manifest.json (spike 2, T4). Variants may be prefixed with a lead-in silence and every wav
 // ends with a release tail, so wav length > truth `durationSec` (see types.ts).
 
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSong } from '../../../src/lib/parseSong';
 import { saintsSampleText } from '../../../src/lib/saintsSample';
 import { chordTimeline } from './chordTimeline';
-import { chordEtude } from './etude';
-import { pianoPartBody } from './pianoPart';
+import { chordEtude, chordEtudeAABA } from './etude';
+import { pianoPartBody, recComp } from './pianoPart';
 import {
   buildManifest,
   cleanGenerated,
   EXPECTED_ALPHATAB,
   gitCommit,
+  mergeManifestVariants,
   peakStats,
   variantExtras,
 } from './manifest';
 import { MASTER_VOLUME, renderAudio, SOUND_FONT, SOUND_FONT_FILES, TAIL_SEC } from './renderAudio';
 import {
   ALPHATAB_VERSION,
+  applyPickup,
   applyTempoCurve,
   buildScoreTex,
   buildTruth,
@@ -34,7 +38,16 @@ import { allVariants, ETUDE_SEED } from './variants';
 import type { Variant } from './types';
 import { encodeWav } from './wav';
 
-const OUT = fileURLToPath(new URL('../out/', import.meta.url));
+function argOf(name: string): string | undefined {
+  const i = process.argv.indexOf(name);
+  if (i < 0) return undefined;
+  const v = process.argv[i + 1];
+  if (v === undefined || v.startsWith('--')) throw new Error(`${name} の値がありません`);
+  return v;
+}
+const OUT = resolve(argOf('--out') ?? fileURLToPath(new URL('../out/', import.meta.url)));
+const ONLY = argOf('--only');
+const globRe = (g: string) => new RegExp(`^${g.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
 
 const etude = chordEtude(ETUDE_SEED);
 const saints = parseSong(saintsSampleText);
@@ -45,16 +58,20 @@ const etudeCache = new Map<string, { text: string; song: ReturnType<typeof parse
 function songOf(v: Variant) {
   if (v.song === 'saints') return { song: saints, timeline: saintsTimeline, bandsheet: null, text: undefined };
   const seed = v.etudeSeed ?? ETUDE_SEED;
-  const key = `${seed}:${v.seventhShare ?? ''}`;
+  const key = `${seed}:${v.seventhShare ?? ''}:${v.vocabShare ?? ''}:${v.etudeForm ?? ''}:${v.pickupBeats ?? ''}`;
   let e = etudeCache.get(key);
   if (!e) {
-    const text = key === `${ETUDE_SEED}:` ? etude.text : chordEtude(seed, v.seventhShare).text;
+    const text =
+      key === `${ETUDE_SEED}::::` ? etude.text
+      : v.etudeForm === 'aaba' ? chordEtudeAABA(seed, v.pickupBeats ?? 1).text
+      : chordEtude(seed, v.seventhShare, v.vocabShare).text;
     const song = parseSong(text);
     e = { text, song, timeline: chordTimeline(song) };
     etudeCache.set(key, e);
   }
-  const bandsheet = v.etudeSeed === undefined && v.seventhShare === undefined ? 'etude.bandsheet'
-    : `etude-seed${seed}${v.seventhShare !== undefined ? `-sev${v.seventhShare}` : ''}.bandsheet`;
+  const plain = v.etudeSeed === undefined && v.seventhShare === undefined && v.vocabShare === undefined && v.etudeForm === undefined;
+  const bandsheet = plain ? 'etude.bandsheet'
+    : `etude-seed${seed}${v.seventhShare !== undefined ? `-sev${v.seventhShare}` : ''}${v.vocabShare !== undefined ? `-voc${v.vocabShare}` : ''}${v.etudeForm ? `-${v.etudeForm}${v.pickupBeats ?? ''}` : ''}.bandsheet`;
   return { song: e.song, timeline: e.timeline, bandsheet, text: e.text };
 }
 
@@ -63,9 +80,13 @@ if (ALPHATAB_VERSION !== EXPECTED_ALPHATAB) {
     `warning: alphaTab ${ALPHATAB_VERSION} (validated with ${EXPECTED_ALPHATAB}); rerun the whole spike 0 pipeline (T9) and check the truth`,
   );
 }
-// Drop stale outputs of renamed/removed variants (only files this CLI generates).
-const removed = cleanGenerated(OUT, ['saints', 'etude']);
-if (removed.length > 0) console.log(`cleaned ${removed.length} stale files`);
+// Drop stale outputs of renamed/removed variants (only files this CLI generates; never with --only).
+if (ONLY === undefined) {
+  const removed = cleanGenerated(OUT, ['saints', 'etude']);
+  if (removed.length > 0) console.log(`cleaned ${removed.length} stale files`);
+}
+const selected = allVariants().filter((v) => ONLY === undefined || globRe(ONLY).test(v.name));
+if (selected.length === 0) throw new Error(`--only ${ONLY} に合う変化形がありません`);
 
 mkdirSync(join(OUT, 'saints'), { recursive: true });
 mkdirSync(join(OUT, 'etude'), { recursive: true });
@@ -75,21 +96,25 @@ const manifestVariants: Record<string, unknown>[] = [];
 let clippedTotal = 0;
 const t0 = Date.now();
 let totalBytes = 0;
-for (const v of allVariants()) {
+for (const v of selected) {
   const t = Date.now();
-  const { song, timeline, bandsheet, text } = songOf(v);
+  const { song, timeline: written, bandsheet, text } = songOf(v);
   if (bandsheet && text && bandsheet !== 'etude.bandsheet') writeFileSync(join(OUT, 'etude', bandsheet), text);
-  const score = importScore(buildScoreTex(song, pianoPartBody(timeline, v.comp), v));
+  // comp 'rec' also moves anticipated chord changes: the truth follows the returned timeline.
+  const rec = v.comp === 'rec' ? recComp(written, { seed: v.recSeed, pickupBeats: v.pickupBeats ?? 0 }) : null;
+  const timeline = rec ? rec.timeline : written;
+  if (!rec && v.pickupBeats) throw new Error(`「${v.name}」: 弱起は comp 'rec' だけで扱えます`);
+  const score = importScore(buildScoreTex(song, rec ? rec.body : pianoPartBody(written, v.comp), v));
   applyTempoCurve(score, v);
   setPrograms(score);
   const midi = generateMidi(score);
-  const { samples, sampleRate } = renderAudio(midi, {
+  let { samples, sampleRate } = renderAudio(midi, {
     click: v.click,
     leadInSec: v.leadInSec,
     soundFont: v.soundFont,
     pianoGainDb: v.pianoGainDb,
   });
-  const truth = buildTruth({
+  let truth = buildTruth({
     score,
     midi,
     timeline,
@@ -99,6 +124,16 @@ for (const v of allVariants()) {
     soundFont: SOUND_FONT_FILES[v.soundFont ?? 'sonivox'],
     audioSec: samples.length / sampleRate,
   });
+  if (v.pickupBeats) {
+    // Cut the silent start of the pickup bar, keeping 10 ms before the pickup beat (the synth's attack
+    // starts a few samples early), so the wav begins with the pickup. The truth shifts by the exact cut.
+    const pickupSec = truth.beats!.find((b) => b.bar === 0 && b.beat === 4 - v.pickupBeats!)!.t;
+    const cut = Math.round(pickupSec * sampleRate) - Math.round(0.01 * sampleRate);
+    const head = peakStats(samples.subarray(0, cut)).peak;
+    if (head > 1e-4) throw new Error(`「${v.name}」: 弱起の前が無音ではありません（peak ${head}）`);
+    samples = samples.slice(cut);
+    truth = applyPickup(truth, cut / sampleRate, v.pickupBeats);
+  }
   const { peak, clipped } = peakStats(samples);
   clippedTotal += clipped;
   const wav = `${v.song}/${v.name}.wav`;
@@ -135,7 +170,13 @@ const manifest = buildManifest(
     masterVolume: MASTER_VOLUME,
     tailSec: TAIL_SEC,
   },
-  manifestVariants,
+  ONLY === undefined
+    ? manifestVariants
+    : mergeManifestVariants(
+        allVariants().map((v) => v.name),
+        manifestVariants,
+        existsSync(join(OUT, 'manifest.json')) ? (JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8')).variants ?? []) : [],
+      ),
 );
 writeFileSync(join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 1));
 if (clippedTotal > 0) console.warn(`warning: ${clippedTotal} samples clipped in total`);

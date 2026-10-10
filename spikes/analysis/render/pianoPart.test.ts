@@ -27,6 +27,9 @@ describe('chordMidi / noteName', () => {
     expect(chordMidi('Bdim')).toEqual([47, 59, 62, 65]);
     expect(chordMidi('Caug')).toEqual([36, 60, 64, 68]);
     expect(chordMidi('Csus4')).toEqual([36, 60, 65, 67]);
+    // spike 2 (T4): B D F A and C Eb Gb Bbb(=A)
+    expect(chordMidi('Bm7b5')).toEqual([47, 59, 62, 65, 69]);
+    expect(chordMidi('Cdim7')).toEqual([36, 60, 63, 66, 69]);
   });
   it('names notes', () => {
     expect(noteName(36)).toBe('C2');

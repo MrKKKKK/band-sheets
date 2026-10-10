@@ -14,6 +14,10 @@ export const SONG_BARS = 32;
 export const HELD_OUT_SEED = 2;
 /** Share of 7th chords in the held-out and in the 7th-heavy etude. */
 export const SEVENTH_HEAVY_SHARE = 0.4;
+/** Spike 2 (T4): seed of the held-out AABA etude, tempo of level LR (REC-like), vocab share. */
+export const ETUDE3_SEED = 3;
+export const LR_TEMPO = 124;
+export const VOCAB_SHARE = 0.2;
 
 /** Slow tempo wander: +-6 % sine over 24 bars, whole BPM, first bar = `tempo`. */
 export function driftCurve(tempo: number, bars = SONG_BARS): number[] {
@@ -28,8 +32,13 @@ interface Extra {
   soundFont?: 'musescore';
   pianoGainDb?: number;
   drift?: boolean;
-  /** Etude variants: 'etude' (seed 1, default), 'etude2' (held out), 'etude7' (7th-heavy, tuning). */
-  etude?: 'etude2' | 'etude7';
+  /**
+   * Etude variants: 'etude' (seed 1, default), 'etude2' (held out), 'etude7' (7th-heavy, tuning),
+   * 'etude3' (spike 2: AABA with a 1-beat pickup, seed 3, held out), 'etudevoc' (spike 2: seed 1 with
+   * dim / aug / sus4 / m7b5 / dim7 mixed in).
+   */
+  etude?: 'etude2' | 'etude7' | 'etude3' | 'etudevoc';
+  lrGrade?: 0 | 1 | 2;
 }
 
 function make(
@@ -63,7 +72,15 @@ function make(
     v.seventhShare = SEVENTH_HEAVY_SHARE;
   } else if (x.etude === 'etude7') {
     v.seventhShare = SEVENTH_HEAVY_SHARE;
+  } else if (x.etude === 'etude3') {
+    v.etudeSeed = ETUDE3_SEED;
+    v.etudeForm = 'aaba';
+    v.pickupBeats = 1;
+  } else if (x.etude === 'etudevoc') {
+    v.vocabShare = VOCAB_SHARE;
   }
+  if (x.comp === 'rec') v.recSeed = v.etudeSeed ?? 1;
+  if (x.lrGrade !== undefined) v.lrGrade = x.lrGrade;
   if (x.heldOut) v.heldOut = true;
   return v;
 }
@@ -100,5 +117,19 @@ export function allVariants(): Variant[] {
   out.push(et({ level: 1, etude: 'etude2', heldOut: true, comp: 'arp8' }));
   out.push(et({ level: 1, etude: 'etude2', heldOut: true, soundFont: 'musescore' }));
   out.push(et({ level: 2, etude: 'etude2', heldOut: true, drift: true }));
+  // ---- spike 2 (docs/audio-spike2-plan.md, T4) ----
+  // Level LR: REC-like accompaniment, piano only (like the recording). Grade 0 = L0-like, grade 1 =
+  // another timbre (here) or 30 dB noise (py/degrade.py), grade 2 = room (py/degrade.py).
+  const lr = (song: Variant['song'], x: Extra) =>
+    make(song, 'piano', LR_TEMPO, 'none', false, { level: 'LR', comp: 'rec', ...x });
+  for (const s of ['etude', 'saints'] as const) {
+    out.push(lr(s, { lrGrade: 0 }));
+    out.push(lr(s, { lrGrade: 1, soundFont: 'musescore' }));
+  }
+  // Held-out song of a different form: etude3 (AABA, 1-beat pickup, seed 3).
+  out.push(lr('etude', { lrGrade: 0, etude: 'etude3', heldOut: true }));
+  out.push(lr('etude', { lrGrade: 1, etude: 'etude3', heldOut: true, soundFont: 'musescore' }));
+  // Level V: the etude with dim / aug / sus4 / m7b5 / dim7 mixed in (block chords, full mix).
+  out.push(et({ level: 'V', etude: 'etudevoc' }));
   return out;
 }

@@ -37,6 +37,12 @@ export function variantExtras(v: Variant): Record<string, unknown> {
   if (v.tempoCurve) out.tempoCurve = v.tempoCurve;
   if (v.etudeSeed !== undefined) out.etudeSeed = v.etudeSeed;
   if (v.seventhShare !== undefined) out.seventhShare = v.seventhShare;
+  // spike 2 (T4): only when set, so the spike 1 entries stay as they were.
+  if (v.lrGrade !== undefined) out.lrGrade = v.lrGrade;
+  if (v.recSeed !== undefined) out.recSeed = v.recSeed;
+  if (v.etudeForm !== undefined) out.etudeForm = v.etudeForm;
+  if (v.pickupBeats !== undefined) out.pickupBeats = v.pickupBeats;
+  if (v.vocabShare !== undefined) out.vocabShare = v.vocabShare;
   return out;
 }
 
@@ -85,4 +91,23 @@ export function peakStats(samples: Float32Array): { peak: number; clipped: numbe
     if (a >= 1) clipped++;
   }
   return { peak, clipped };
+}
+
+/**
+ * The manifest variant list after rendering only some variants (`--only`):
+ * every variant of `order` in that order, the fresh entry where there is one,
+ * else the previous manifest's entry of that name; names in neither are left out.
+ */
+export function mergeManifestVariants(
+  order: string[],
+  fresh: Record<string, unknown>[],
+  previous: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const byName = (xs: Record<string, unknown>[]) => new Map(xs.map((x) => [x.name as string, x]));
+  const f = byName(fresh);
+  const p = byName(previous);
+  return order.flatMap((n) => {
+    const e = f.get(n) ?? p.get(n);
+    return e ? [e] : [];
+  });
 }

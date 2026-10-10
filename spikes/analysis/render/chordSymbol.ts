@@ -20,6 +20,8 @@ const QUALITIES: Record<string, ChordQuality> = {
   dim: 'dim',
   aug: 'aug',
   sus4: 'sus4',
+  m7b5: 'm7b5',
+  dim7: 'dim7',
 };
 
 const PATTERN = /^([A-G][#b]?)([^/]*)(?:\/([A-G][#b]?))?$/;

@@ -390,3 +390,37 @@ function parseSongKey(key: string | undefined): AnalysisResult['key'] {
   if (!m) throw new Error(`キー「${key}」が読めません`);
   return { tonic: m[1], mode: m[2] === 'm' ? 'minor' : 'major', confidence: 1 };
 }
+
+/**
+ * Truth for a wav whose first `cutSec` seconds (the silent part of a pickup
+ * bar) were cut off (spike 2, T4): every time shifted by -cutSec, the same
+ * convention as py/midbar.py's `trim_truth` (beats before the cut dropped,
+ * bar / beat numbers kept, so the pickup beat is bar 0 beat 4 - pickupBeats
+ * and not a downbeat; a section or note cut at the start begins at 0). The
+ * pickup carries no chord: the first chord starts at bar 1's downbeat.
+ */
+export function applyPickup(truth: AnalysisResult, cutSec: number, pickupBeats: number): AnalysisResult {
+  const EPS = 1e-6;
+  const sh = (t: number) => round(t - cutSec);
+  const t: AnalysisResult = structuredClone(truth);
+  t.beats = (truth.beats ?? []).filter((b) => b.t >= cutSec - EPS).map((b) => ({ ...b, t: sh(b.t) }));
+  const bar1 = t.beats.find((b) => b.bar === 1 && b.beat === 0);
+  if (!bar1) throw new Error('弱起の後に 1 小節目の頭がありません');
+  const span = <T extends { start: number; end: number }>(xs: T[] | undefined) =>
+    (xs ?? []).filter((x) => x.end - cutSec > EPS).map((x) => ({ ...x, start: Math.max(0, sh(x.start)), end: sh(x.end) }));
+  t.sections = span(truth.sections);
+  t.chords = span(truth.chords);
+  if (t.chords.length > 0 && t.chords[0].start < bar1.t) {
+    if (t.chords[0].end <= bar1.t) throw new Error('弱起の小節の中でコードが変わっています');
+    t.chords[0] = { ...t.chords[0], start: bar1.t };
+  }
+  if (truth.melody) t.melody = { notes: span(truth.melody.notes) };
+  if (truth.drums) t.drums = truth.drums.filter((d) => d.t >= cutSec - EPS).map((d) => ({ ...d, t: sh(d.t) }));
+  t.source = {
+    ...t.source,
+    durationSec: sh(truth.source.durationSec),
+    ...(truth.source.audioSec === undefined ? {} : { audioSec: sh(truth.source.audioSec) }),
+    pickup: { beats: pickupBeats, cutSec: round(cutSec) },
+  };
+  return t;
+}
