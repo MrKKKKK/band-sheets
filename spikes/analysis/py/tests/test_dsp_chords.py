@@ -116,9 +116,16 @@ class ChordsTest(unittest.TestCase):
     def test_flicker_removed_by_smoothing_only(self):
         feat, grid = make([('C', 4), ('F', 1), ('C', 4)])
         self.assertIn('F', names(est(feat, grid, cfg_with(smoothing='none'))))
-        for sm in ('viterbi', 'median'):
-            got = names(est(feat, grid, cfg_with(smoothing=sm)))
-            self.assertEqual(got, ['C'] * 9, sm)
+        # median always removes a clear 1-beat blip; Viterbi removes it only with a sticky
+        # transition prior. The T12 default (self_transition 0.6) deliberately lets a *clear*
+        # 1-beat change survive (real chord changes on a single beat), so pin 0.9 here.
+        self.assertEqual(names(est(feat, grid, cfg_with(smoothing='median'))), ['C'] * 9)
+        self.assertEqual(names(est(feat, grid, cfg_with(smoothing='viterbi', self_transition=0.9))), ['C'] * 9)
+
+    def test_default_viterbi_keeps_clear_one_beat_change(self):
+        # documents the T12 default (self_transition 0.6): a clear single-beat chord is kept
+        feat, grid = make([('C', 4), ('F', 1), ('C', 4)])
+        self.assertEqual(names(est(feat, grid, Config())), ['C'] * 4 + ['F'] + ['C'] * 4)
 
     def test_seventh_only_when_conditions_met(self):
         feat, grid = make([('C', 3), ('Cmaj7', 6)])

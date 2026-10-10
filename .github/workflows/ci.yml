@@ -32,3 +32,19 @@ jobs:
         run: npm test
       - name: Build
         run: npx vite build
+
+  # Audio analysis spike (spikes/analysis/py): outside lint/tsc/npm test, so run its Python tests here.
+  # Separate job (not a step of `check`) so the required `check` stays fast and Node-only.
+  spike-analysis-py:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: spikes/analysis/py/requirements.lock.txt
+      - run: pip install -r spikes/analysis/py/requirements.lock.txt
+      - name: Python tests
+        working-directory: spikes/analysis
+        run: python -m unittest discover -s py/tests

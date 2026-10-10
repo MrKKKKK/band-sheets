@@ -77,7 +77,7 @@ class SectionsConfig:
     snap_bars: int = 4  # snap boundaries to multiples of this (0 = off)
     same_label_similarity: float = 0.85  # >= this -> same label
     chroma_weight: float = 1.0
-    loudness_weight: float = 0.25  # T12: 0.5 -> 0.25
+    loudness_weight: float = 0.5  # T12 tried 0.25; reverted in T15 (no evidence, broke tests; matters for real loud choruses)
     min_novelty: float = 0.25  # absolute novelty floor (guards songs with no real change)
     repetition_weight: float = 0.5  # weight of the repetition-structure (lag) novelty
     snap_min_ratio: float = 0.8  # a loudness step at the grid bar < this x the step at the peak keeps the peak (0 = always snap)
