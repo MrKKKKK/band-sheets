@@ -8,7 +8,7 @@
 - 2026-10-10 追記: ユーザーは「GitHub のリポジトリは公開でもよいかも」と言っている（最終決定はまだ）。公開にする場合は次を先に行う:
   - 公開してよい内容かの確認: 秘密情報は無い（クライアント ID は `.env.local` で除外済み、そもそも秘密ではない）。個人の情報は `docs/m7-google-setup.md` 88 行目と `docs/m5-alphatab-findings.md` 126 行目のローカルのパス（`/home/mrk5/...`）だけ → 相対パスに直す。コミット前に `git grep` でもう一度確かめる。
   - ライセンスを決める（MIT など。ユーザーに聞く）。依存ライブラリのライセンス（alphaTab は MPL-2.0、Bravura は SIL OFL）との相性も確認。
-  - 公開リポジトリなら GitHub Pages も無料で使えるが（→ 上のとおり GitHub Pages に変更した）。
+  - 公開リポジトリなら GitHub Pages も無料で使える（→ 上のとおり GitHub Pages に変更した）。
 
 ## 前提
 
@@ -20,7 +20,7 @@
 
 - 2026-10-10: リポジトリは**公開**、ライセンスは **MIT** に決定（ユーザー）。個人のパス 2 か所を直し、`LICENSE`・README（ひな形から差し替え）・`package.json` の `license`・`.nvmrc`（Node 24、GitHub Actions のビルド用）を追加。コミットの作者は `MrKKKKK <38149405+MrKKKKK@users.noreply.github.com>`（このリポジトリだけの設定。Gmail を公開しないため）。
 - 2026-10-10: 手順 1・2 完了。https://github.com/MrKKKKK/band-sheets （公開、ブランチ `main`）。
-- 2026-10-10: 公開先を GitHub Pages に変更。`.github/workflows/deploy-pages.yml`（`main` への push で、ビルドして公開）を追加。サブフォルダで公開するため、ワークフローの中だけ `vite build --base=/band-sheets/` にしている（`vite.config.ts` は変えていないので、開発サーバーと e2e は `/` のまま）。手元でこのビルドを試し、フォントなども `/band-sheets/` から読み込まれることを確認。Pages は `gh api` で有効化（build_type=workflow）。クライアント ID はリポジトリの Actions 変数 `VITE_GOOGLE_CLIENT_ID` から渡す。
+- 2026-10-10: 公開先を GitHub Pages に変更。`.github/workflows/deploy-pages.yml`（`main` への push で、ビルドして公開）を追加。サブフォルダで公開するため、ワークフローの中だけ `vite build --base=/band-sheets/` にしている（`vite.config.ts` は変えていないので、開発サーバーと e2e は `/` のまま）。手元でこのビルドを試し、フォントなども `/band-sheets/` から読み込まれることを確認。Pages は `gh api` で有効化（build_type=workflow）。クライアント ID はリポジトリの Actions 変数 `VITE_GOOGLE_CLIENT_ID` から渡す（2026-10-10 に `.env.local` と同じ値を登録）。Google Cloud の承認済みの生成元に `https://mrkkkkk.github.io` を追加済み（ユーザー）。手順 3・4 完了。
 
 ## 次の手順
 
