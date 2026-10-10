@@ -205,23 +205,22 @@ AI（学習済みモデル）を使うと、特に「全体の音からの歌メ
   "format": "band-sheets-analysis",
   "version": 1,
   "source": {
-    "kind": "file" /* file | mic */,
+    "kind": "synthetic" /* synthetic | recording */,
     "durationSec": 213.4,
     "click": false,
+    "leadInSec": 0, // 合成音源だけ: 0 小節目の前の無音（秒）
+    "audioSec": 215.4, // 合成音源だけ: 余韻を含む wav の長さ
   },
   "analyzer": {
     "name": "band-sheets-analyzer",
     "version": "0.1.0",
-    // 使った方法と、人が決めた設定値（あとで比べられるように）
-    "methods": [
-      {
-        "task": "beats",
-        "name": "librosa.beat.beat_track",
-        "params": { "tightness": 100 },
-      },
-    ],
+    // 使った方法の名前（あとで比べられるように）
+    "methods": ["librosa.beat.beat_track"],
   },
-  "beats": [{ "t": 0.52, "downbeat": true }, { "t": 1.03 }], // 拍の時刻（秒）。小節の頭に印
+  "beats": [
+    { "t": 0.52, "downbeat": true },
+    { "t": 1.03, "downbeat": false },
+  ], // 拍の時刻（秒）。小節の頭の印は拍ごとに持つ
   "timeSignature": { "num": 4, "den": 4, "confidence": 0.8 },
   "key": { "tonic": "C", "mode": "major", "confidence": 0.6 },
   "sections": [{ "start": 0.52, "end": 16.1, "label": "A" }],
@@ -241,8 +240,16 @@ AI（学習済みモデル）を使うと、特に「全体の音からの歌メ
   },
   "drums": [{ "t": 0.52, "inst": "BD", "strength": 0.9, "confidence": 0.8 }],
   "swing": { "kind": "8", "confidence": 0.5 }, // シャッフルの推定（無ければ省略）
+  // 合成音源の正解だけが持つ欄（録音の解析結果には無い）
+  "render": {
+    "song": "saints",
+    "variant": "full-t116-shuffle",
+    // ほかに tempo・tracks・programs・sampleRate・alphaTab・soundFont
+  },
 }
 ```
+
+`durationSec` は最後の小節の終わり + 前の無音。2026-10-10、スパイク 0 の実装（`spikes/analysis/render/types.ts`）に合わせて直した（`methods` は文字列の一覧、`source.kind` は `synthetic | recording`、拍の `downbeat` は必須、`render` と `source.leadInSec`・`source.audioSec` を追加）。使った方法の細かい設定値（`params`）は、スパイク 1 で必要になったら足す。
 
 ### 5.3 変換（中間データ → `.bandsheet`）の置き場所と作り方
 
@@ -315,7 +322,9 @@ AI（学習済みモデル）を使うと、特に「全体の音からの歌メ
 
 各スパイクは「作ってみて、測って、続けるか決める」。続ける判断の基準は **「下書きを直す時間」が「一から手で入れる時間」より明らかに短いこと**。
 
-- **スパイク 0（評価の土台）**: 合成音源を作るスクリプト（alphaTab で `.bandsheet` → wav、コード譜 → ピアノ伴奏）と、評価のスクリプト（§8.1 の 2）。以後のスパイクはすべてこれで測る。
+- **スパイク 0（評価の土台）— 完了（2026-10-10）**: 合成音源を作るスクリプト（alphaTab で `.bandsheet` → wav、コード譜 → ピアノ伴奏）と、評価のスクリプト（§8.1 の 2）。以後のスパイクはすべてこれで測る。
+  - 結果: `spikes/analysis/` に実装（使い方は `CLAUDE.md`、計画と実績は `audio-spike0-plan.md`、レビューは `audio-spike0-review.md`）。聖者の行進と、コードだけの練習曲から 21 本の wav と正解 JSON を作る（全部で約 5 秒）。音と正解の一致は 61 項目の確認がすべて OK（クリック ±5 ms）。答えの写しは全部 1.0、何もしない定数の解析器は聖者のコード 0.719（72 % が C のため）・練習曲 0.031 で、偏りも見える。
+  - 持ち越し: 複数の音色・雑音・響き・強弱を変えた変化形（レビュー R5 の重い部分）は、スパイク 1 で足す。
 - **スパイク 1（優先 1）: コード＋拍＋セクション**: Python ＋ librosa の CLI（band-sheets とは別の Dev Container）。HPSS → 拍（Ellis の方法）→ 小節の頭（規則）→ 拍ごとのクロマ → テンプレート＋ならし → 自己類似行列で境目。出力は中間 JSON と、小節ごとのコードの一覧。合成音源で測り、次に本物の録音 2〜3 曲で直す時間を測る。
 - **スパイク 2（優先 2）: 鼻歌 → メロディ（ブラウザ）**: `spikes/` の下の小さなページ。クリックを鳴らしながらマイクで歌う → pitchy（または自前の YIN）→ 規則で音符に区切る → 拍に丸める → メロディの alphaTex。「聖者の行進」「きらきら星」を歌って、キーボード入力の時間と比べる。
 - **スパイク 3: 変換を band-sheets に入れる**（スパイク 1 か 2 がよければ）: `src/lib/import/`（中間 JSON → `.bandsheet`）をテスト駆動で作る。「ファイルから取り込む」画面を Claude Design でスケッチしてから作る。小節の頭のずらし、確信度の低いコードの印。

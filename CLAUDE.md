@@ -123,6 +123,7 @@ Before building any editor or view screen, sketch it with **Claude Design** (Art
 - alphaTex: a `\section "A"` line directly followed by a bare note (no `:N`/`.N`) swallows that note as the section's second argument — always write `:N` (or `.N`) before the first beat of a section, even if the duration hasn't changed. `.N` glued to a pitch (`C4.4`) is sticky across beats and bars exactly like a `:N` token (verified against alphaTab 1.8.4, see `melody.ts`'s spec comment).
 - alphaTex slurs (alphaTab 1.8.4): note effect `slur "<id>"` (or `slur ident`) on the origin and again on the destination note. The importer's id map is per staff and never cleared within it, so an id reused in the same part re-points the earlier slur — `serializeMelody` uses `"<section label>-<n>"`; always pass the label.
 - `PartScore` (alphaTab) renders only track 0 by default — pass the track indexes you want explicitly (`api.tex(tex, trackIndexes)`), or a multi-part song only shows its first part.
+- alphaTab `player.scrollMode` must be `Off` in every app component that creates an `AlphaTabApi` (issue #1; already set in `PartScore` and `SectionScore`): the default scrolls the page/container on playback and cursor updates.
 - `PartScore` draws drum (percussion) staves with ALL stems/beams up: alphaTab 1.8.4 otherwise picks the direction per beam group from staff position, so BD/SD/FT groups hang below. Done at render time only — `api.scoreLoaded` (fires after import, before layout) runs `percussionStemsUp(score)` (`components/PartScore/percussionStems.ts`), setting `beat.preferredBeamDirection = rendering.BeamDirection.Up` on every beat of `staff.isPercussion` staves. The stored alphaTex is never touched (no per-beat `{beam up}`); melody staves keep alphaTab's automatic direction. Note `BeamDirection` is exported under alphaTab's `rendering` namespace, not `model`.
 - Bravura (the music font `MelodyStaff`/`PartScore` draw with) is registered as a `@font-face` via `injectBravuraFontFace()` (`components/PartScore/bravuraFont.ts`); call it yourself when rendering a staff component on its own, since it's otherwise only a side effect of importing `PartScore`.
 - jsdom (unit tests) has no `ResizeObserver` and alphaTab's `AlphaTabApi` throws synchronously outside a real browser; `App`'s `Tabs` keeps every tab panel mounted (just `hidden`), so `MelodyEditor`/`MelodyStaff`/`PartScore` mount on every `App` render even off the メロディ tab. `src/test/setup.ts` stubs `ResizeObserver` globally, and `PartScore` catches the `AlphaTabApi` constructor's exception into its existing `error` state (deferred via `queueMicrotask` so it isn't a synchronous `setState` inside the effect, which oxlint's `set-state-in-effect` flags).
@@ -154,6 +155,19 @@ Before building any editor or view screen, sketch it with **Claude Design** (Art
   - ▶ stays disabled until `layout.ready` (`AutoScrollBar` `playDisabled`; `play()` also refuses before ready, live text 「譜面を準備中です」). Count-in follows speed changes (`beatSec` and elapsed re-scaled mid count-in).
   - `ViewerChartBlock` takes `ariaLabel` because a repeated label would create duplicate landmark regions (`landmark-unique`).
   - Tablet e2e: `npx playwright test --project tablet` (iPad Pro 11 landscape 1194×834, `hasTouch`, chromium, only `e2e/viewer.spec.ts`; the default `chromium` project ignores it). Auto-scroll tests use `page.clock`.
+
+## Audio analysis spike (spikes/analysis)
+
+Spike 0 of the audio-import feature (`docs/audio-import-architecture.md` §8.2; plan `docs/audio-spike0-plan.md`, review `docs/audio-spike0-review.md`). Synthesizes wavs from band-sheets songs with alphaTab, writes ground-truth JSON, and scores analyzer output. Outside oxlint, prettier, `tsc -b` and the app's `npm test`; `out/` is gitignored (regenerate in seconds).
+
+- `render/` (TypeScript, run with tsx in the devcontainer) and `py/` (Python 3.12 in the Docker image `band-sheets-analysis`, pinned by digest + `requirements.lock.txt`).
+- Render all variants to `spikes/analysis/out/`: `docker exec -u node -w /workspaces/band-sheets/spikes/analysis band-sheets npx tsx render/cli.ts`
+- TS tests: `docker exec -u node -w /workspaces/band-sheets band-sheets npx vitest run --config spikes/analysis/vitest.config.ts`
+- Python: build once with `docker build -t band-sheets-analysis spikes/analysis/py`, then `docker run --rm -u 1000:1000 -e HOME=/tmp -e NUMBA_CACHE_DIR=/tmp -v <repo>/spikes/analysis:/work -w /work band-sheets-analysis python py/check_alignment.py` (also `python py/run_all.py`, or `python -m unittest discover -s py/tests`).
+- alphaTab `\tf` only carries to later bars when the DRUM track is first: render Drums first. Take melody/drum truth times from alphaTab's MIDI note-ons, not from the score.
+- alphaTex tracks default to program 25 (guitar) unless a program is set.
+- A missing drum bar is silently filled by alphaTab (`bar.isEmpty`); `truth.ts` rejects it.
+- Licenses: soxr/libsndfile (LGPL) and certifi (MPL-2.0) are in the local Python image only; never ship them in the app.
 
 ## Verification
 
