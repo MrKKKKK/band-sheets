@@ -1,0 +1,89 @@
+/*
+ * Design tokens. Light theme only: sheet music renders black on white, so
+ * there is no dark mode. Component CSS must reference these, never raw colors.
+ */
+:root {
+  /* Colors */
+  --bg: #ffffff;
+  --surface: #f7f8fa;
+  --surface-2: #eef0f4;
+  --text: #1a1d23;
+  --text-muted: #596170; /* ~6.2:1 on --bg */
+  --border: #d5d9e0;
+  --accent: #1f4ba5;
+  --accent-hover: #183c86;
+  --accent-contrast: #ffffff;
+  --accent-bg: #e9eef8;
+  --accent-border: #a9bce2;
+  --danger: #b42318;
+  --danger-bg: #fdecea;
+  --focus-ring: #1f4ba5;
+  --shadow-popover:
+    0 4px 16px rgb(26 29 35 / 0.14), 0 1px 3px rgb(26 29 35 / 0.1);
+
+  /* Warning (lyric-syllable mismatch, etc.) */
+  --warning: #b45309; /* ~7.1:1 on --bg */
+  --warning-bg: #fef3c7;
+
+  /* Melody staff (M4): hover preview / selection are --accent-derived so
+   * they read as "the same note, different state"; staff-line / note are
+   * plain ink colors independent of --accent. */
+  --note-preview: rgb(31 75 165 / 0.35); /* --accent, translucent */
+  --selection: var(--accent);
+  --selection-bg: rgb(31 75 165 / 0.15); /* --accent, translucent */
+  --staff-line: #6b7280; /* ~4.8:1 on --bg */
+  --note: #14161a; /* near-black notehead ink */
+
+  /* Fonts */
+  --font-ui: 'Noto Sans JP', system-ui, sans-serif;
+  --font-chord: 'JetBrains Mono', ui-monospace, monospace;
+  /*
+   * SMuFL music glyphs (notes, rests, accidentals, clefs, …) for a
+   * hand-drawn SVG staff. Backed by the same Bravura files alphaTab itself
+   * uses (@coderline/alphatab/font/Bravura.{woff2,otf}); the @font-face
+   * registering this family name is injected at runtime by
+   * src/components/PartScore/bravuraFont.ts (see that file's comment for
+   * why: Vite's `?url` asset import, already proven to resolve correctly in
+   * dev/build/Storybook for alphaTab's own font loading, is reused instead
+   * of a CSS url() whose node_modules resolution in all three environments
+   * was unverified). Any component drawing SMuFL glyphs via CSS must call
+   * `injectBravuraFontFace()` once before relying on this token.
+   */
+  --font-music: 'Bravura';
+  --font-size-sm: 0.875rem;
+  --font-size-md: 1rem;
+  --font-size-lg: 1.125rem;
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Controls */
+  --control-h: 44px;
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --z-popover: 100;
+}
+
+/* Viewer (M6) */
+:root {
+  --viewer-bar-h: 72px;
+}
+
+/* Drive sync (M7): states that are neither accent nor danger */
+:root {
+  --success: #1e6b34; /* ~6.4:1 on --bg and on --success-bg */
+  --success-bg: #e6f4ea;
+  --warning-border: #e0b15a;
+  --disabled-bg: #e8eaee;
+}

@@ -1,0 +1,167 @@
+.root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.zone,
+.zonePlay {
+  position: absolute;
+  top: 0;
+  bottom: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) 0 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.zone {
+  width: 30%;
+}
+
+.zonePlay {
+  bottom: 0;
+  width: 32%;
+}
+
+.zone:disabled,
+.zonePlay:disabled {
+  cursor: default;
+}
+
+.left {
+  left: 0;
+}
+
+.right {
+  right: 0;
+}
+
+.zone:focus-visible,
+.zonePlay:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
+.hint {
+  padding: var(--space-1) var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.zone:disabled .hint,
+.zone:disabled .arrow {
+  opacity: 0.4;
+}
+
+/*
+ * Arrow hints live in the outer 28px of the screen, outside the sheet's
+ * content area (gutter / alphaTab padding), so they never sit on notes.
+ */
+.arrow {
+  position: absolute;
+  top: 50%;
+  display: flex;
+  width: 24px;
+  margin-top: -12px;
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.left .arrow {
+  left: 2px;
+}
+
+.right .arrow {
+  right: 2px;
+}
+
+.arrow svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Hover feedback is for real pointers only: on touch it would stay stuck. */
+@media (hover: hover) {
+  .zone:not(:disabled):hover,
+  .zonePlay:not(:disabled):hover {
+    background: var(--accent-bg);
+  }
+}
+
+/* Brief tap feedback (an animation, not a sticky state). */
+@keyframes tap-flash {
+  from {
+    background: var(--accent-bg);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.zone:not(:disabled):active,
+.zonePlay:not(:disabled):active {
+  animation: tap-flash 250ms ease-out;
+}
+
+.bar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  height: 44px;
+  background: linear-gradient(to top, var(--bg), transparent);
+  pointer-events: none;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.step:disabled {
+  color: var(--text-muted);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.step:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.count {
+  min-width: 4.5em;
+  text-align: center;
+  color: var(--text-muted);
+  font-family: var(--font-chord);
+  font-size: var(--font-size-sm);
+}

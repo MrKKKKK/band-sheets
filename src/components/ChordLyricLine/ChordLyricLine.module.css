@@ -1,0 +1,120 @@
+/*
+ * Each segment is an inline-block column; chord row and lyric row both start
+ * at the column's left edge, so a chord sits exactly above the first
+ * character of its segment. Chord and character elements use the same
+ * horizontal padding, so their text also lines up.
+ */
+.line {
+  --cell-pad-x: 0px;
+  --chord-row-h: 1.5rem;
+  --lyric-row-h: 1.75rem;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+}
+
+.editable {
+  --cell-pad-x: 2px;
+  --chord-row-h: var(--control-h);
+  --lyric-row-h: var(--control-h);
+}
+
+.chordOnly {
+  --lyric-row-h: 0px;
+}
+
+.segment {
+  display: inline-block;
+  vertical-align: top;
+  max-width: 100%;
+}
+
+.chordRow {
+  display: flex;
+  align-items: flex-end;
+  height: var(--chord-row-h);
+}
+
+.lyricRow {
+  display: block;
+  min-height: var(--lyric-row-h);
+  padding: 0 var(--cell-pad-x);
+  line-height: var(--lyric-row-h);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.editable .lyricRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 0;
+  line-height: 1;
+}
+
+.chord {
+  padding: 0 calc(var(--cell-pad-x) + 0.5em) 0 var(--cell-pad-x);
+  color: var(--accent);
+  font-family: var(--font-chord);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.chordButton {
+  min-height: var(--control-h);
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+}
+
+.chordButton:hover {
+  background: var(--accent-bg);
+}
+
+.charButton {
+  min-width: 1em;
+  min-height: var(--control-h);
+  margin: 0;
+  padding: 0 var(--cell-pad-x);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  white-space: pre;
+  cursor: pointer;
+}
+
+.charButton:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+}
+
+.charButton[data-active] {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+
+.chordButton:focus-visible,
+.charButton:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: 0;
+}
+
+.endButton {
+  min-width: var(--space-6);
+}
+
+.endMark {
+  display: block;
+  width: 2px;
+  height: 1em;
+  margin: 0 auto;
+  background: var(--border);
+}

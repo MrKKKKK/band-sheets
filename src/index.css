@@ -1,0 +1,14 @@
+@import './theme.css';
+
+:root {
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: var(--bg);
+}

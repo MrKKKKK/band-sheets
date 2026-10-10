@@ -1,0 +1,57 @@
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-sm);
+}
+
+.icon {
+  flex: none;
+}
+
+.message {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.message b {
+  margin-right: var(--space-1);
+}
+
+.button {
+  flex: none;
+  min-height: var(--control-h);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--warning);
+  font: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+@media (max-width: 640px) {
+  .banner {
+    flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4);
+  }
+}

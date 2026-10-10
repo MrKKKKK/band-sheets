@@ -1,0 +1,163 @@
+.popover {
+  /* R6: with the default content-box model, `width` excludes padding and
+     border, so the actual rendered box is wider than this number suggests;
+     border-box plus a max-width tied to the viewport keeps the box itself
+     from ever being wider than the screen allows. */
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 340px;
+  max-width: calc(100vw - 32px);
+}
+
+/* R6: bumped specificity, wins over Popover's `.start { left: 0 }` — same
+   trick as ChordPopover's `--chord-popover-left`. PaletteEditor computes
+   this offset from the "＋" anchor's position *before* opening, so a trigger
+   near the right edge (e.g. the last chip in a wrapped row) doesn't push the
+   popover past the viewport. */
+.popover[role='dialog'] {
+  left: var(--palette-popover-left, 0px);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 700;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.label {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+}
+
+.empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chordText,
+.readOnlyChip {
+  font-family: var(--font-chord);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.userChip {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-h);
+  padding-left: var(--space-3);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-pill);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.remove:hover {
+  color: var(--danger);
+}
+
+.remove:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
+.readOnlyChip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.addForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.inputLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+}
+
+.addRow {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-chord);
+  font-size: var(--font-size-md);
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+.input:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+}

@@ -1,0 +1,27 @@
+{
+  "name": "band-sheets",
+  "build": { "dockerfile": "Dockerfile" },
+  "runArgs": ["--name", "band-sheets"],
+  "remoteUser": "node",
+  "forwardPorts": [5173, 6006],
+  "portsAttributes": {
+    "5173": { "label": "Vite dev server", "onAutoForward": "notify" },
+    "6006": { "label": "Storybook", "onAutoForward": "notify" }
+  },
+  "postCreateCommand": "if [ -f package.json ]; then npm install && npx playwright install --with-deps chromium; fi",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "esbenp.prettier-vscode",
+        "ms-playwright.playwright",
+        "vitest.explorer",
+        "editorconfig.editorconfig"
+      ],
+      "settings": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true,
+        "typescript.tsdk": "node_modules/typescript/lib"
+      }
+    }
+  }
+}

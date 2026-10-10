@@ -1,0 +1,73 @@
+.root {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.content {
+  position: relative;
+}
+
+.host {
+  width: 100%;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.barNumber {
+  position: absolute;
+  font-family: var(--font-ui);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.mark {
+  position: absolute;
+}
+
+.shuffleSvg {
+  display: block;
+  overflow: visible;
+}
+
+.straight {
+  display: block;
+  line-height: 1.2;
+  font-family: var(--font-ui);
+  font-style: italic;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.label {
+  font-family: var(--font-ui);
+  font-style: italic;
+  fill: var(--text);
+}
+
+.music {
+  font-family: var(--font-music);
+  fill: var(--note);
+}
+
+.stroke {
+  fill: none;
+  stroke: var(--note);
+}
+
+.beam {
+  stroke: var(--note);
+  stroke-linecap: butt;
+}
+
+.error {
+  margin: 0;
+  padding: var(--space-2);
+  color: var(--danger);
+  background: var(--danger-bg);
+}

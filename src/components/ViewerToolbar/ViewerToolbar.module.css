@@ -1,0 +1,97 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--viewer-bar-h);
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  font-family: var(--font-ui);
+}
+
+.title {
+  flex: 0 1 auto;
+  min-width: 4em;
+  max-width: 16em;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar > * {
+  flex-shrink: 0;
+}
+
+.bar > .title {
+  flex-shrink: 1;
+}
+
+.sep {
+  flex: none;
+  width: 1px;
+  height: 28px;
+  background: var(--border);
+}
+
+.spacer {
+  flex: 1 1 0;
+}
+
+.chips {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  overflow-x: auto;
+}
+
+.partList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 12em;
+}
+
+.partItem {
+  justify-content: flex-start;
+}
+
+.partItem[aria-pressed='true'] {
+  background: var(--accent-bg);
+}
+
+.zoom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.px {
+  min-width: 3.2em;
+  font-family: var(--font-chord);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.nowrap {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.chipsPopover .chips {
+  flex-wrap: wrap;
+  max-width: 24em;
+  overflow: visible;
+}
+
+.chips button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}

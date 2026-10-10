@@ -1,0 +1,26 @@
+\title "きらきら星"
+\tempo 100
+.
+\track "Vocal"
+\staff {score}
+\lyrics "き ら き ら ひ か る お そ ら の ほ し よ"
+\ts 4 4
+\section "A"
+:4 C4 {ch "C"} C4 G4 G4 |
+A4 {ch "F"} A4 G4.2 {ch "C"} |
+F4 {ch "F"} F4 E4 {ch "C"} E4 |
+D4 {ch "G"} D4 C4.2 {ch "C"} |
+
+\track "Drums"
+\instrument percussion
+\articulation HH 42
+\articulation SD 38
+\articulation BD 36
+\articulation CR 49
+\clef neutral
+\ts 4 4
+\section "A"
+:8 (HH BD) HH (HH SD) HH (HH BD) (HH BD) (HH SD) HH |
+(HH BD) HH (HH SD) HH (HH BD) (HH BD) (HH SD) HH |
+(HH BD) HH (HH SD) HH (HH BD) (HH BD) (HH SD) HH |
+(HH BD) HH (HH SD) HH :16 SD SD SD SD SD SD (SD BD) (SD BD) |

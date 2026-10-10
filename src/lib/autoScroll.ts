@@ -1,0 +1,200 @@
+/**
+ * Auto-scroll math for the viewer (M6, docs/m6-plan.md 設計判断 8).
+ *
+ * A timeline maps time → the y of the "now playing" position inside the
+ * content column: one key at the top of every timed unit (an alphaTab
+ * system, or a chart-only block) at the time its first bar starts, plus an
+ * end key at the bottom of the last unit; y is linearly interpolated between
+ * keys. Time-less units (chart lines between systems) are not in the input,
+ * so the position simply passes through them. The viewer keeps that position
+ * on a line `anchorPx` below the top of the viewport (30% of its height):
+ * `scrollTop = y(t) − anchorPx`.
+ */
+import type { ChartLine, ChartSection } from './song';
+
+/**
+ * Same shape as `BarInfo` in `viewerSections.ts` (T12), declared here so this
+ * module has no dependency on it; the two are structurally interchangeable.
+ */
+export interface BarInfo {
+  num: number;
+  den: number;
+}
+
+export interface TimedUnit {
+  top: number;
+  height: number;
+  bars: BarInfo[];
+}
+
+export interface Timeline {
+  keys: { t: number; y: number }[];
+  duration: number;
+}
+
+/** ♩ per minute used when the song has no valid {tempo:}. */
+export const DEFAULT_TEMPO = 100;
+
+const positive = (n: number): boolean => Number.isFinite(n) && n > 0;
+
+/**
+ * Seconds of one bar. `{tempo:}` counts quarter notes, so a bar lasts
+ * `num × 4/den` quarters. Invalid tempo → DEFAULT_TEMPO, invalid speed →
+ * 100%, malformed bar → 0.
+ */
+export function barSeconds(
+  bar: BarInfo,
+  tempo: number,
+  speedPct: number,
+): number {
+  if (!positive(bar.num) || !positive(bar.den)) return 0;
+  const bpm = positive(tempo) ? tempo : DEFAULT_TEMPO;
+  const speed = positive(speedPct) ? speedPct : 100;
+  return (bar.num * (4 / bar.den) * 60) / ((bpm * speed) / 100);
+}
+
+/**
+ * Units must be in document (top-to-bottom) order. A unit with no bars
+ * becomes a zero-length jump (two keys at the same t).
+ */
+export function buildTimeline(
+  units: readonly TimedUnit[],
+  tempo: number,
+  speedPct: number,
+): Timeline {
+  if (units.length === 0) return { keys: [], duration: 0 };
+  const keys: Timeline['keys'] = [];
+  let t = 0;
+  for (const u of units) {
+    keys.push({ t, y: u.top });
+    for (const bar of u.bars) t += barSeconds(bar, tempo, speedPct);
+  }
+  const last = units[units.length - 1];
+  keys.push({ t, y: last.top + last.height });
+  return { keys, duration: t };
+}
+
+/** Index of the last key with `key.t <= t` (0 when t is before the start). */
+function keyIndexAt(keys: Timeline['keys'], t: number): number {
+  let i = 0;
+  for (let k = 1; k < keys.length; k++) {
+    if (keys[k].t <= t) i = k;
+    else break;
+  }
+  return i;
+}
+
+/** The content y playing at time t (clamped to the timeline). */
+function yAt(tl: Timeline, t: number): number {
+  const { keys } = tl;
+  if (keys.length === 0) return 0;
+  if (!(t > keys[0].t)) return keys[0].y;
+  const i = keyIndexAt(keys, t);
+  if (i >= keys.length - 1) return keys[keys.length - 1].y;
+  const a = keys[i];
+  const b = keys[i + 1];
+  // keyIndexAt picks the last key at t, so b.t > t ≥ a.t here.
+  return a.y + ((t - a.t) / (b.t - a.t)) * (b.y - a.y);
+}
+
+/**
+ * scrollTop that puts the position at time t on the anchor line. At a
+ * zero-length jump the later position wins. Never negative.
+ */
+export function scrollTopAt(tl: Timeline, t: number, anchorPx: number): number {
+  if (tl.keys.length === 0) return 0;
+  return Math.max(0, yAt(tl, t) - anchorPx);
+}
+
+/**
+ * Inverse of `scrollTopAt`: the earliest time whose scrollTop is ≥ the given
+ * one (so a flat stretch maps to its start, a jump to its time). scrollTop ≤ 0
+ * → 0 (the top of the content is where playback starts); past the end →
+ * duration.
+ */
+export function timeAtScrollTop(
+  tl: Timeline,
+  scrollTop: number,
+  anchorPx: number,
+): number {
+  const { keys } = tl;
+  if (keys.length === 0 || !(scrollTop > 0)) return 0;
+  const target = scrollTop + anchorPx;
+  if (target <= keys[0].y) return keys[0].t;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const a = keys[i];
+    const b = keys[i + 1];
+    if (b.y < target) continue;
+    if (target <= a.y || b.y === a.y) return a.t;
+    return a.t + ((target - a.y) / (b.y - a.y)) * (b.t - a.t);
+  }
+  return tl.duration;
+}
+
+/**
+ * Converts a playing time when the speed changes from `fromPct` to `toPct`,
+ * so the position (y) stays the same: every duration scales by from/to.
+ */
+export function rescaleTime(t: number, fromPct: number, toPct: number): number {
+  if (!positive(fromPct) || !positive(toPct) || fromPct === toPct) return t;
+  return (t * fromPct) / toPct;
+}
+
+/**
+ * Index (into the units given to `buildTimeline`) of the unit playing at t.
+ * Zero-length units are skipped; clamps to the first / last unit; -1 when
+ * the timeline is empty.
+ */
+export function sectionAt(tl: Timeline, t: number): number {
+  const unitCount = tl.keys.length - 1;
+  if (unitCount <= 0) return -1;
+  return Math.min(keyIndexAt(tl.keys, t), unitCount - 1);
+}
+
+/**
+ * The bar playing at time t (for the count-in's time signature). Before the
+ * start → the first bar; at/after the end → the last; no bars → null.
+ */
+export function barAt(
+  units: readonly TimedUnit[],
+  tempo: number,
+  speedPct: number,
+  t: number,
+): BarInfo | null {
+  let end = 0;
+  let last: BarInfo | null = null;
+  for (const u of units) {
+    for (const bar of u.bars) {
+      end += barSeconds(bar, tempo, speedPct);
+      if (t < end) return bar;
+      last = bar;
+    }
+  }
+  return last;
+}
+
+/** Count-in = one bar, counted in the bar's own beats (6/8 → 6). */
+export function countInBeats(bar: BarInfo): number {
+  return bar.num;
+}
+
+/**
+ * Estimated bars of one chart line for sections no part has bars for
+ * (m6-plan.md 確認したい点 3 → (a)): one bar per chord, a lyric line without
+ * chords = 1 bar, blank / raw lines = 0.
+ */
+export function lineBarCount(line: ChartLine): number {
+  if ('raw' in line || line.segments.length === 0) return 0;
+  const chords = line.segments.filter((s) => s.chord !== undefined).length;
+  return Math.max(1, chords);
+}
+
+/** `lineBarCount` summed over a chart section, each bar in `bar`'s meter. */
+export function estimateChartBars(
+  section: ChartSection | undefined,
+  bar: BarInfo,
+): BarInfo[] {
+  if (!section) return [];
+  const n = section.lines.reduce((sum, l) => sum + lineBarCount(l), 0);
+  return Array.from({ length: n }, () => bar);
+}

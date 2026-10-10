@@ -1,0 +1,86 @@
+/*
+ * The viewer's long content column. Everything inside scales with
+ * --viewer-font-size (set from the zoom); the gutter keeps one fixed width
+ * for both layouts so the sheet's left edge never moves.
+ */
+.sheet {
+  --viewer-gutter-w: 2.25rem;
+  box-sizing: border-box;
+  padding: var(--space-5) var(--space-6) var(--space-6);
+  font-family: var(--font-ui);
+  font-size: var(--viewer-font-size, 22px);
+  color: var(--text);
+  background: var(--bg);
+}
+
+.block {
+  margin-bottom: var(--space-4);
+  padding: var(--space-2);
+  border-radius: var(--radius-lg);
+}
+
+/* Now playing (auto-scroll): tint + accent bar, no change in size. */
+.block[data-playing] {
+  background: var(--accent-bg);
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+
+.row {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.scoreSlot {
+  flex: 1 1 auto;
+  min-width: 0;
+  /*
+   * alphaTab keeps a 12px left padding (SectionScore): let it sit in the
+   * gap so the staff starts where the chart's lyrics do.
+   */
+  margin-left: calc(-1 * var(--space-3));
+}
+
+/* Let the now-playing tint show through the score. */
+.scoreSlot > [data-testid='section-score'] {
+  background: transparent;
+}
+
+.rest {
+  align-self: center;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.64em;
+}
+
+.notice,
+.note {
+  /* Same inset as the blocks' padding, so the left edges line up. */
+  margin: 0 var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+}
+
+.notice {
+  list-style: none;
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.note {
+  color: var(--warning);
+  background: var(--warning-bg);
+}
+
+.empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+}
+
+.credit {
+  margin: var(--space-4) 0 0;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}

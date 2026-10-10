@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1140, height: 900 } });
+page.on('console', (m) => console.log('[console]', m.type(), m.text()));
+page.on('pageerror', (e) => console.log('[pageerror]', e.message));
+await page.goto('http://localhost:5180/');
+await page.waitForFunction(() => window.__spikeDone && ['a', 'b', 'c'].every((k) => k in window.__spikeDone), null, { timeout: 30000 }).catch(() => console.log('timeout'));
+await page.waitForTimeout(1500);
+console.log('status', JSON.stringify(await page.evaluate(() => window.__spikeDone)));
+for (const id of ['a', 'b', 'c']) await page.locator('#' + id).screenshot({ path: `shot-${id}.png` });
+await browser.close();

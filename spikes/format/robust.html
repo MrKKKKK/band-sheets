@@ -1,0 +1,25 @@
+<!doctype html><meta charset="utf-8"><div id="a"></div><div id="b"></div>
+<script type="module">
+import * as alphaTab from '@coderline/alphatab';
+import abcjs from 'abcjs';
+const cases = ['\\track "V"\n:4 C', '\\track "V"\n:4 C4 {ch "', '\\track "D"\n\\instrument percussion\n\\articulation HH 42\n:8 (HH BD', '\\ts 4\n:4 C4', ':4 Q9 Z4 |||'];
+const results = [];
+for (const tex of cases) {
+  const el = document.createElement('div'); document.body.append(el);
+  const r = { tex, errors: [], diags: 0 };
+  try {
+    const api = new alphaTab.AlphaTabApi(el, { core: { fontDirectory: '/node_modules/@coderline/alphatab/dist/font/', useWorkers: false, engine: 'svg' }, player: { enablePlayer: false } });
+    api.error.on((e) => r.errors.push(String(e.message ?? e).slice(0, 160)));
+    api.tex(tex);
+  } catch (e) { r.errors.push('THROW ' + String(e.message).slice(0, 160)); }
+  results.push(r);
+}
+const abcCases = ['X:1\nK:C\n"C', 'X:1\nK:C\n[gF', 'X:1\nM:4\nK:C\nCDEF', 'X:1\nK:C\n%%percmap F\n|||]]] ^^^^'];
+for (const abc of abcCases) {
+  const r = { abc, errors: [] };
+  try { const [t] = abcjs.renderAbc(document.getElementById('b'), abc); r.warnings = (t?.warnings ?? []).length; } catch (e) { r.errors.push('THROW ' + e.message); }
+  results.push(r);
+}
+await new Promise((res) => setTimeout(res, 2000));
+window.__robust = results;
+</script>

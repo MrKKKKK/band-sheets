@@ -1,0 +1,89 @@
+import type { Meta, StoryObj } from '@storybook/react-vite';
+import { expect, within } from 'storybook/test';
+import { sampleSong } from '../../lib/fixtures/sampleSong';
+import { parseSong } from '../../lib/parseSong';
+import { chordOffsets } from '../ChordLyricLine/alignment';
+import { ChartPreview } from './ChartPreview';
+
+const meta = {
+  title: 'Chart/ChartPreview',
+  parameters: { a11y: { test: 'error' } },
+  component: ChartPreview,
+  args: { song: sampleSong },
+  decorators: [
+    (Story) => (
+      <div style={{ maxWidth: 480, padding: 'var(--space-4)' }}>
+        <Story />
+      </div>
+    ),
+  ],
+} satisfies Meta<typeof ChartPreview>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+function expectAligned(root: HTMLElement, count: number) {
+  const offsets = chordOffsets(root);
+  expect(offsets).toHaveLength(count);
+  for (const d of offsets) expect(Math.abs(d)).toBeLessThanOrEqual(1);
+}
+
+export const Sample: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.getByRole('heading', { name: 'A verse' })).toBeVisible();
+    expect(canvas.getByRole('heading', { name: 'B chorus' })).toBeVisible();
+    expectAligned(canvasElement, 11);
+  },
+};
+
+const edgeText = `# 自由なコメント行
+[C]前置きの[G]行（見出しなし）
+
+{start_of_verse: イントロ}
+[(C)] [(E)] [(G)]
+[N.C.]
+{comment: ここはリフ}
+{end_of_verse}
+
+{start_of_chorus: サビ}
+[Am]𠮷野家の[F]前で[G]待ち合わせて[C]そのまま夜が明けるまで歩き続けたいと思っていたあの頃の[Em7(b5)]ことを[A7]今も
+[C]short [G]English [Am]lyrics [F]wrap like this when the line is long enough to wrap
+[Fmaj7]
+
+[C]空行の[G]あと
+{end_of_chorus}
+
+{start_of_bridge}
+[D]ラベルなし
+{end_of_bridge}
+`;
+
+export const EdgeCases: Story = {
+  args: { song: parseSong(edgeText) },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.getByText('(E)')).toBeVisible();
+    expect(canvas.getByText('N.C.')).toBeVisible();
+    expect(canvas.getByText('Fmaj7')).toBeVisible();
+    expect(canvas.getByText('{comment: ここはリフ}')).toBeVisible();
+    expect(canvas.getByRole('heading', { name: 'bridge' })).toBeVisible();
+    // Implicit section: no heading.
+    expect(canvas.getAllByRole('heading')).toHaveLength(3);
+    // Chord-only segments are skipped; "[(C)] " has lyrics " ".
+    const offsets = chordOffsets(canvasElement);
+    expect(offsets.length).toBeGreaterThanOrEqual(15);
+    for (const d of offsets) expect(Math.abs(d)).toBeLessThanOrEqual(1);
+  },
+};
+
+export const Narrow: Story = {
+  ...EdgeCases,
+  decorators: [
+    (Story) => (
+      <div style={{ width: 320 }}>
+        <Story />
+      </div>
+    ),
+  ],
+};

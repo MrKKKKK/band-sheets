@@ -1,0 +1,23 @@
+{title: きらきら星}
+{key: C}
+{tempo: 100}
+{time: 4/4}
+
+{start_of_verse: A}
+[C]きらきら[F]ひか[C]る
+[F]おそら[C]の[G]ほし[C]よ
+{end_of_verse}
+
+{start_of_part: Vocal}
+\lyrics "き ら き ら ひ か る お そ ら の ほ し よ"
+\section "A"
+:4 C4 C4 G4 G4 | A4 A4 G4.2 | F4 F4 E4 E4 | D4 D4 C4.2 |
+{end_of_part}
+
+{start_of_part: Drums}
+\section "A"
+:8 (HH BD) HH (HH SD) HH (HH BD) (HH BD) (HH SD) HH |
+(HH BD) HH (HH SD) HH (HH BD) (HH BD) (HH SD) HH |
+(HH BD) HH (HH SD) HH (HH BD) (HH BD) (HH SD) HH |
+(HH BD) HH (HH SD) HH :16 SD SD SD SD SD SD (SD BD) (SD BD) |
+{end_of_part}

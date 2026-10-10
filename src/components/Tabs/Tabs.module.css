@@ -1,0 +1,34 @@
+.list {
+  display: flex;
+  gap: var(--space-1);
+  overflow-x: auto;
+}
+
+.tab {
+  min-height: var(--control-h);
+  padding: 0 var(--space-4);
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab[aria-selected='true'] {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+.tab:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}

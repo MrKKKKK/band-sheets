@@ -1,0 +1,142 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 480px;
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 700;
+}
+
+.notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+}
+
+.noticeText {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-size-sm);
+}
+
+.importRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.confirmPopover {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 280px;
+}
+
+.confirmText {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.confirmActions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.chipsBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.groupLabel {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--space-5);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-pill);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-family: var(--font-chord);
+  font-size: var(--font-size-sm);
+}
+
+.counterRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.counter {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-size-sm);
+}
+
+.expected {
+  color: var(--text-muted);
+}
+
+.warning {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+}
+
+.opsGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.opButton {
+  position: relative;
+  padding-right: var(--space-5);
+}
+
+.mnemonic {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-family: var(--font-ui);
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}

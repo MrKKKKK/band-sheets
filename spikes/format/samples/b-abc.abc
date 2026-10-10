@@ -1,0 +1,18 @@
+X:1
+T:きらきら星
+M:4/4
+L:1/4
+Q:1/4=100
+K:C
+%%percmap F bass-drum-1
+%%percmap c acoustic-snare
+%%percmap g closed-hi-hat x
+V:1 name="Vocal"
+V:2 name="Drums" clef=perc stafflines=5
+V:1
+P:A
+"C"C C G G | "F"A A "C"G2 | "F"F F "C"E E | "G"D D "C"C2 |]
+w: き ら き ら ひ か る お そ ら の ほ し よ
+V:2
+L:1/8
+[gF]g [gc]g [gF][gF] [gc]g | [gF]g [gc]g [gF][gF] [gc]g | [gF]g [gc]g [gF][gF] [gc]g | [gF]g [gc]g c/c/c/c/ c/c/[c/F/][c/F/] |]

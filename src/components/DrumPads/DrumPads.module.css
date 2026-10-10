@@ -1,0 +1,56 @@
+.pads {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: fit-content;
+}
+
+.pad {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--control-h);
+  min-width: 160px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+.pad:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+.pad:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.pad:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.name {
+  font-weight: 700;
+}
+
+.hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--space-5);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+}
