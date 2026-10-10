@@ -167,7 +167,12 @@ Spike 0 of the audio-import feature (`docs/audio-import-architecture.md` §8.2; 
 - `render/` (TypeScript, run with tsx in the devcontainer) and `py/` (Python 3.12 in the Docker image `band-sheets-analysis`, pinned by digest + `requirements.lock.txt`).
 - Render all variants to `spikes/analysis/out/`: `docker exec -u node -w /workspaces/band-sheets/spikes/analysis band-sheets npx tsx render/cli.ts`
 - TS tests: `docker exec -u node -w /workspaces/band-sheets band-sheets npx vitest run --config spikes/analysis/vitest.config.ts`
-- Python: build once with `docker build -t band-sheets-analysis spikes/analysis/py`, then `docker run --rm -u 1000:1000 -e HOME=/tmp -e NUMBA_CACHE_DIR=/tmp -v <repo>/spikes/analysis:/work -w /work band-sheets-analysis python py/check_alignment.py` (also `python py/run_all.py`, or `python -m unittest discover -s py/tests`).
+- Python: build once with `docker build -t band-sheets-analysis spikes/analysis/py`, then `docker run --rm -u 1000:1000 -e HOME=/tmp -e NUMBA_CACHE_DIR=/work/out/.numba-cache -v <repo>/spikes/analysis:/work -w /work band-sheets-analysis python py/check_alignment.py` (also `python py/run_all.py`, or `python -m unittest discover -s py/tests`). `NUMBA_CACHE_DIR` lives under gitignored `out/` so the ~25 s numba compile survives across containers.
+- Soundfont: `fetch-soundfont.sh` downloads MuseScore_General.sf3 (SHA-256 pinned) into gitignored `soundfonts/`; alphaTab can't read sf3, so `render/sf3ToSf2.py` (run in the Python image: `python render/sf3ToSf2.py`) converts it to `soundfonts/MuseScore_General.sf2`, which `renderAudio.ts` uses for the `musescore` variants.
+- `py/check_alignment.py`: only enforced `mix == "piano"` variants FAIL (exit 1); everything else is WARN (exit 0). `pianoGainDb < 0` variants use a lower chord-share threshold (80 %, `CHORD_MIN_SHARE_QUIET`).
+- Held-out variants (`heldOut`): `run_all.py` skips them by default; `--include-held-out` includes them; combining it with `--dsp-config` raises `HeldOutError` (never tune on held-out). `report.py` shows them in a separate table.
+- `py/midbar.py` makes level "M" mid-bar-start variants (`derived/manifest.trim.json`); `dsp-phase0` is the always-phase-0 baseline for judging the downbeat rule.
+- CI: the separate `spike-analysis-py` job runs the spike Python unit tests (`python -m unittest discover -s py/tests`).
 - alphaTab `\tf` only carries to later bars when the DRUM track is first: render Drums first. Take melody/drum truth times from alphaTab's MIDI note-ons, not from the score.
 - alphaTex tracks default to program 25 (guitar) unless a program is set.
 - A missing drum bar is silently filled by alphaTab (`bar.isEmpty`); `truth.ts` rejects it.
