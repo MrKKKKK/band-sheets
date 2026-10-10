@@ -1,4 +1,5 @@
 .root {
+  position: relative;
   width: 100%;
   min-width: 320px;
 }
@@ -25,7 +26,8 @@
   user-select: none;
 }
 
-.svg[data-target='note'] {
+.svg[data-target='note'],
+.svg[data-target='chord'] {
   cursor: pointer;
 }
 
@@ -113,6 +115,35 @@
   font-family: var(--font-chord);
   font-weight: 600;
   fill: var(--accent);
+}
+
+/* The selected note's chord name: a filled tag (issue #6). */
+.chordSelectedBg {
+  fill: var(--selection);
+}
+
+.chordSelected .chord {
+  fill: var(--accent-contrast);
+}
+
+/* Dotted ＋ box above a selected chordless note. */
+.chordSlot rect {
+  fill: var(--bg);
+  stroke: var(--selection);
+  stroke-width: 1.5px;
+  stroke-dasharray: 3 3;
+}
+
+.chordSlot text {
+  font-family: var(--font-ui);
+  fill: var(--selection);
+}
+
+/* Anchor box for the chord popover, just below the selected note. */
+.overlay {
+  position: absolute;
+  width: 0;
+  height: 0;
 }
 
 .cursor {

@@ -30,29 +30,44 @@ function isWhitespace(c: string): boolean {
   return /\s/.test(c);
 }
 
-/** Splits a run of Latin/digit characters on '-', keeping it on the left part. */
-function splitWordOnHyphen(word: string): string[] {
-  const parts: string[] = [];
-  let current = '';
-  for (const ch of word) {
-    current += ch;
-    if (ch === '-') {
-      parts.push(current);
-      current = '';
-    }
-  }
-  if (current !== '') parts.push(current);
-  return parts;
+/** One syllable and the grapheme range [start, end) it was taken from. */
+export interface SyllableSpan {
+  text: string;
+  /** Index of its first grapheme (incl. an attached leading symbol). */
+  start: number;
+  /** One past its last grapheme (incl. attached small kana / symbols). */
+  end: number;
 }
 
 export function splitSyllables(text: string): string[] {
-  const chars = graphemes(text);
-  const out: string[] = [];
-  let pendingPrefix = '';
+  return syllableSpans(graphemes(text)).map((s) => s.text);
+}
 
-  const push = (s: string) => {
-    out.push(pendingPrefix + s);
+/**
+ * `splitSyllables` over an array of grapheme clusters, keeping where each
+ * syllable came from (so chords placed on chart characters can be mapped
+ * to syllables, see `chartChords`). Whitespace belongs to no syllable
+ * unless it lies between a syllable and a symbol / small kana attached to
+ * it.
+ */
+export function syllableSpans(chars: readonly string[]): SyllableSpan[] {
+  const out: SyllableSpan[] = [];
+  let pendingPrefix = '';
+  let pendingStart = -1;
+
+  const push = (s: string, start: number, end: number) => {
+    out.push({
+      text: pendingPrefix + s,
+      start: pendingStart >= 0 ? pendingStart : start,
+      end,
+    });
     pendingPrefix = '';
+    pendingStart = -1;
+  };
+  const attach = (c: string, i: number) => {
+    const last = out[out.length - 1];
+    last.text += c;
+    last.end = i + 1;
   };
 
   let i = 0;
@@ -64,6 +79,7 @@ export function splitSyllables(text: string): string[] {
       continue;
     }
     if (WORD_CHAR.test(c)) {
+      const wordStart = i;
       let word = '';
       while (i < chars.length) {
         const wc = chars[i];
@@ -87,31 +103,47 @@ export function splitSyllables(text: string): string[] {
         }
         break;
       }
-      for (const part of splitWordOnHyphen(word)) push(part);
+      // Split at '-' (kept on the left part), by grapheme.
+      let part = '';
+      let partStart = wordStart;
+      for (let k = wordStart; k < i; k++) {
+        part += chars[k];
+        if (chars[k] === '-') {
+          push(part, partStart, k + 1);
+          part = '';
+          partStart = k + 1;
+        }
+      }
+      if (part !== '') push(part, partStart, i);
       continue;
     }
     if (c === CHOONPU) {
-      push(c);
+      push(c, i, i + 1);
       i++;
       continue;
     }
     if (SMALL_KANA_AND_SOKUON.has(c)) {
-      if (out.length > 0) out[out.length - 1] += c;
-      else push(c);
+      if (out.length > 0) attach(c, i);
+      else push(c, i, i + 1);
       i++;
       continue;
     }
     if (SYMBOL_ATTACH.test(c)) {
-      if (out.length > 0) out[out.length - 1] += c;
-      else pendingPrefix += c;
+      if (out.length > 0) attach(c, i);
+      else {
+        if (pendingStart < 0) pendingStart = i;
+        pendingPrefix += c;
+      }
       i++;
       continue;
     }
-    push(c);
+    push(c, i, i + 1);
     i++;
   }
   // Input was punctuation/symbols only: nothing to attach it to.
-  if (out.length === 0 && pendingPrefix !== '') out.push(pendingPrefix);
+  if (out.length === 0 && pendingPrefix !== '') {
+    out.push({ text: pendingPrefix, start: pendingStart, end: chars.length });
+  }
   return out;
 }
 

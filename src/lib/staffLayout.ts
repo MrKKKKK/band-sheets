@@ -117,6 +117,25 @@ export interface LayoutSystem {
   /** Global index of the first bar on this system, and the bar count. */
   firstBar: number;
   barCount: number;
+  /**
+   * Baseline of the first (lower) chord-label row, also where a chord
+   * placeholder for a chordless note goes (issue #6). Row 1 is
+   * `CHORD_ROW_SPACES` staff spaces above it.
+   */
+  chordY: number;
+}
+
+/**
+ * A chord name above a note (issue #6): x = LEFT edge (text-anchor start),
+ * y = baseline, drawn in the chord font at `CHORD_FONT_SPACES` staff
+ * spaces. Overlapping names on dense notes are stacked into a second row
+ * (`row` 1, still at the note's x); only when neither row has room is a
+ * name shifted right past the previous one on the emptier row.
+ */
+export interface ChordLabel extends LayoutGlyph {
+  /** Estimated drawn width (monospace advance × characters). */
+  width: number;
+  row: 0 | 1;
 }
 
 export interface LayoutPiece {
@@ -144,12 +163,13 @@ export interface LayoutPiece {
   lyric?: LayoutGlyph;
   /**
    * First piece of an event (note or rest) with a `chord` only: the chord
-   * name, x = LEFT edge of the notehead / rest glyph (text-anchor start),
-   * y = baseline. All chord labels of a system share one baseline above the
-   * staff and above that system's highest notehead / stem / ledger line
-   * (clamped into the system band; draw with a font-size ≤ 1.4 staff spaces).
+   * name, x = LEFT edge of the notehead / rest glyph (text-anchor start)
+   * unless shifted (see `ChordLabel`), y = baseline. All row-0 labels of a
+   * system share one baseline (`LayoutSystem.chordY`) above the staff and
+   * above that system's highest notehead / stem / ledger line (clamped into
+   * the system band; draw with font-size `CHORD_FONT_SPACES` staff spaces).
    */
-  chordLabel?: LayoutGlyph;
+  chordLabel?: ChordLabel;
   /** Hit box (notehead or rest glyph, padded) — also the piece's extent incl. accidental and dot. */
   box: Box;
 }
@@ -298,6 +318,13 @@ const HIT_PAD = 0.2;
 const CHORD_ABOVE_STAFF = 1.5; // chord baseline at least this far above the top line
 const CHORD_GAP = 0.7; // … and this far above the highest drawn element
 const CHORD_MIN_TOP = 1.6; // … but never closer than this to the system top
+/** Chord label font-size, in staff spaces. */
+export const CHORD_FONT_SPACES = 1.4;
+/** Distance between the two chord-label rows, in staff spaces. */
+export const CHORD_ROW_SPACES = 1.6;
+const CHORD_CHAR_W = 0.62; // monospace advance (em) of one Latin character
+const CHORD_WIDE_W = 1.0; // … of a full-width character
+const CHORD_SEP = 0.5; // min gap between two labels on one row (staff spaces)
 const MIN_STEP = -8; // D3
 const MAX_STEP = 16; // G6
 const TOP_PAD = (MAX_STEP - 8) / 2 + 1; // 5 spaces above the top line
@@ -397,6 +424,84 @@ function noteParts(
   for (let st = 10; st <= step; st += 2)
     out.ledgerLines.push({ x1: lx1, x2: lx2, y: yOf(st) });
   return out;
+}
+
+/** Estimated width (px) of a chord name drawn at CHORD_FONT_SPACES. */
+function chordWidth(text: string, s: number): number {
+  let em = 0;
+  for (const ch of text) {
+    em += ch.codePointAt(0)! >= 0x2e80 ? CHORD_WIDE_W : CHORD_CHAR_W;
+  }
+  return em * CHORD_FONT_SPACES * s;
+}
+
+interface ChordSlot {
+  piece: LayoutPiece;
+  text: string;
+  x: number;
+  width: number;
+  row: 0 | 1;
+}
+
+/**
+ * Horizontal placement of one system's chord labels, left to right: row 0
+ * at the note's x when it clears the previous row-0 label, else row 1 at
+ * the note's x when that row has room, else shifted right on whichever row
+ * ends first. Depends only on x, so it can run before the vertical layout
+ * is final.
+ */
+function chordSlots(
+  pieces: readonly LayoutPiece[],
+  events: readonly MelodyEvent[],
+  system: number,
+  s: number,
+): ChordSlot[] {
+  const out: ChordSlot[] = [];
+  const end = [-Infinity, -Infinity];
+  const gap = CHORD_SEP * s;
+  for (const p of pieces) {
+    const text = events[p.eventIndex].chord;
+    if (p.system !== system || p.pieceIndex !== 0 || !text) continue;
+    const width = chordWidth(text, s);
+    let x = p.glyph.x;
+    let row: 0 | 1;
+    if (x >= end[0] + gap) row = 0;
+    else if (x >= end[1] + gap) row = 1;
+    else {
+      row = end[1] < end[0] ? 1 : 0;
+      x = end[row] + gap;
+    }
+    end[row] = x + width;
+    out.push({ piece: p, text, x, width, row });
+  }
+  return out;
+}
+
+/**
+ * Unclamped row-0 chord baseline of a system: above the staff and above
+ * everything drawn above it (noteheads, stems, ledger lines, above-side
+ * tuplet brackets and their numbers).
+ */
+function chordBaseline(
+  sys: LayoutSystem,
+  pieces: readonly LayoutPiece[],
+  tuplets: readonly LayoutTuplet[],
+  s: number,
+): number {
+  let high = sys.lineYs[0];
+  for (const t of tuplets) {
+    if (t.system === sys.index && t.side === 'above') {
+      high = Math.min(high, t.line[1].y1 - TUPLET_NUMBER_TOP * s);
+    }
+  }
+  for (const p of pieces) {
+    if (p.system !== sys.index) continue;
+    high = Math.min(high, p.box.y1);
+    if (p.stem) high = Math.min(high, p.stem.y2);
+    if (p.flag && p.stem?.dir === 'up') high = Math.min(high, p.flag.y);
+    for (const l of p.ledgerLines) high = Math.min(high, l.y);
+  }
+  return Math.min(sys.lineYs[0] - CHORD_ABOVE_STAFF * s, high - CHORD_GAP * s);
 }
 
 export function layoutMelody(
@@ -514,6 +619,7 @@ export function layoutMelody(
         lyricY: yOf(0) + LYRIC_BELOW * s - s,
         firstBar: g.length ? g[0] : bars.length,
         barCount: g.length,
+        chordY: 0, // set once tuplets are known
       };
       if (si === 0) {
         const cx = (clefEnd + tsW / 2) * s;
@@ -630,14 +736,18 @@ export function layoutMelody(
         high = Math.min(high, t.line[1].y1 - TUPLET_NUMBER_TOP * s);
       }
     }
-    const chords = placed.pieces.some(
-      (p) =>
-        p.system === sys.index &&
-        p.pieceIndex === 0 &&
-        events[p.eventIndex].chord,
-    );
-    const room = chords ? CHORD_MIN_TOP + CHORD_GAP : TUPLET_HEADROOM;
-    return Math.max(0, (sys.top + room * s - high) / s);
+    const slots = chordSlots(placed.pieces, events, sys.index, s);
+    const twoRows = slots.some((c) => c.row === 1);
+    const rows = twoRows ? CHORD_ROW_SPACES : 0;
+    const room =
+      slots.length > 0 ? CHORD_MIN_TOP + CHORD_GAP + rows : TUPLET_HEADROOM;
+    const forTuplets = Math.max(0, (sys.top + room * s - high) / s);
+    // A second chord row also needs room above high notes without tuplets.
+    const base = chordBaseline(sys, placed.pieces, tuplets, s);
+    const forRows = twoRows
+      ? Math.max(0, (sys.top + (CHORD_MIN_TOP + rows) * s - base) / s)
+      : 0;
+    return Math.max(forTuplets, forRows);
   });
   if (extra.some((e) => e > 0)) {
     placed = place(extra);
@@ -645,30 +755,23 @@ export function layoutMelody(
   }
   const { systems, pieces, cursors } = placed;
 
-  // ---- chord labels: one baseline per system, above everything drawn
+  // ---- chord labels: one baseline per row and system, above everything
   systems.forEach((sys) => {
-    const own = pieces.filter((p) => p.system === sys.index);
-    let high = sys.lineYs[0];
-    for (const t of tuplets) {
-      if (t.system === sys.index && t.side === 'above') {
-        high = Math.min(high, t.line[1].y1 - TUPLET_NUMBER_TOP * s);
-      }
-    }
-    for (const p of own) {
-      high = Math.min(high, p.box.y1);
-      if (p.stem) high = Math.min(high, p.stem.y2);
-      if (p.flag && p.stem?.dir === 'up') high = Math.min(high, p.flag.y);
-      for (const l of p.ledgerLines) high = Math.min(high, l.y);
-    }
+    const slots = chordSlots(pieces, events, sys.index, s);
+    const rows = slots.some((c) => c.row === 1) ? CHORD_ROW_SPACES : 0;
     const y = Math.max(
-      sys.top + CHORD_MIN_TOP * s,
-      Math.min(sys.lineYs[0] - CHORD_ABOVE_STAFF * s, high - CHORD_GAP * s),
+      sys.top + (CHORD_MIN_TOP + rows) * s,
+      chordBaseline(sys, pieces, tuplets, s),
     );
-    for (const p of own) {
-      const chord = events[p.eventIndex].chord;
-      if (p.pieceIndex === 0 && chord) {
-        p.chordLabel = { text: chord, x: p.glyph.x, y };
-      }
+    sys.chordY = y;
+    for (const c of slots) {
+      c.piece.chordLabel = {
+        text: c.text,
+        x: c.x,
+        y: c.row === 0 ? y : y - CHORD_ROW_SPACES * s,
+        width: c.width,
+        row: c.row,
+      };
     }
   });
 
@@ -883,6 +986,29 @@ export function hitTestNote(
   const p = layout.pieces.find(
     (p) => x >= p.box.x1 && x <= p.box.x2 && y >= p.box.y1 && y <= p.box.y2,
   );
+  return p ? p.eventIndex : null;
+}
+
+/**
+ * Event index of the chord label whose box (its width × one chord-font em
+ * above the baseline, a little below it) contains (x, y), or null.
+ */
+export function hitTestChord(
+  layout: Layout,
+  x: number,
+  y: number,
+): number | null {
+  const fs = CHORD_FONT_SPACES * layout.staffSpace;
+  const p = layout.pieces.find((p) => {
+    const c = p.chordLabel;
+    return (
+      c !== undefined &&
+      x >= c.x - 2 &&
+      x <= c.x + c.width + 2 &&
+      y >= c.y - fs &&
+      y <= c.y + 0.3 * fs
+    );
+  });
   return p ? p.eventIndex : null;
 }
 
