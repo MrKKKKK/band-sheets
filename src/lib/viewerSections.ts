@@ -261,7 +261,7 @@ function readPart(part: Part, meta: SongMeta): PartRead {
   const isDrum = isDrumPart(part);
   const whole = readTex(
     partsToAlphaTex({
-      meta: { title: '', time: meta.time },
+      meta: { title: '', time: meta.time, key: meta.key },
       chart: [],
       parts: [part],
     }),

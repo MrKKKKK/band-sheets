@@ -1,3 +1,4 @@
+import { importer, Settings } from '@coderline/alphatab';
 import { describe, expect, it } from 'vitest';
 import { sampleSong } from './fixtures/sampleSong';
 import { DRUM_ARTICULATIONS, partsToAlphaTex } from './partsToAlphaTex';
@@ -21,6 +22,7 @@ describe('partsToAlphaTex', () => {
         '\\track "Vocal"',
         '\\staff {score}',
         '\\ts 4 4',
+        '\\ks c',
         sampleSong.parts[0].body,
         '',
         '\\track "Drums"',
@@ -121,5 +123,73 @@ describe('partsToAlphaTex: quoting (M10)', () => {
     );
     expect(tex).toContain('\\title "ab"');
     expect(tex).toContain('\\track "Vox"');
+  });
+});
+
+describe('partsToAlphaTex key signature', () => {
+  const withKey = (key: string | undefined, body = ':4 C4 D4 F4 F#4 |') =>
+    song({
+      meta: { title: '', key },
+      parts: [
+        { name: 'Vocal', body },
+        { name: 'Drums', body: '\\instrument percussion\nHH.8 |' },
+      ],
+    });
+  const ksOf = (tex: string) => {
+    const imp = new importer.AlphaTexImporter();
+    imp.logErrors = false;
+    imp.initFromString(tex, new Settings());
+    const score = imp.readScore();
+    return score.tracks.map((t) => t.staves[0].bars[0].keySignature);
+  };
+
+  it('adds \\ks to melody parts only', () => {
+    const tex = partsToAlphaTex(withKey('G'));
+    const [melody, drums] = tex.split('\\track "Drums"');
+    expect(melody).toContain('\\ks g');
+    expect(drums).not.toContain('\\ks');
+    expect(ksOf(tex)[0]).toBe(1);
+  });
+
+  it.each([
+    ['D', 2, 0],
+    ['Am', 0, 1],
+    ['F#m', 3, 1],
+    ['Bb', -2, 0],
+    ['Eb', -3, 0],
+    ['Ebm', -6, 1],
+  ])('key %s -> keySignature %i (minor=%i)', (key, sig, minor) => {
+    const imp = new importer.AlphaTexImporter();
+    imp.logErrors = false;
+    imp.initFromString(partsToAlphaTex(withKey(key)), new Settings());
+    const bar = imp.readScore().tracks[0].staves[0].bars[0];
+    expect(bar.keySignature).toBe(sig);
+    expect(bar.keySignatureType).toBe(minor);
+  });
+
+  it("lets the part's own \\ks win", () => {
+    const tex = partsToAlphaTex(withKey('G', '\\ks D\n:4 C4 |'));
+    expect(tex.match(/\\ks/g)).toHaveLength(1);
+    expect(ksOf(tex)[0]).toBe(2);
+  });
+
+  it.each([undefined, '', 'H', 'G#', 'g'])('no \\ks for key %j', (key) => {
+    expect(partsToAlphaTex(withKey(key))).not.toContain('\\ks');
+  });
+
+  it('does not change note pitches', () => {
+    const pitches = (tex: string) => {
+      const imp = new importer.AlphaTexImporter();
+      imp.logErrors = false;
+      imp.initFromString(tex, new Settings());
+      return imp
+        .readScore()
+        .tracks[0].staves[0].bars[0].voices[0].beats.map(
+          (b) => b.notes[0].realValue,
+        );
+    };
+    expect(pitches(partsToAlphaTex(withKey('D')))).toEqual(
+      pitches(partsToAlphaTex(withKey(undefined))),
+    );
   });
 });
