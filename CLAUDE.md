@@ -169,6 +169,12 @@ Spike 0 of the audio-import feature (`docs/audio-import-architecture.md` §8.2; 
 - A missing drum bar is silently filled by alphaTab (`bar.isEmpty`); `truth.ts` rejects it.
 - Licenses: soxr/libsndfile (LGPL) and certifi (MPL-2.0) are in the local Python image only; never ship them in the app.
 
+## Git workflow (GitHub Flow, decided 2026-10-10)
+
+- `main` is what's deployed: every push to `main` publishes to GitHub Pages (`deploy-pages.yml`). It is protected — no direct pushes; changes land through a PR whose `CI` check (`ci.yml`: lint, prettier, `tsc -b`, unit tests, build) passes. Solo project: no review approval required.
+- Work on a short-lived branch per task, named `<type>/<issue#>-<slug>` (issue number when there is one): `feature/…`, `fix/…`, `spike/…` (audio analysis spikes), `docs/…`, `chore/…`. Open the PR with `gh pr create`, put `Closes #N` in the body, merge with a squash merge once CI is green, then delete the branch.
+- Storybook and e2e tests are not in CI (they need the devcontainer's browsers): run the affected ones locally before opening the PR.
+
 ## Verification
 
 Run inside the devcontainer (container name `band-sheets`: `docker exec -u node -w /workspaces/band-sheets band-sheets <cmd>`): `npm test`, `npx tsc -b`, `npm run lint`, `npm run build`, `npm run test:storybook`, `npm run e2e`, `npx prettier --check .`. Layout/rendering checks need a real browser (Playwright screenshot), not jsdom.
