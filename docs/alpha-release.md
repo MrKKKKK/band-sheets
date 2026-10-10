@@ -16,7 +16,13 @@
 - 曲のデータは各自の Google Drive にあり、公開先には置かない。Google Cloud が「テスト中」のあいだは、テストユーザーだけがログインできる。
 - `VITE_GOOGLE_CLIENT_ID` はビルド時に埋め込まれる（秘密ではない）。Cloudflare Pages では環境変数としてビルドに渡す。`.env.local` は `*.local` で git から除外済み。
 
-## 次の手順（まだ何もしていない）
+## 進み具合
+
+- 2026-10-10: リポジトリは**公開**、ライセンスは **MIT** に決定（ユーザー）。個人のパス 2 か所を直し、`LICENSE`・README（ひな形から差し替え）・`package.json` の `license`・`.nvmrc`（Node 24、Cloudflare のビルド用）を追加。コミットの作者は `MrKKKKK <38149405+MrKKKKK@users.noreply.github.com>`（このリポジトリだけの設定。Gmail を公開しないため）。
+- 2026-10-10: 手順 1・2 完了。https://github.com/MrKKKKK/band-sheets （公開、ブランチ `main`）。
+- 次は手順 3（Cloudflare Pages、ユーザーの作業）。
+
+## 次の手順
 
 1. `git init`、`.gitignore` の確認（`node_modules`・`dist`・`*.local`・`test-results`・`storybook-static` など）、最初のコミット（コミットメッセージの末尾に指示された Co-Authored-By 行）。
 2. GitHub にリポジトリ（公開か非公開かをユーザーに最終確認）を作って push（`gh` CLI。ユーザーのログインが必要なら手順を渡す）。
