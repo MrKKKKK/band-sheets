@@ -13,6 +13,7 @@ const INITIAL: ViewerSettings = {
   zoom: 1,
   speedPct: 100,
   countIn: true,
+  transpose: 0,
 };
 
 function Demo({

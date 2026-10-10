@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
-import { expect, fn, userEvent, within } from 'storybook/test';
+import { expect, fn, userEvent, waitFor, within } from 'storybook/test';
 import type { NavMode, ViewerLayout } from '../../lib/viewerSettings';
 import { ViewerToolbar } from './ViewerToolbar';
 
@@ -16,6 +16,9 @@ type SpyProps = {
   onNavChange: (n: NavMode) => void;
   onScoreHiddenChange: (h: string[]) => void;
   onScoreChartChange: (on: boolean) => void;
+  onTransposeChange: (n: number) => void;
+  initialTranspose?: number;
+  songKey?: string;
   initialLayout?: ViewerLayout;
   initialZoomIndex?: number;
   /** Width of the frame around the bar (default: wide enough for the full bar). */
@@ -31,9 +34,10 @@ function Demo(spy: SpyProps) {
   const [hidden, setHidden] = useState<string[]>([]);
   const [chart, setChart] = useState(true);
   const [nav, setNav] = useState<NavMode>('page');
+  const [tr, setTr] = useState(spy.initialTranspose ?? 0);
   const [zi, setZi] = useState(spy.initialZoomIndex ?? 2);
   return (
-    <div style={{ width: spy.frameWidth ?? 1500 }}>
+    <div style={{ width: spy.frameWidth ?? 1700 }}>
       <ViewerToolbar
         title={spy.title ?? 'きらきら星'}
         layout={layout}
@@ -67,6 +71,12 @@ function Demo(spy: SpyProps) {
         canZoomIn={zi < STEPS.length - 1}
         onZoomOut={() => setZi((i) => Math.max(0, i - 1))}
         onZoomIn={() => setZi((i) => Math.min(STEPS.length - 1, i + 1))}
+        transpose={tr}
+        onTransposeChange={(n) => {
+          spy.onTransposeChange(n);
+          setTr(n);
+        }}
+        songKey={'songKey' in spy ? spy.songKey : 'C'}
         onBack={spy.onBack}
         onPlayMode={spy.onPlayMode}
         onOpenSettings={spy.onOpenSettings}
@@ -86,6 +96,7 @@ const meta = {
     onPartChange: fn(),
     onLayoutChange: fn(),
     onNavChange: fn(),
+    onTransposeChange: fn(),
     onScoreHiddenChange: fn(),
     onScoreChartChange: fn(),
   },
@@ -214,5 +225,102 @@ export const Tablet1194Score: Story = {
     await expect(
       dialog.getByRole('button', { name: 'ベース' }),
     ).toHaveAttribute('aria-pressed', 'false');
+  },
+};
+
+const val = (c: ReturnType<typeof within>) => c.getByTestId('transpose-value');
+
+/** Wide bar: the side buttons show the RESULTING value; reset is explicit. */
+export const TransposeWide: Story = {
+  args: { frameWidth: 2100 },
+  play: async ({ canvasElement, args }) => {
+    const c = within(canvasElement);
+    const reset = c.getByRole('button', { name: '原曲キーに戻す' });
+    await expect(val(c)).toHaveTextContent('0');
+    await expect(c.getByTestId('transpose-down')).toHaveTextContent('−1');
+    await expect(c.getByTestId('transpose-up')).toHaveTextContent('+1');
+    await expect(c.getByTestId('transpose-key')).toHaveTextContent('キー C');
+    await expect(reset).toBeDisabled();
+    for (let i = 0; i < 3; i++)
+      await userEvent.click(c.getByTestId('transpose-up'));
+    await expect(args.onTransposeChange).toHaveBeenLastCalledWith(3);
+    await expect(c.getByTestId('transpose-down')).toHaveTextContent('+2');
+    await expect(c.getByTestId('transpose-up')).toHaveTextContent('+4');
+    await expect(c.getByTestId('transpose-key')).toHaveTextContent(
+      'キー C → E♭（+3）',
+    );
+    await expect(reset).toBeEnabled();
+    // The middle value is display-only: clicking it does nothing.
+    await userEvent.click(val(c));
+    await expect(val(c)).toHaveTextContent('+3');
+    await userEvent.click(reset);
+    await expect(args.onTransposeChange).toHaveBeenLastCalledWith(0);
+    await expect(val(c)).toHaveTextContent('0');
+    await expect(reset).toBeDisabled();
+  },
+};
+
+export const TransposeLimits: Story = {
+  args: { initialTranspose: 6, frameWidth: 2100 },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByTestId('transpose-up')).toBeDisabled();
+    await expect(c.getByTestId('transpose-down')).toBeEnabled();
+    await expect(c.getByTestId('transpose-key')).toHaveTextContent(
+      'キー C → F♯（+6）',
+    );
+    await userEvent.click(c.getByRole('button', { name: '原曲キーに戻す' }));
+    await userEvent.click(c.getByTestId('transpose-down'));
+    await userEvent.click(c.getByTestId('transpose-down'));
+    await expect(val(c)).toHaveTextContent('−2');
+  },
+};
+
+export const TransposeNoKey: Story = {
+  args: { songKey: undefined, frameWidth: 2100 },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.queryByTestId('transpose-key')).toBeNull();
+    await expect(val(c)).toHaveTextContent('0');
+  },
+};
+
+/** Between 1600px and the inline width the popover is used as well. */
+export const TransposePopoverAt1700: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await waitFor(() =>
+      expect(c.queryByTestId('transpose-control')).toBeNull(),
+    );
+    await expect(c.getByTestId('transpose-button')).toBeVisible();
+    const bar = c.getByRole('banner');
+    await expect(bar.scrollWidth).toBeLessThanOrEqual(bar.clientWidth);
+  },
+};
+
+/** Compact bar: 「移調 −2 ▾」 opens the stepper; reset names the original key. */
+export const TransposeCompact: Story = {
+  args: { frameWidth: 1194, initialTranspose: -2 },
+  play: async ({ canvasElement, args }) => {
+    await expectFits(canvasElement);
+    const c = within(canvasElement);
+    await expect(c.queryByTestId('transpose-control')).toBeNull();
+    await userEvent.click(c.getByRole('button', { name: /^移調 −2/ }));
+    const dialog = within(c.getByRole('dialog', { name: '移調' }));
+    await expect(dialog.getByTestId('transpose-down')).toHaveTextContent('−3');
+    await expect(dialog.getByTestId('transpose-up')).toHaveTextContent('−1');
+    await expect(dialog.getByTestId('transpose-key')).toHaveTextContent(
+      'キー C → B♭（−2）',
+    );
+    await userEvent.click(dialog.getByTestId('transpose-up'));
+    await expect(args.onTransposeChange).toHaveBeenLastCalledWith(-1);
+    await userEvent.click(
+      dialog.getByRole('button', { name: '原曲キーに戻す（C）' }),
+    );
+    await expect(args.onTransposeChange).toHaveBeenLastCalledWith(0);
+    await expect(c.getByRole('button', { name: '移調' })).toBeVisible();
+    await expect(
+      dialog.getByRole('button', { name: '原曲キーに戻す（C）' }),
+    ).toBeDisabled();
   },
 };

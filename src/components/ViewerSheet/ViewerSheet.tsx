@@ -9,6 +9,7 @@ import {
 import type { BarInfo } from '../../lib/autoScroll';
 import type { Song } from '../../lib/song';
 import { buildViewerSections } from '../../lib/viewerSections';
+import { transposeChartSection, transposeKey } from '../../lib/transpose';
 import { BASE_FONT_PX } from '../../lib/viewerSettings';
 import { SectionScore, type SystemBox } from '../SectionScore/SectionScore';
 import { SectionGutter } from '../ViewerChartBlock/SectionGutter';
@@ -28,6 +29,8 @@ export interface ViewerSheetProps extends SheetOptions {
   song: Song;
   /** `ZOOM_STEPS`: the chart font is `BASE_FONT_PX × zoom`, alphaTab scales too. */
   zoom: number;
+  /** Display-only transposition (semitones, −6..+6; default 0). */
+  transpose?: number;
   /** Section key (`SheetTimedUnit.section`) to highlight as now playing. */
   playingSection?: string | null;
   /**
@@ -61,7 +64,8 @@ function uniqueLabels(blocks: readonly SheetBlock[]): Map<string, string> {
   return out;
 }
 
-const sigOf = (tex: string, zoom: number) => `${zoom}|${tex}`;
+const sigOf = (tex: string, zoom: number, transpose: number) =>
+  `${zoom}|${transpose}|${tex}`;
 
 function rect(el: Element, origin: DOMRect) {
   const r = el.getBoundingClientRect();
@@ -73,6 +77,7 @@ function measure(
   blocks: readonly SheetBlock[],
   reported: ReadonlyMap<string, Reported>,
   zoom: number,
+  transpose: number,
 ): SheetLayout {
   const origin = root.getBoundingClientRect();
   const units: SheetUnit[] = [];
@@ -111,7 +116,10 @@ function measure(
       const slot = el.querySelector('[data-score-slot]');
       const rep = reported.get(b.key);
       const failed = slot?.querySelector('[data-state="error"]');
-      if (!failed && (!rep || rep.sig !== sigOf(b.score.tex, zoom))) {
+      if (
+        !failed &&
+        (!rep || rep.sig !== sigOf(b.score.tex, zoom, transpose))
+      ) {
         ready = false;
       }
       if (slot && failed) {
@@ -187,6 +195,7 @@ export function ViewerSheet({
   scoreHidden,
   scoreChart,
   zoom,
+  transpose = 0,
   playingSection,
   onLayout,
 }: ViewerSheetProps) {
@@ -195,10 +204,16 @@ export function ViewerSheet({
     () => ({ layout, part, scoreHidden, scoreChart }),
     [layout, part, scoreHidden, scoreChart],
   );
-  const blocks = useMemo(
-    () => planSheet(song, sections, opts),
-    [song, sections, opts],
-  );
+  const blocks = useMemo(() => {
+    const planned = planSheet(song, sections, opts);
+    if (transpose === 0) return planned;
+    const target = transposeKey(song.meta.key, transpose) ?? undefined;
+    return planned.map((b) =>
+      b.chart
+        ? { ...b, chart: transposeChartSection(b.chart, transpose, target) }
+        : b,
+    );
+  }, [song, sections, opts, transpose]);
   const lyricsParts = useMemo(
     () => droppedLyricsParts(song, opts),
     [song, opts],
@@ -218,12 +233,12 @@ export function ViewerSheet({
   const remeasure = useCallback(() => {
     const root = rootRef.current;
     if (!root) return;
-    const result = measure(root, blocks, reported.current, zoom);
+    const result = measure(root, blocks, reported.current, zoom, transpose);
     const json = JSON.stringify(result);
     if (json === lastSent.current) return;
     lastSent.current = json;
     onLayoutRef.current?.(result);
-  }, [blocks, zoom]);
+  }, [blocks, zoom, transpose]);
 
   // After every commit that may move things: a score reporting (its new
   // height is committed in the same batch), settings, zoom.
@@ -304,6 +319,7 @@ export function ViewerSheet({
                   <ScoreSlot
                     block={b}
                     zoom={zoom}
+                    transpose={transpose}
                     reported={reported}
                     onTick={setTick}
                   />
@@ -343,16 +359,18 @@ export function ViewerSheet({
 function ScoreSlot({
   block,
   zoom,
+  transpose,
   reported,
   onTick,
 }: {
   block: SheetBlock;
   zoom: number;
+  transpose: number;
   reported: React.RefObject<Map<string, Reported>>;
   onTick: React.Dispatch<React.SetStateAction<number>>;
 }) {
   const score = block.score!;
-  const sig = sigOf(score.tex, zoom);
+  const sig = sigOf(score.tex, zoom, transpose);
   const { key } = block;
   // A remounted score must report again before the sheet is ready.
   useEffect(() => {
@@ -366,6 +384,7 @@ function ScoreSlot({
       tex={score.tex}
       trackCount={score.trackCount}
       zoom={zoom}
+      transpose={transpose}
       firstBar={block.firstBar}
       shuffleMarks={score.shuffleMarks}
       onLayout={(systems) => {

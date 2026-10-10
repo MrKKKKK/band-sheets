@@ -84,7 +84,7 @@ const viewport = (page: Page) => page.getByTestId('viewer-viewport');
 const scrollTop = (page: Page) =>
   viewport(page).evaluate((el) => (el as HTMLElement).scrollTop);
 
-/** Settings drawer (the toolbar hides some controls below 1400px). */
+/** Settings drawer (the toolbar hides some controls below 1600px). */
 async function openDrawer(page: Page) {
   await page.getByRole('button', { name: '設定', exact: true }).click();
   return page.getByRole('dialog');
@@ -301,4 +301,127 @@ test('viewer: count-in holds the scroll', async ({ page }) => {
     'data-play-state',
     'playing',
   );
+});
+
+// Display-only transposition (issue #7).
+const TRANSPOSE_SONG = `{title: 移調のサンプル}
+{key: G}
+{time: 4/4}
+
+{start_of_verse: A}
+[G]あさの[Em]ひかり[C]まどを[D]あけて
+{end_of_verse}
+
+{start_of_part: Vocal}
+\\section "A"
+:4 B4{ch "G"} G4 A4{ch "Em7/D"} B4 |
+\\section "V"
+:4 G4 G4 G4 G4 |
+{end_of_part}
+
+{start_of_part: Drums}
+\\instrument percussion
+\\section "A"
+:8 (HH BD) HH (HH SD) HH (HH BD) HH (HH SD) HH |
+\\section "Y"
+:8 (HH BD) HH (HH SD) HH (HH BD) HH (HH SD) HH |
+{end_of_part}
+`;
+
+const chartChords = (page: Page) =>
+  page.getByTestId('viewer').locator('[data-testid^="chord-"]').allInnerTexts();
+
+test('viewer: transpose is display-only, persisted, and leaves drums alone', async ({
+  page,
+}) => {
+  await seedDraftAndOpen(page, 'e2e-transpose', TRANSPOSE_SONG);
+  await openViewer(page);
+  await page.getByRole('button', { name: 'スコア', exact: true }).tap();
+  await expect(page.getByTestId('viewer')).toHaveAttribute(
+    'data-ready',
+    'true',
+  );
+  expect(await chartChords(page)).toEqual(['G', 'Em', 'C', 'D']);
+  const drum = page.locator('[data-block$="-Y"] [data-testid="section-score"]');
+  const melody = page.locator(
+    '[data-block$="-V"] [data-testid="section-score"]',
+  );
+  const drumBefore = await drum.innerHTML();
+  const melodyBefore = await melody.innerHTML();
+
+  // Compact bar (1194px): 「移調 ▾」 opens the stepper.
+  await expect(page.getByTestId('transpose-control')).toHaveCount(0);
+  await page.getByTestId('transpose-button').tap();
+  const dialog = page.getByRole('dialog', { name: '移調' });
+  await expect(dialog.getByTestId('transpose-down')).toHaveText('−1');
+  await expect(dialog.getByTestId('transpose-up')).toHaveText('+1');
+  await dialog.getByTestId('transpose-down').tap();
+  await expect(dialog.getByTestId('transpose-down')).toHaveText('−2');
+  await expect(dialog.getByTestId('transpose-up')).toHaveText('0');
+  await dialog.getByTestId('transpose-down').tap();
+  await expect(dialog.getByTestId('transpose-value')).toHaveText('−2');
+  await expect(dialog.getByTestId('transpose-key')).toHaveText(
+    'キー G → F（−2）',
+  );
+  // The announcement goes through the viewer's one live region.
+  await expect(page.getByTestId('viewer-live')).toContainText('移調 −2');
+  await expect(page.getByTestId('viewer')).toHaveAttribute(
+    'data-ready',
+    'true',
+  );
+  expect(await chartChords(page)).toEqual(['F', 'Dm', 'Bb', 'C']);
+  await expect(melody).not.toHaveJSProperty('innerHTML', melodyBefore);
+  expect(await drum.innerHTML()).toBe(drumBefore);
+  await expect(
+    dialog.getByRole('button', { name: '原曲キーに戻す（G）' }),
+  ).toBeEnabled();
+
+  // Persisted per song, the song text untouched.
+  const stored = await page.evaluate(
+    (k) => localStorage.getItem(k),
+    viewerKey('e2e-transpose'),
+  );
+  expect(JSON.parse(stored!).transpose).toBe(-2);
+  expect((await readDraft(page, 'e2e-transpose'))?.text).toBe(TRANSPOSE_SONG);
+  await page.reload();
+  await expect(page.getByTestId('viewer')).toHaveAttribute(
+    'data-ready',
+    'true',
+  );
+  await expect(page.getByTestId('transpose-button')).toHaveText(/移調 −2/);
+  expect(await chartChords(page)).toEqual(['F', 'Dm', 'Bb', 'C']);
+
+  // The explicit reset returns to the original key.
+  await page.getByTestId('transpose-button').tap();
+  await page
+    .getByRole('dialog', { name: '移調' })
+    .getByRole('button', { name: '原曲キーに戻す（G）' })
+    .tap();
+  await expect(page.getByTestId('transpose-button')).toHaveText(/^移調\s*▾?$/);
+  expect(await chartChords(page)).toEqual(['G', 'Em', 'C', 'D']);
+});
+
+test('viewer: wide bar shows the resulting values and an explicit reset', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 2100, height: 834 });
+  await seedDraftAndOpen(page, 'e2e-transpose-wide', TRANSPOSE_SONG);
+  await openViewer(page);
+  const control = page.getByTestId('transpose-control');
+  await expect(control).toBeVisible();
+  const reset = control.getByRole('button', { name: '原曲キーに戻す' });
+  await expect(reset).toBeDisabled();
+  for (let i = 0; i < 3; i++) await control.getByTestId('transpose-up').tap();
+  await expect(control.getByTestId('transpose-down')).toHaveText('+2');
+  await expect(control.getByTestId('transpose-up')).toHaveText('+4');
+  await expect(control.getByTestId('transpose-key')).toHaveText(
+    'キー G → B♭（+3）',
+  );
+  expect(await chartChords(page)).toEqual(['Bb', 'Gm', 'Eb', 'F']);
+  // The middle value does nothing; the reset button is the only way back.
+  await control.getByTestId('transpose-value').tap({ force: true });
+  await expect(control.getByTestId('transpose-value')).toHaveText('+3');
+  await reset.tap();
+  await expect(control.getByTestId('transpose-value')).toHaveText('0');
+  await expect(reset).toBeDisabled();
 });

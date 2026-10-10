@@ -77,6 +77,7 @@ describe('viewer settings storage', () => {
     zoom: 1.2,
     speedPct: 80,
     countIn: false,
+    transpose: 0,
   } as const;
 
   it('namespaces the key per song id', () => {

@@ -126,6 +126,34 @@ export const PartLayout: Story = {
   },
 };
 
+/** Transposed −2 from storage: chart chords move, the drum score does not. */
+export const Transposed: Story = {
+  args: { initial: { transpose: -2 } },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await waitReady(canvasElement);
+    const chords = [
+      ...canvasElement.querySelectorAll('[data-testid^="chord-"]'),
+    ].map((e) => e.textContent);
+    // Key G → F: G Em C D → F Dm Bb C
+    expect(chords.slice(0, 4)).toEqual(['F', 'Dm', 'Bb', 'C']);
+    await userEvent.click(c.getByRole('button', { name: /^移調 −2/ }));
+    const dialog = within(c.getByRole('dialog', { name: '移調' }));
+    expect(dialog.getByTestId('transpose-key')).toHaveTextContent(
+      'キー G → F（−2）',
+    );
+    await userEvent.click(
+      dialog.getByRole('button', { name: '原曲キーに戻す（G）' }),
+    );
+    await waitFor(() =>
+      expect(
+        canvasElement.querySelector('[data-testid^="chord-"]')?.textContent,
+      ).toBe('G'),
+    );
+    expect(JSON.parse(c.getByTestId('frame').dataset.saved!).transpose).toBe(0);
+  },
+};
+
 /** Score: all parts aligned per section, chart on top of each. */
 export const ScoreLayout: Story = {
   args: { initial: { layout: 'score' } },
