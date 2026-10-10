@@ -60,6 +60,25 @@ def oracle(truth):
     return out
 
 
+def phase0_from(result):
+    """The analyzer's own beats with the downbeat phase fixed to 0: beat i is a downbeat iff i % beats_per_bar == 0.
+
+    The trivial rival of a real downbeat finder (R2): in every base variant the first sound is the downbeat,
+    so this scores ~1.0 there; on mid-bar-start variants (py/midbar.py) it shows what the analyzer adds.
+    Only the beat / downbeat columns of this row are meaningful; chords and sections are copied from the
+    input result unchanged.
+    """
+    out = copy.deepcopy(result)
+    bpb = int((out.get("timeSignature") or {}).get("num") or BEATS_PER_BAR)
+    for i, b in enumerate(out["beats"]):
+        b["downbeat"] = i % bpb == 0
+        b["bar"], b["beat"] = i // bpb, i % bpb
+    analyzer = dict(out.get("analyzer") or {})
+    analyzer["name"] = "dsp-phase0"
+    out["analyzer"] = analyzer
+    return out
+
+
 _PC_NAMES = ["C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
 
 

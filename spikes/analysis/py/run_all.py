@@ -10,6 +10,7 @@ tuning / selection loop (R10).
 Three manifests are read (only manifest.json is required; paths relative to DIR):
   manifest.json                 base variants (level 0 unless an entry has "level")
   derived/manifest.derived.json bare list of {name, song, base, level, heldOut, degrade, wav, truth}
+  derived/manifest.trim.json    bare list, mid-bar-start variants from py/midbar.py (level "M")
   rec/manifest.rec.json         {"variants": [{name, song:"rec", level:"REC", heldOut, wav, truth}]}
 
 Assumed manifest shape (T6 should match; paths are relative to DIR):
@@ -62,8 +63,10 @@ def _fmt(v):
     return str(v) if isinstance(v, int) else f"{v:.3f}"
 
 
-MANIFESTS = [("manifest.json", 0), ("derived/manifest.derived.json", None), ("rec/manifest.rec.json", None)]
-DEFAULT_ANALYZERS = ["constant", "oracle", "mode-chord", "dsp-v1"]
+MANIFESTS = [("manifest.json", 0), ("derived/manifest.derived.json", None), ("derived/manifest.trim.json", None),
+             ("rec/manifest.rec.json", None)]
+PHASE0 = "dsp-phase0"  # baseline: dsp-v1's beats with the downbeat phase assumed 0 (R2)
+DEFAULT_ANALYZERS = ["constant", "oracle", "mode-chord", "dsp-v1", PHASE0]
 DEFAULT_LEVEL = 0
 
 
@@ -144,10 +147,17 @@ def run_all(out_dir, analyzers=None, only=None, dsp_config=None, dsp_name="dsp-v
                 log(f"SKIP dsp-v1: py/analyze.py not available ({dsp.error})")
                 continue
             active.append((dsp_name, "dsp"))
+        elif a == PHASE0:
+            if "dsp-v1" not in names:
+                raise ValueError(f"{PHASE0} needs dsp-v1 in --analyzers (it reuses its beats)")
+            if dsp is not None and dsp.fn is None:
+                continue
+            active.append((PHASE0, "phase0"))
         elif a in baseline.ANALYZERS2:
             active.append((a, a))
         else:
             raise ValueError(f"unknown analyzer {a!r}")
+    active.sort(key=lambda a: a[1] == "phase0")  # phase0 reuses the dsp result of the same variant
     rows = []
     timings = {}
     n_held_skipped = 0
@@ -165,13 +175,18 @@ def run_all(out_dir, analyzers=None, only=None, dsp_config=None, dsp_name="dsp-v
             truth = json.load(f)
         wav = os.path.join(out_dir, v["wav"])
         have_wav = os.path.exists(wav)
+        dsp_result = None
         for aname, kind in active:
+            if kind == "phase0" and dsp_result is None:
+                continue
             if (kind == "dsp" or kind in baseline.NEEDS_WAV) and not have_wav:
                 log(f"SKIP {v['name']} x {aname}: wav not found ({wav})")
                 continue
             t0 = time.perf_counter()
             if kind == "dsp":
-                result = dsp(wav)  # never sees the truth
+                result = dsp_result = dsp(wav)  # never sees the truth
+            elif kind == "phase0":
+                result = baseline.phase0_from(dsp_result)  # dsp-v1 comes first in `active`
             else:
                 result = baseline.ANALYZERS2[kind](truth, wav)
             scores = S.score(truth, result)
@@ -252,7 +267,7 @@ def main(argv=None):
     default_out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "out")
     ap.add_argument("--out", default=default_out)
     ap.add_argument("--analyzers", default=",".join(DEFAULT_ANALYZERS),
-                    help="comma list from constant,oracle,mode-chord,dsp-v1")
+                    help="comma list from constant,oracle,mode-chord,dsp-v1,dsp-phase0 (phase0 needs dsp-v1)")
     ap.add_argument("--only", help="glob on the variant name")
     ap.add_argument("--dsp-config", help="JSON file with (partial) dsp Config overrides")
     ap.add_argument("--include-held-out", action="store_true",

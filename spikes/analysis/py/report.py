@@ -214,7 +214,7 @@ def aggregate(items):
 def load_manifests(out_dir):
     """{name: {truth, song, level}} from the three manifests (missing ones are skipped)."""
     res = {}
-    for rel in ("manifest.json", "derived/manifest.derived.json", "rec/manifest.rec.json"):
+    for rel in ("manifest.json", "derived/manifest.derived.json", "derived/manifest.trim.json", "rec/manifest.rec.json"):
         p = os.path.join(out_dir, rel)
         if not os.path.exists(p):
             continue
