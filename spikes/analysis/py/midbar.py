@@ -11,7 +11,9 @@ CLI (from spikes/analysis):
 
 Reads <out>/manifest.json, writes <out>/derived/<base>__mid<K>.wav|.truth.json and
 <out>/derived/manifest.trim.json (level "M"). Bases: BASES below, or --only GLOB over the manifest's
-non-held-out, non-click, constant-tempo variants (any level). Held-out variants are never used (R10).
+non-held-out, non-click, constant-tempo variants (any level); a glob never picks held-out variants (R10).
+Spike 2 T7 (Q5): by default the HELD_OUT_BASES (held-out songs) also get M variants, marked
+`heldOut: true`, so run_all skips them until the final held-out run.
 """
 import argparse
 import copy
@@ -35,6 +37,12 @@ BASES = (
     "etude-full-t90-straight-arp8",
     "full-t116-straight-whole",
     "etude-full-t90-straight-whole",
+)
+# Held-out songs (spike 2 T7, Q5): their M variants are held out too. No pickup songs (a pickup is not a
+# cut-off bar) and no tempo curves.
+HELD_OUT_BASES = (
+    "etude2-full-t90-straight",
+    "etude2-full-t90-straight-arp8",
 )
 EPS = 1e-6
 
@@ -71,9 +79,14 @@ def trim_truth(truth, cut_sec, name, base, k):
 
 
 def select_bases(manifest, only=None):
+    """Base variants to trim. Default: BASES (tuning) + HELD_OUT_BASES (held out); --only: tuning only."""
     out = []
     for v in manifest["variants"]:
-        if v.get("heldOut") or v.get("click") or v.get("tempoCurve"):
+        if v.get("click") or v.get("tempoCurve") or v.get("pickupBeats"):
+            continue
+        if v.get("heldOut"):
+            if not only and v["name"] in HELD_OUT_BASES:
+                out.append(v)
             continue
         if (fnmatch.fnmatch(v["name"], only) if only else v["name"] in BASES):
             out.append(v)
@@ -99,7 +112,7 @@ def run(out_dir, only=None, beats=DEFAULT_BEATS, log=print):
             sf.write(os.path.join(dd, name + ".wav"), x[int(round(cut * sr)):], sr, subtype="PCM_16")
             with open(os.path.join(dd, name + ".truth.json"), "w") as f:
                 json.dump(trim_truth(truth, cut, name, v["name"], k), f, indent=2)
-            entries.append({"name": name, "song": v["song"], "base": v["name"], "level": LEVEL, "heldOut": False,
+            entries.append({"name": name, "song": v["song"], "base": v["name"], "level": LEVEL, "heldOut": bool(v.get("heldOut")),
                             "trimBeats": k, "wav": f"derived/{name}.wav", "truth": f"derived/{name}.truth.json"})
             log(f"{name}: cut {cut:.3f} s")
     with open(os.path.join(dd, "manifest.trim.json"), "w") as f:

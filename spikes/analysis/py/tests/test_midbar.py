@@ -82,6 +82,45 @@ class RunTest(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(d, "derived", "manifest.trim.json")))
 
 
+class HeldOutMTest(unittest.TestCase):
+    """Spike 2 T7 (Q5): M variants of the held-out songs, marked held out."""
+
+    MANIFEST = {"variants": [
+        {"name": "piano-t116-straight", "heldOut": False},
+        {"name": "etude2-full-t90-straight", "heldOut": True},
+        {"name": "etude2-full-t90-straight-drift", "heldOut": True, "tempoCurve": [90, 95]},
+        {"name": "etude3-piano-t124-straight-rec", "heldOut": True, "pickupBeats": 1},
+        {"name": "other-held", "heldOut": True},
+        {"name": "etude-click", "heldOut": False, "click": True},
+    ]}
+
+    def test_default_bases_include_held_out_list(self):
+        names = [v["name"] for v in M.select_bases(self.MANIFEST)]
+        self.assertEqual(names, ["piano-t116-straight", "etude2-full-t90-straight"])
+        self.assertTrue(set(M.HELD_OUT_BASES).isdisjoint(M.BASES))
+
+    def test_glob_never_picks_held_out(self):
+        names = [v["name"] for v in M.select_bases(self.MANIFEST, only="*")]
+        self.assertEqual(names, ["piano-t116-straight"])
+
+    def test_run_marks_held_out_entries(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "s"))
+            sf.write(os.path.join(d, "s", "a.wav"), np.zeros(SR * 10, dtype=np.float32), SR)
+            json.dump(truth(), open(os.path.join(d, "s", "a.truth.json"), "w"))
+            variants = [{"name": n, "song": "s", "level": 0, "heldOut": h, "click": False,
+                         "wav": "s/a.wav", "truth": "s/a.truth.json"}
+                        for n, h in (("piano-t116-straight", False), ("etude2-full-t90-straight", True))]
+            json.dump({"variants": variants}, open(os.path.join(d, "manifest.json"), "w"))
+            entries = M.run(d, log=lambda *_: None)
+            held = {e["name"]: e["heldOut"] for e in entries}
+            self.assertEqual(held["etude2-full-t90-straight__mid2"], True)
+            self.assertEqual(held["piano-t116-straight__mid2"], False)
+            self.assertEqual(len(entries), 6)
+            with open(os.path.join(d, "derived", "manifest.trim.json")) as f:
+                self.assertEqual(json.load(f), entries)
+
+
 class Phase0Test(unittest.TestCase):
     def test_phase0_flags_every_bar_from_index_zero(self):
         t = M.trim_truth(truth(), 1.0, "n", "b", 2)  # truth downbeats at beat index 2, 6, ...
