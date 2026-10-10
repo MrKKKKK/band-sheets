@@ -5,12 +5,16 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
+  type ReactNode,
 } from 'react';
 import type { Duration, MelodyEvent, TimeSig } from '../../lib/melody';
 import {
+  CHORD_FONT_SPACES,
+  hitTestChord,
   hitTestNote,
   layoutMelody,
   nearestCursor,
@@ -68,7 +72,22 @@ export interface MelodyStaffProps {
   /** Fixed width in px; default: the container's width (min 320). */
   width?: number;
   ariaLabel: string;
+  /**
+   * Chord editing (issue #6): a click on a chord name, or on the dotted
+   * ＋ box drawn above a selected chordless note, calls this with the
+   * event index. Omit to draw chords read-only (and no ＋ box).
+   */
+  onChordClick?: (index: number) => void;
+  /**
+   * Content (the chord popover) shown in a box just below event
+   * `overlay.index`'s notehead, outside the keyboard-handling wrapper so
+   * typing in it never reaches `onKeyDown`.
+   */
+  overlay?: { index: number; content: ReactNode } | null;
 }
+
+/** Must match the popover width in ChordPopover.module.css. */
+const OVERLAY_WIDTH = 320;
 
 const MIN_WIDTH = 320;
 /** px of vertical movement before a press on the selected note is a drag. */
@@ -94,16 +113,45 @@ interface Hover {
 
 /** Hover target: a note (select on click) or a place preview, or nothing. */
 type Target =
+  | { kind: 'chord'; index: number }
   | { kind: 'note'; index: number }
   | { kind: 'place'; cursor: number; pitch: string }
   | null;
+
+/** The dotted ＋ box above a selected chordless note (x/y = top left). */
+function chordSlotBox(layout: Layout, selected: number | null) {
+  if (selected === null) return null;
+  const p = layout.pieces.find(
+    (p) => p.eventIndex === selected && p.pieceIndex === 0,
+  );
+  if (!p || p.chordLabel) return null;
+  const s = layout.staffSpace;
+  const h = CHORD_FONT_SPACES * s + 0.4 * s;
+  const y = layout.systems[p.system].chordY;
+  return { x: p.glyph.x - 0.3 * s, y: y - h + 0.35 * s, w: 2.6 * s, h };
+}
 
 function targetAt(
   layout: Layout,
   x: number,
   y: number,
   key: string | undefined,
+  chords: { selected: number | null } | null,
 ): Target {
+  if (chords) {
+    const c = hitTestChord(layout, x, y);
+    if (c !== null) return { kind: 'chord', index: c };
+    const box = chordSlotBox(layout, chords.selected);
+    if (
+      box &&
+      x >= box.x &&
+      x <= box.x + box.w &&
+      y >= box.y &&
+      y <= box.y + box.h
+    ) {
+      return { kind: 'chord', index: chords.selected! };
+    }
+  }
   const hit = hitTestNote(layout, x, y);
   if (hit !== null) return { kind: 'note', index: hit };
   const sys = systemAt(layout, y);
@@ -197,6 +245,8 @@ export function MelodyStaff({
   onKeyDown,
   width,
   ariaLabel,
+  onChordClick,
+  overlay = null,
 }: MelodyStaffProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -238,6 +288,8 @@ export function MelodyStaff({
     [shown, ts, w, keySignature],
   );
 
+  const chordTargets = onChordClick && !readOnly ? { selected } : null;
+
   // aria-live: announce the note at the cursor / selection after changes
   // (not on mount).
   const message = announcement(events, cursor, selected);
@@ -264,9 +316,10 @@ export function MelodyStaff({
       return;
     }
     const { x, y } = toSvg(e);
-    const t = targetAt(layout, x, y, keySignature);
+    const t = targetAt(layout, x, y, keySignature, chordTargets);
     if (!t) return;
-    if (t.kind === 'note') onSelect(t.index === selected ? null : t.index);
+    if (t.kind === 'chord') onChordClick?.(t.index);
+    else if (t.kind === 'note') onSelect(t.index === selected ? null : t.index);
     else if (selected !== null) onSelect(null);
     else onPlace(t.cursor, t.pitch);
   };
@@ -368,7 +421,9 @@ export function MelodyStaff({
   // No place preview while something is selected: a click there only
   // clears the selection (M7).
   const target =
-    hover && !drag ? targetAt(layout, hover.x, hover.y, keySignature) : null;
+    hover && !drag
+      ? targetAt(layout, hover.x, hover.y, keySignature, chordTargets)
+      : null;
   const preview =
     target?.kind === 'place' && selected === null
       ? previewPiece(
@@ -393,6 +448,26 @@ export function MelodyStaff({
   const rootClass = [styles.root, readOnly && styles.readOnly]
     .filter(Boolean)
     .join(' ');
+
+  const slot = chordTargets ? chordSlotBox(layout, selected) : null;
+  const overlayPiece = overlay
+    ? layout.pieces.find(
+        (p) => p.eventIndex === overlay.index && p.pieceIndex === 0,
+      )
+    : undefined;
+  const overlayStyle = overlayPiece
+    ? ({
+        left: overlayPiece.glyph.x,
+        top: overlayPiece.box.y2 + 0.4 * s,
+        // Keeps the popover inside the staff's width (ChordPopover reads it).
+        '--chord-popover-left': `${
+          Math.min(
+            Math.max(0, overlayPiece.glyph.x),
+            Math.max(0, layout.width - OVERLAY_WIDTH),
+          ) - overlayPiece.glyph.x
+        }px`,
+      } as CSSProperties)
+    : undefined;
 
   return (
     <div ref={rootRef} className={rootClass}>
@@ -563,20 +638,58 @@ export function MelodyStaff({
               ),
           )}
 
-          {layout.pieces.map(
-            (p) =>
-              p.chordLabel && (
+          {layout.pieces.map((p) => {
+            const c = p.chordLabel;
+            if (!c) return null;
+            const isSel = chordTargets !== null && p.eventIndex === selected;
+            const fs = s * CHORD_FONT_SPACES;
+            return (
+              <g
+                key={`chord-${p.eventIndex}`}
+                className={isSel ? styles.chordSelected : undefined}
+              >
+                {isSel && (
+                  <rect
+                    x={c.x - 0.3 * s}
+                    y={c.y - fs * 0.95}
+                    width={c.width + 0.6 * s}
+                    height={fs * 1.25}
+                    rx={s * 0.3}
+                    className={styles.chordSelectedBg}
+                  />
+                )}
                 <text
-                  key={`chord-${p.eventIndex}`}
                   data-testid={`chord-${p.eventIndex}`}
-                  x={p.chordLabel.x}
-                  y={p.chordLabel.y}
-                  fontSize={s * 1.4}
+                  data-row={c.row}
+                  x={c.x}
+                  y={c.y}
+                  fontSize={fs}
                   className={styles.chord}
                 >
-                  {p.chordLabel.text}
+                  {c.text}
                 </text>
-              ),
+              </g>
+            );
+          })}
+
+          {slot && (
+            <g data-testid="chord-slot" className={styles.chordSlot}>
+              <rect
+                x={slot.x}
+                y={slot.y}
+                width={slot.w}
+                height={slot.h}
+                rx={s * 0.3}
+              />
+              <text
+                x={slot.x + slot.w / 2}
+                y={slot.y + slot.h * 0.78}
+                textAnchor="middle"
+                fontSize={s * 1.5}
+              >
+                ＋
+              </text>
+            </g>
           )}
 
           {!readOnly && (
@@ -622,12 +735,19 @@ export function MelodyStaff({
           )}
         </svg>
       </div>
+      {overlayStyle && (
+        <div className={styles.overlay} style={overlayStyle}>
+          {overlay!.content}
+        </div>
+      )}
       {!readOnly && (
         <p id={hintId} className={styles.srOnly}>
           五線をクリックで音を置く、音符をクリックで選択（選択中に空き部分をクリックすると選択解除、選んだ音符は上下ドラッグで高さを変更）。A〜Kキーで音を入力、W
           E T Y U で黒鍵、Shiftで1オクターブ上。数字キー 1 2 4 8 6
           で音価、ピリオドで付点、Rで休符、Backspaceで削除。Enterでカーソル直前の音符を選択、Escで選択解除。↑↓で選んだ音を半音上下、Shift＋↑↓で1オクターブ、Ctrl＋↑↓で基準オクターブ。歌詞:
           Nでのばす、Mでつめる、Vで分ける、Cで歌詞なし。
+          {onChordClick &&
+            'コード: Shift＋Cで選んだ音符のコードを置く・変える、Shift＋Backspaceで消す。'}
         </p>
       )}
       <div

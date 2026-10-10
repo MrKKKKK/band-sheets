@@ -11,6 +11,7 @@ import {
 import { kirakiraA } from '../../lib/fixtures/melodyFixtures';
 import type { MelodyEvent } from '../../lib/melody';
 import {
+  hitTestChord,
   layoutMelody,
   nearestCursor,
   pitchToY,
@@ -481,5 +482,84 @@ export const Interactive: Story = {
         '5音目: レ5、4分音符',
       ),
     );
+  },
+};
+
+const chordNote = (pitch: string, chord: string, ticks = 8): MelodyEvent => ({
+  kind: 'note',
+  pitch,
+  ticks,
+  chord,
+});
+
+/**
+ * Issue #6: chords on dense 8ths / 16ths. Overlapping names go up to a
+ * second row at their note's x; only when both rows are full is a name
+ * shifted right.
+ */
+export const DenseChords: Story = {
+  args: {
+    width: 640,
+    cursor: 0,
+    events: [
+      ...['Cmaj7', 'Dm7', 'G7sus4', 'C', 'Am7', 'F#m7b5', 'B7', 'Em'].map(
+        (c, i) =>
+          chordNote(['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5'][i], c),
+      ),
+      ...Array.from({ length: 16 }, (_, i) =>
+        chordNote('E4', i % 2 ? 'G7' : 'C7(9)', 4),
+      ),
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const labels = [...canvasElement.querySelectorAll('[data-row]')];
+    expect(labels).toHaveLength(24);
+    expect(labels.some((l) => l.getAttribute('data-row') === '1')).toBe(true);
+  },
+};
+
+/**
+ * With `onChordClick`: a click on a chord name reports its event, and a
+ * selected chordless note shows the dotted ＋ box (also clickable).
+ */
+export const ChordClicks: Story = {
+  args: {
+    events: [
+      { ...n('C4', 16, 'き'), chord: 'C' },
+      n('D4', 16, 'ら'),
+      n('E4', 32, 'き'),
+    ],
+    cursor: 3,
+    selected: 1,
+    onChordClick: fn(),
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    const svg = svgOf(canvasElement);
+    const layout = layoutOf(args);
+    const c = layout.pieces[0].chordLabel!;
+    expect(hitTestChord(layout, c.x + 2, c.y - 4)).toBe(0);
+    await fireEvent.click(svg, at(svg, c.x + 2, c.y - 4));
+    expect(args.onChordClick).toHaveBeenLastCalledWith(0);
+    expect(args.onSelect).not.toHaveBeenCalled();
+
+    const slot = canvas.getByTestId('chord-slot');
+    const box = slot.getBoundingClientRect();
+    await fireEvent.click(svg, {
+      clientX: box.left + box.width / 2,
+      clientY: box.top + box.height / 2,
+    });
+    expect(args.onChordClick).toHaveBeenLastCalledWith(1);
+  },
+};
+
+/** Without `onChordClick` there is no ＋ box, and the selected chord is plain. */
+export const ChordsReadOnlyLook: Story = {
+  args: {
+    events: [{ ...n('C4', 16, 'き'), chord: 'C' }, n('D4', 16, 'ら')],
+    selected: 1,
+  },
+  play: async ({ canvasElement }) => {
+    expect(within(canvasElement).queryByTestId('chord-slot')).toBeNull();
   },
 };

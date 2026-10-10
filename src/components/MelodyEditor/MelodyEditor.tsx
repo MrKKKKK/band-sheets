@@ -38,14 +38,28 @@ import {
   writeSection,
   type PreambleOverrides,
 } from '../../lib/melodyPart';
+import {
+  chartChords,
+  clearChords,
+  copyChordsFromChart,
+  copyResultLines,
+  removeChord,
+  setChord,
+  type CopyMode,
+  type CopySummary,
+} from '../../lib/melodyChords';
 import { chartOrder } from '../../lib/melodyEditor';
+import { diatonicChords } from '../../lib/keys';
+import { paletteGroups } from '../../lib/palette';
 import { parsePitch, pitchToMidi } from '../../lib/pitch';
 import { sectionLabels } from '../../lib/sections';
 import type { Song } from '../../lib/song';
 import { chartSyllables } from '../../lib/syllables';
 import { Button } from '../Button/Button';
+import { ChordPopover } from '../ChordPopover/ChordPopover';
 import { DurationBar } from '../DurationBar/DurationBar';
 import { LyricsPanel, type LyricsAction } from '../LyricsPanel/LyricsPanel';
+import { MelodyChordsPanel } from '../MelodyChordsPanel/MelodyChordsPanel';
 import { ModeStatus } from '../ModeStatus/ModeStatus';
 import { announcement, stateChangeMessage } from '../MelodyStaff/labels';
 import { MelodyStaff } from '../MelodyStaff/MelodyStaff';
@@ -229,6 +243,18 @@ export function MelodyEditor({
       ? lyricMismatch(events, chart).firstMismatchNote
       : null;
 
+  // Chords (issue #6) ------------------------------------------------------
+  const chartChordInfo =
+    label === NO_SECTION
+      ? { syllables: [], chords: [] }
+      : chartChords(song, label);
+  /** Event whose chord popover is open (always the selected event). */
+  const [chordEdit, setChordEdit] = useState<number | null>(null);
+  /** Last copy result, per (part, section). */
+  const [copyResult, setCopyResult] = useState<
+    (CopySummary & { key: string }) | null
+  >(null);
+
   const [error, setError] = useState('');
   /** The editor's one live region (M8): state changes and note descriptions. */
   const [live, setLive] = useState('');
@@ -272,6 +298,7 @@ export function MelodyEditor({
         chartOrder(song),
       );
       setError('');
+      setCopyResult(null);
       onChange({
         ...base,
         parts: base.parts.map((p, i) => (i === idx ? { ...p, body } : p)),
@@ -285,6 +312,7 @@ export function MelodyEditor({
 
   const run = (cmd: Command) => {
     if (readOnly) return;
+    setChordEdit(null);
     // Refill from the chart only once the section has lyrics: otherwise
     // every typed note would silently take a chart syllable.
     const r = applyCommand(events, state, cmd, {
@@ -340,8 +368,89 @@ export function MelodyEditor({
     return events[before]?.kind === 'note' ? before : null;
   };
 
+  /** Selected event, else the one just before the cursor (input mode). */
+  const chordTarget = (): number | null => {
+    if (state.selected !== null) return state.selected;
+    const before = state.cursor - 1;
+    return events[before] ? before : null;
+  };
+
+  /** The popover's anchor: focus goes back to the staff when it closes. */
+  const staffAnchorRef = useRef<HTMLElement | null>(null);
+
+  /** Selects `index` (if needed) and opens the chord popover on it. */
+  const openChordEditor = (index: number) => {
+    if (readOnly || !events[index]) return;
+    staffAnchorRef.current =
+      staffContainerRef.current?.querySelector<HTMLElement>(
+        '[role="application"]',
+      ) ?? null;
+    if (state.selected !== index) run({ type: 'select', index });
+    setChordEdit(index);
+  };
+
+  const commitChords = (next: MelodyEvent[], msg: string) => {
+    if (next === events) return;
+    if (commit(next)) say(msg);
+  };
+
+  const applyChord = (index: number, chord: string) => {
+    setChordEdit(null);
+    commitChords(
+      setChord(events, index, chord),
+      `${index + 1}音目のコードを ${chord.trim()} にしました`,
+    );
+  };
+
+  const deleteChord = (index: number) => {
+    setChordEdit(null);
+    if (events[index]?.chord === undefined) {
+      say(`${index + 1}音目にはコードがありません`);
+      return;
+    }
+    commitChords(
+      removeChord(events, index),
+      `${index + 1}音目のコードを消しました`,
+    );
+  };
+
+  const copyChords = (mode: CopyMode) => {
+    const r = copyChordsFromChart(events, chartChordInfo, mode);
+    if (r.events !== events && !commit(r.events)) return;
+    const summary = { copied: r.copied, skipped: r.skipped, kept: r.kept };
+    setCopyResult({ ...summary, key: stateKey });
+    say(copyResultLines(summary).join('。'));
+  };
+
+  const clearAllChords = () => {
+    setChordEdit(null);
+    commitChords(
+      clearChords(events),
+      'このセクションのコードをすべて消しました',
+    );
+  };
+
   const handleKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (readOnly || e.key === 'Escape') return;
+    // Shift+C / Shift+Backspace: chord of the selected event (or the one
+    // before the cursor). keyToCommand maps neither (KeyC is no note key;
+    // Shift+Backspace is unbound), and the lyric keys need no modifiers.
+    const shiftOnly = e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
+    if (
+      shiftOnly &&
+      !e.nativeEvent.isComposing &&
+      (e.code === 'KeyC' || e.code === 'Backspace')
+    ) {
+      e.preventDefault();
+      const target = chordTarget();
+      if (target === null) {
+        reject('コードを付ける音符を選んでください');
+        return;
+      }
+      if (e.code === 'KeyC') openChordEditor(target);
+      else deleteChord(target);
+      return;
+    }
     const noModifiers = !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
     const lyricKey = LYRIC_KEYS[e.code];
     if (
@@ -434,6 +543,43 @@ export function MelodyEditor({
 
   const selectedPitch =
     state.selected !== null ? events[state.selected]?.pitch : undefined;
+
+  // Chord popover over the staff (same ChordPopover as the chart editor).
+  const editingChord =
+    !readOnly && chordEdit !== null && chordEdit === state.selected
+      ? chordEdit
+      : null;
+  const diatonic = diatonicChords(keySig ?? '');
+  const groups = paletteGroups(song);
+  const sectionChords = events.flatMap((e) => (e.chord ? [e.chord] : []));
+  const palette = [
+    ...new Set([...groups.user, ...groups.used, ...sectionChords]),
+  ].filter((c) => !diatonic.includes(c));
+  const editingEvent = editingChord !== null ? events[editingChord] : undefined;
+  const chordOverlay =
+    editingChord !== null && editingEvent
+      ? {
+          index: editingChord,
+          content: (
+            <ChordPopover
+              key={editingChord}
+              open
+              anchorRef={staffAnchorRef}
+              initialChord={editingEvent.chord}
+              palette={palette}
+              diatonic={diatonic}
+              keyLabel={keySig}
+              onCommit={(chord) => applyChord(editingChord, chord)}
+              onDelete={
+                editingEvent.chord !== undefined
+                  ? () => deleteChord(editingChord)
+                  : undefined
+              }
+              onClose={() => setChordEdit(null)}
+            />
+          ),
+        }
+      : null;
 
   return (
     <div className={styles.editor}>
@@ -536,6 +682,8 @@ export function MelodyEditor({
             )
           }
           onKeyDown={handleKeyDown}
+          onChordClick={openChordEditor}
+          overlay={chordOverlay}
           ariaLabel={
             label === NO_SECTION
               ? 'メロディ（セクションなし）'
@@ -596,6 +744,26 @@ export function MelodyEditor({
               onChange={commitLyrics}
               partLevelLyrics={partLevelLyrics}
               onConvertPartLyrics={convertLyrics}
+            />
+          </div>
+        )}
+
+        {!readOnly && label !== NO_SECTION && (
+          <div className={styles.chords}>
+            <MelodyChordsPanel
+              events={events}
+              chart={chartChordInfo}
+              sectionLabel={label}
+              selected={state.selected}
+              result={copyResult?.key === stateKey ? copyResult : null}
+              onCopy={copyChords}
+              onEdit={() => {
+                if (state.selected !== null) openChordEditor(state.selected);
+              }}
+              onDelete={() => {
+                if (state.selected !== null) deleteChord(state.selected);
+              }}
+              onClearAll={clearAllChords}
             />
           </div>
         )}

@@ -3,6 +3,7 @@ import type { MelodyEvent, TimeSig } from './melody';
 import { melodyFixtures, kirakiraA } from './fixtures/melodyFixtures';
 import {
   GLYPHS,
+  hitTestChord,
   hitTestNote,
   layoutMelody,
   nearestCursor,
@@ -557,6 +558,107 @@ describe('chord labels', () => {
     expect(
       layoutMelody(long, FOUR, { width: 700 }).pieces.some((p) => p.chordLabel),
     ).toBe(false);
+  });
+
+  const s = 10; // default staff space
+
+  /** Labels per system with their horizontal extent. */
+  const labelsOf = (l: Layout) =>
+    l.pieces.flatMap((p) =>
+      p.chordLabel
+        ? [{ p, c: p.chordLabel, x2: p.chordLabel.x + p.chordLabel.width }]
+        : [],
+    );
+  const noOverlapPerRow = (l: Layout) => {
+    const ls = labelsOf(l);
+    for (const a of ls) {
+      for (const b of ls) {
+        if (a === b || a.p.system !== b.p.system || a.c.row !== b.c.row) {
+          continue;
+        }
+        expect(a.x2 <= b.c.x || b.x2 <= a.c.x).toBe(true);
+      }
+    }
+  };
+
+  it('labels have a width from their length; spaced-out labels stay on row 0', () => {
+    const l = layoutMelody(
+      [
+        { ...n('C4'), chord: 'C' },
+        { ...n('D4'), chord: 'Cmaj7' },
+      ],
+      FOUR,
+      { width: 800 },
+    );
+    const [a, b] = labelsOf(l);
+    expect(a.c.row).toBe(0);
+    expect(b.c.row).toBe(0);
+    expect(b.c.width).toBeCloseTo(a.c.width * 5);
+  });
+
+  it('dense chords: an overlapping label goes up to row 1, at its own x', () => {
+    const ev = Array.from({ length: 8 }, (_, i) => ({
+      ...n('E4', 8),
+      chord: i % 2 ? 'G7sus4' : 'Cmaj7',
+    }));
+    const l = layoutMelody(ev, FOUR, { width: 500 });
+    const ls = labelsOf(l);
+    expect(ls).toHaveLength(8);
+    expect(ls.some((x) => x.c.row === 1)).toBe(true);
+    for (const x of ls) {
+      if (x.c.row === 1) expect(x.c.x).toBe(x.p.glyph.x);
+    }
+    noOverlapPerRow(l);
+    // row 1 sits one row above row 0, inside the system band
+    const y0 = ls.find((x) => x.c.row === 0)!.c.y;
+    const y1 = ls.find((x) => x.c.row === 1)!.c.y;
+    expect(y0 - y1).toBeGreaterThanOrEqual(1.4 * s);
+    const sys = l.systems[0];
+    expect(y1 - 1.4 * s).toBeGreaterThan(sys.top);
+    expect(sys.chordY).toBe(y0);
+  });
+
+  it('too dense for two rows: labels shift right, never overlapping', () => {
+    const ev = Array.from({ length: 16 }, () => ({
+      ...n('E4', 4),
+      chord: 'C7(9,13)',
+    }));
+    const l = layoutMelody(ev, FOUR, { width: 400 });
+    const ls = labelsOf(l);
+    expect(ls.some((x) => x.c.x > x.p.glyph.x)).toBe(true);
+    for (const x of ls) expect(x.c.x).toBeGreaterThanOrEqual(x.p.glyph.x);
+    noOverlapPerRow(l);
+  });
+
+  it('a second chord row makes room above high notes', () => {
+    const ev = Array.from({ length: 8 }, () => ({
+      ...n('G6', 8),
+      chord: 'Cmaj7',
+    }));
+    const l = layoutMelody(ev, FOUR, { width: 400 });
+    const sys = l.systems[0];
+    for (const { c } of labelsOf(l)) {
+      expect(c.y - 1.4 * s).toBeGreaterThan(sys.top);
+    }
+    for (const p of l.pieces) expect(sys.chordY).toBeLessThan(p.box.y1);
+  });
+
+  it('every system has a chord baseline, chords or not', () => {
+    const l = layoutMelody(long, FOUR, { width: 700 });
+    for (const sys of l.systems) {
+      expect(sys.chordY).toBeGreaterThan(sys.top);
+      expect(sys.chordY).toBeLessThan(sys.lineYs[0]);
+    }
+  });
+
+  it('hitTestChord finds the event of the label under the point', () => {
+    const l = layoutMelody([n('C4'), { ...n('D4'), chord: 'Am7' }], FOUR, {
+      width: 800,
+    });
+    const c = l.pieces[1].chordLabel!;
+    expect(hitTestChord(l, c.x + c.width / 2, c.y - 0.5 * s)).toBe(1);
+    expect(hitTestChord(l, c.x - 3 * s, c.y)).toBeNull();
+    expect(hitTestChord(l, c.x + 1, l.systems[0].lineYs[4])).toBeNull();
   });
 });
 

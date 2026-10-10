@@ -76,7 +76,11 @@ export function describeEvent(event: MelodyEvent, index: number): string {
   const length = event.tuplet
     ? tupletSlotLabel(event.tuplet)
     : durationLabel(event.ticks, event.kind === 'rest');
-  if (event.kind === 'rest') return `${head}: ${length}`;
+  if (event.kind === 'rest') {
+    return event.chord
+      ? `${head}: ${length}、コード ${event.chord}`
+      : `${head}: ${length}`;
+  }
   const parts = [
     spokenPitch(event.pitch ?? '?'),
     length,

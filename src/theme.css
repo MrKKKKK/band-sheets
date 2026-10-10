@@ -21,6 +21,9 @@
   --shadow-popover:
     0 4px 16px rgb(26 29 35 / 0.14), 0 1px 3px rgb(26 29 35 / 0.1);
 
+  /* Success (e.g. 「コードを写しました」) */
+  --success: #176b3a; /* ~6.6:1 on --bg */
+
   /* Warning (lyric-syllable mismatch, etc.) */
   --warning: #b45309; /* ~7.1:1 on --bg */
   --warning-bg: #fef3c7;

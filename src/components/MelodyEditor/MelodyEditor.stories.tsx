@@ -816,3 +816,73 @@ export const BarMismatchTupletPartTimeSig: Story = {
     expect(canvas.getByTestId('melody-staff-svg')).toBeInTheDocument();
   },
 };
+
+/** Issue #6 fixture: chart chords on 「き」「ひ」, lyrics already on the notes. */
+const CHORDS_SONG = `{title: コード}
+{key: C}
+{time: 4/4}
+
+{start_of_verse: A}
+[C]きらきら[G7]ひかる
+{end_of_verse}
+
+{start_of_part: Vocal}
+\\section "A"
+:4 C4{lyrics "き"} C4{lyrics "ら"} G4{lyrics "き"} G4{lyrics "ら"} |
+A4{lyrics "ひ"} A4{lyrics "か"} :2 G4{lyrics "る"} |
+{end_of_part}
+`;
+
+const liveOf = (el: HTMLElement) =>
+  within(el).getByTestId('staff-live').textContent ?? '';
+
+/** Copy the chart's chords, then change / delete one with the keyboard. */
+export const CopyChordsThenEdit: Story = {
+  args: { initialText: CHORDS_SONG },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByRole('button', { name: 'コード譜からコードを写す' }),
+    );
+    expect(args.onChange).toHaveBeenCalledOnce();
+    expect(canvas.getByTestId('chord-0')).toHaveTextContent('C');
+    expect(canvas.getByTestId('chord-4')).toHaveTextContent('G7');
+    expect(textOf(canvasElement)).toContain('C4{lyrics "き" ch "C"}');
+    expect(liveOf(canvasElement)).toContain('コードを 2 個、音符に写しました');
+
+    // Select 「ひ」 by clicking it, Shift+C → popover.
+    await clickNote(canvasElement, 'A', 4);
+    await userEvent.keyboard('{Shift>}C{/Shift}');
+    const dialog = await canvas.findByRole('dialog', { name: 'コードを変更' });
+    const input = within(dialog).getByLabelText('コード');
+    await waitFor(() => expect(input).toHaveFocus());
+    await userEvent.clear(input);
+    await userEvent.type(input, 'G7sus4{Enter}');
+    expect(canvas.getByTestId('chord-4')).toHaveTextContent('G7sus4');
+    expect(liveOf(canvasElement)).toContain(
+      '5音目のコードを G7sus4 にしました',
+    );
+    await waitFor(() => expect(staffOf(canvasElement)).toHaveFocus());
+
+    await userEvent.keyboard('{Shift>}{Backspace}{/Shift}');
+    expect(canvas.queryByTestId('chord-4')).toBeNull();
+    expect(canvas.getByTestId('chord-slot')).toBeInTheDocument();
+    expect(liveOf(canvasElement)).toContain('5音目のコードを消しました');
+    // Shift+⌫ never deletes the note itself.
+    expect(canvas.getByTestId('note-4-0')).toBeInTheDocument();
+  },
+};
+
+/** Shift+C with nothing before the cursor: refused with a reason. */
+export const ChordKeyNeedsANote: Story = {
+  args: { initialText: CHORDS_SONG },
+  play: async ({ canvasElement }) => {
+    staffOf(canvasElement).focus();
+    await userEvent.keyboard('{Home}');
+    for (let i = 0; i < 8; i++) await userEvent.keyboard('{ArrowLeft}');
+    await userEvent.keyboard('{Shift>}C{/Shift}');
+    expect(within(canvasElement).getByTestId('editor-error')).toHaveTextContent(
+      'コードを付ける音符を選んでください',
+    );
+  },
+};
