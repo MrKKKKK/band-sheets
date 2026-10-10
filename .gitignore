@@ -35,3 +35,6 @@ storybook-static
 # Vitest
 /coverage
 __screenshots__/
+
+# Audio analysis spike outputs
+spikes/analysis/out/
