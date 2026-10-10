@@ -251,6 +251,41 @@ class TestAlignment(unittest.TestCase):
             self.assertAlmostEqual(chord["value"], 0.5, delta=0.1)
 
 
+class AlignmentStylesTest(unittest.TestCase):
+    """R9: whole-note and arpeggio styles must not produce false FAIL / WARN."""
+
+    def test_whole_compares_onsets_to_nearest_beat(self):
+        beats = np.arange(0, 16) * 0.5  # one onset per bar (every 4th beat), 20 ms late
+        onsets = beats[::4] + 0.02
+        per_beat = CA.onset_offsets(onsets, beats)
+        self.assertGreater(abs(np.median(per_beat)) * 1000, 200)  # the old rule: bogus for sparse onsets
+        for comp, expect_ok in (("whole", True), ("block4", False)):
+            d = CA.onset_offsets(onsets, beats, comp)
+            self.assertEqual(abs(np.median(d)) * 1000 < CA.ONSET_MEDIAN_MS + 1, expect_ok)
+        self.assertAlmostEqual(float(np.median(CA.onset_offsets(onsets, beats, "whole"))), 0.02, places=6)
+
+    def test_quiet_piano_has_lower_chord_limit(self):
+        self.assertEqual(CA.chord_min_share({"pianoGainDb": -9}), CA.CHORD_MIN_SHARE_QUIET)
+        self.assertEqual(CA.chord_min_share({"pianoGainDb": 0}), CA.CHORD_MIN_SHARE)
+        self.assertEqual(CA.chord_min_share({}), CA.CHORD_MIN_SHARE)
+        self.assertLess(CA.CHORD_MIN_SHARE_QUIET, CA.CHORD_MIN_SHARE)
+
+    def test_arpeggio_matches_over_the_chord_span_not_per_beat(self):
+        # C major broken chord, one note per beat: no single beat is a triad, the 2-bar span is
+        tones = {"C": 60, "E": 64, "G": 67}
+        beat, n = 0.5, int(0.5 * SR)
+        notes = ["C", "E", "G", "E"] * 2
+        y = np.concatenate([
+            0.3 * np.sin(2 * np.pi * 440 * 2 ** ((tones[k] - 69) / 12) * np.arange(n) / SR) * np.hanning(n)
+            for k in notes]).astype(np.float32)
+        truth = {"beats": [{"t": i * beat} for i in range(8)],
+                 "chords": [{"start": 0.0, "end": 4.0, "root": "C", "quality": "maj"}]}
+        ok_b, n_b = CA.chord_share(y, SR, truth)
+        ok_s, n_s = CA.chord_share(y, SR, truth, by_span=True)
+        self.assertEqual((ok_s, n_s), (1, 1))
+        self.assertLess(ok_b / n_b, 1.0)
+
+
 def _write_variant(d, rel_dir, name, truth, wav=True, wav_rel=None, truth_rel=None):
     os.makedirs(os.path.join(d, rel_dir), exist_ok=True)
     tp = truth_rel or f"{rel_dir}/{name}.truth.json"
