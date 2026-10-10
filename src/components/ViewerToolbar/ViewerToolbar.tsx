@@ -1,9 +1,11 @@
 import { useLayoutEffect, useRef, useState, type Ref } from 'react';
+import { formatTranspose } from '../../lib/transpose';
 import type { NavMode, ViewerLayout } from '../../lib/viewerSettings';
 import { Button } from '../Button/Button';
 import { Chip } from '../Button/Chip';
 import { Popover, PopoverAnchor } from '../Popover/Popover';
 import { SegmentedControl } from '../SegmentedControl/SegmentedControl';
+import { TransposeControl } from '../TransposeControl/TransposeControl';
 import styles from './ViewerToolbar.module.css';
 
 export type ViewerToolbarProps = {
@@ -28,6 +30,11 @@ export type ViewerToolbarProps = {
   canZoomIn: boolean;
   onZoomOut: () => void;
   onZoomIn: () => void;
+  /** Display-only transposition in semitones (−6..+6). */
+  transpose: number;
+  onTransposeChange: (next: number) => void;
+  /** The song's own key; no key → no key text. */
+  songKey?: string;
   onBack: () => void;
   /** Label of the back button. Default 「← 編集に戻る」. */
   backLabel?: string;
@@ -48,8 +55,20 @@ const NAV_OPTIONS: { value: NavMode; label: string }[] = [
   { value: 'auto', label: '自動' },
 ];
 
-/** Below this bar width the nav / zoom groups are left to the settings drawer and score chips collapse into a popover. */
-export const COMPACT_BELOW_PX = 1400;
+/**
+ * Below this bar width the nav / zoom groups are left to the settings drawer
+ * and score chips collapse into a popover. Was 1400 before issue #7: the
+ * 「移調 ▾」 button adds ~170px and the bar measured 1573px with the title at
+ * its minimum.
+ */
+export const COMPACT_BELOW_PX = 1600;
+
+/**
+ * The transposition group (stepper + key text + 「原曲キーに戻す」, ~600px) is
+ * inline only from this bar width (natural width 1983px with the title at its
+ * minimum); below it the 「移調 ▾」 popover is used.
+ */
+export const TRANSPOSE_INLINE_FROM_PX = 2000;
 
 /** True when the element is narrower than `limit` px (measured on the element, not the viewport). */
 function useNarrow(ref: { current: HTMLElement | null }, limit: number) {
@@ -86,6 +105,9 @@ export function ViewerToolbar({
   canZoomIn,
   onZoomOut,
   onZoomIn,
+  transpose,
+  onTransposeChange,
+  songKey,
   onBack,
   backLabel = '← 編集に戻る',
   onPlayMode,
@@ -96,6 +118,7 @@ export function ViewerToolbar({
   const partBtnRef = useRef<HTMLButtonElement>(null);
   const barRef = useRef<HTMLElement>(null);
   const compact = useNarrow(barRef, COMPACT_BELOW_PX);
+  const transposeInline = !useNarrow(barRef, TRANSPOSE_INLINE_FROM_PX);
 
   const choose = (p: string | null) => {
     onPartChange(p);
@@ -183,6 +206,22 @@ export function ViewerToolbar({
             options={NAV_OPTIONS}
             value={nav}
             onChange={onNavChange}
+          />
+        </>
+      )}
+      {!transposeInline ? (
+        <TransposePopover
+          transpose={transpose}
+          onTransposeChange={onTransposeChange}
+          songKey={songKey}
+        />
+      ) : (
+        <>
+          <span className={styles.sep} aria-hidden="true" />
+          <TransposeControl
+            transpose={transpose}
+            onTransposeChange={onTransposeChange}
+            songKey={songKey}
           />
         </>
       )}
@@ -284,6 +323,51 @@ function ScoreParts({
         aria-label="表示するパート"
       >
         <div className={styles.chipsPopover}>{chips}</div>
+      </Popover>
+    </PopoverAnchor>
+  );
+}
+
+type TransposePopoverProps = {
+  transpose: number;
+  onTransposeChange: (next: number) => void;
+  songKey?: string;
+};
+
+/** Compact bar: one 「移調 −2 ▾」 button opening the stepper in a popover. */
+function TransposePopover({
+  transpose,
+  onTransposeChange,
+  songKey,
+}: TransposePopoverProps) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  return (
+    <PopoverAnchor>
+      <Button
+        ref={btnRef}
+        variant={transpose === 0 ? 'secondary' : 'primary'}
+        className={styles.nowrap}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        data-testid="transpose-button"
+        onClick={() => setOpen((o) => !o)}
+      >
+        移調{transpose === 0 ? '' : ` ${formatTranspose(transpose)}`}
+        <span aria-hidden="true">▾</span>
+      </Button>
+      <Popover
+        open={open}
+        onClose={() => setOpen(false)}
+        anchorRef={btnRef}
+        aria-label="移調"
+      >
+        <TransposeControl
+          variant="popover"
+          transpose={transpose}
+          onTransposeChange={onTransposeChange}
+          songKey={songKey}
+        />
       </Popover>
     </PopoverAnchor>
   );
