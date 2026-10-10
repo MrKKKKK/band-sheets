@@ -15,7 +15,7 @@ bpm: 120
 拍子: 4/4
 キー: F#m
 弾き方: b
-| F | Dm7 G7 | Bb . Am . | N.C. C7(#9) |
+| C | Am7 D7 | F . Em . | N.C. G7(#9) |
 """
 
 
@@ -35,17 +35,17 @@ class TestParseTxt(unittest.TestCase):
         self.assertEqual(a["tempo"], 120.0)
         self.assertEqual(a["key"], "F#m")
         self.assertEqual(a["style"], "b")
-        self.assertEqual(a["bars"][0], [["F", 8]])
-        self.assertEqual(a["bars"][1], [["Dm7", 4], ["G7", 4]])
-        self.assertEqual(a["bars"][2], [["Bb", 4], ["Am", 4]])  # 4 tokens = per beat, '.' continues
-        self.assertEqual(a["bars"][3], [["N.C.", 4], ["C7(#9)", 4]])
+        self.assertEqual(a["bars"][0], [["C", 8]])
+        self.assertEqual(a["bars"][1], [["Am7", 4], ["D7", 4]])
+        self.assertEqual(a["bars"][2], [["F", 4], ["Em", 4]])  # 4 tokens = per beat, '.' continues
+        self.assertEqual(a["bars"][3], [["N.C.", 4], ["G7(#9)", 4]])
         self.assertEqual(a["tempoHint"], 120.0)
 
     def test_per_beat_dots(self):
-        a = I.parse_txt("bpm: 100\n弾き方: a\n| F . Am . |\n")
-        self.assertEqual(a["bars"][0], [["F", 4], ["Am", 4]])
-        a = I.parse_txt("bpm: 100\nstyle: a\n| F . . Am |\n")
-        self.assertEqual(a["bars"][0], [["F", 6], ["Am", 2]])
+        a = I.parse_txt("bpm: 100\n弾き方: a\n| C . Em . |\n")
+        self.assertEqual(a["bars"][0], [["C", 4], ["Em", 4]])
+        a = I.parse_txt("bpm: 100\nstyle: a\n| C . . Em |\n")
+        self.assertEqual(a["bars"][0], [["C", 6], ["Em", 2]])
 
     def test_aliases_fullwidth_and_options(self):
         a = I.parse_txt("bpm：90\ntime: 3/4\nstyle: (c)\npickup: 1拍\nstart: 1.5秒\nclick: なし\nmaximizer: yes\n｜ C ｜ G ｜\n")
@@ -54,13 +54,13 @@ class TestParseTxt(unittest.TestCase):
         self.assertNotIn("tempoHint", a)
 
     def test_errors_are_japanese_with_line_numbers(self):
-        cases = [("bpm: 100\n弾き方: a\n| F | Hm7 |\n", "3行目"),
-                 ("bpm: 100\n弾き方: a\n| F G Am |\n", "等分できません"),
-                 ("bpm: 100\n弾き方: z\n| F |\n", "2行目"),
-                 ("弾き方: a\n| F |\n", "bpm"),
-                 ("bpm: 100\n弾き方: a\n色: 赤\n| F |\n", "3行目"),
-                 ("bpm: 100\n弾き方: a\n拍子: 4/8\n| F |\n", "拍子"),
-                 ("bpm: 100\n弾き方: a\n弱起: 1拍\n開始: 0.1秒\n| F |\n", "小さすぎ"),
+        cases = [("bpm: 100\n弾き方: a\n| C | Hm7 |\n", "3行目"),
+                 ("bpm: 100\n弾き方: a\n| C G Em |\n", "等分できません"),
+                 ("bpm: 100\n弾き方: z\n| C |\n", "2行目"),
+                 ("弾き方: a\n| C |\n", "bpm"),
+                 ("bpm: 100\n弾き方: a\n色: 赤\n| C |\n", "3行目"),
+                 ("bpm: 100\n弾き方: a\n拍子: 4/8\n| C |\n", "拍子"),
+                 ("bpm: 100\n弾き方: a\n弱起: 1拍\n開始: 0.1秒\n| C |\n", "小さすぎ"),
                  ("bpm: 100\n弾き方: a\n", "小節")]
         for text, frag in cases:
             with self.assertRaises(I.IntakeError, msg=text) as cm:
