@@ -1,8 +1,10 @@
 """Assemble the AnalysisResult dict (render/types.ts) from the stage outputs.
 
 Decisions: root names use sharps (score.note_to_pc accepts both); chord segments with no chord (root None)
-are omitted (gaps = no chord); bass is always None; chord text carries '?' for low confidence;
-beats carry bar/beat only from the first downbeat on.
+are omitted (gaps = no chord); bass is None unless chords.slash finds a slash-chord bass (then the
+text is 'C/E'); chord text carries '?' for low confidence; beats carry bar/beat only from the first
+downbeat on. `keys` (per-bar key runs: startBar, tonic, mode, confidence) is written only when
+`bar_keys` is given (key.track == 'sections'), so the spike 1 output is unchanged.
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ import numpy as np
 
 from .chords import ChordSegment, chord_text
 from .config import Config, config_hash, config_summary
-from .types import BeatChord, BeatGrid, Downbeats, Features, Section
+from .types import BarKey, BeatChord, BeatGrid, Downbeats, Features, Section
 
 NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
@@ -37,6 +39,7 @@ def build_result(
     key: tuple[str, str, float] | None,
     cfg: Config,
     timings: dict[str, float] | None = None,
+    bar_keys: list[BarKey] | None = None,
 ) -> dict:
     times = [float(t) for t in grid.times]
     n = len(times)
@@ -59,13 +62,13 @@ def build_result(
     for s in segments:
         if s.root is None:
             continue
-        bc = BeatChord(root=s.root, quality=s.quality, confidence=s.confidence)
+        bc = BeatChord(root=s.root, quality=s.quality, confidence=s.confidence, bass=s.bass)
         chords.append({
             'start': beat_time(s.start_beat),
             'end': beat_time(s.end_beat),
             'root': NOTE_NAMES[s.root % 12],
             'quality': s.quality,
-            'bass': None,
+            'bass': NOTE_NAMES[s.bass % 12] if s.bass is not None else None,
             'text': chord_text(bc, cfg),
             'confidence': float(s.confidence),
         })
@@ -97,4 +100,22 @@ def build_result(
     }
     if key is not None:
         result['key'] = {'tonic': key[0], 'mode': key[1], 'confidence': float(key[2])}
+    if bar_keys is not None:
+        result['keys'] = key_runs(bar_keys)
     return result
+
+
+def key_runs(bar_keys: list[BarKey]) -> list[dict]:
+    """Consecutive bars with the same key -> one run {startBar, tonic, mode, confidence (mean)}."""
+    runs: list[dict] = []
+    confs: list[list[float]] = []
+    for bk in sorted(bar_keys, key=lambda k: k.bar):
+        tonic = NOTE_NAMES[bk.tonic % 12]
+        if runs and runs[-1]['tonic'] == tonic and runs[-1]['mode'] == bk.mode:
+            confs[-1].append(float(bk.confidence))
+            continue
+        runs.append({'startBar': int(bk.bar), 'tonic': tonic, 'mode': bk.mode, 'confidence': 0.0})
+        confs.append([float(bk.confidence)])
+    for r, c in zip(runs, confs):
+        r['confidence'] = float(np.mean(c))
+    return runs

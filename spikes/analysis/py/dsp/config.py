@@ -30,6 +30,8 @@ class BeatsConfig:
     trim: bool = False
     start_bpm: float = 120.0
     tightness: float = 100.0
+    tempo_octave: str = 'none'  # 'none' | 'rule' (spike 2 T6: tempo.choose_octave)
+    tempo_hint: float = 0.0  # BPM the user knows (click tempo, `--tempo`); 0 = none. Never from truth.
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,7 @@ class ChromaConfig:
     bass_fmin_hz: float = 32.7
     bass_octaves: int = 3  # bass chroma = lowest octaves only
     aggregate: str = 'median'  # per-beat aggregation: 'median' | 'mean'
+    top_voice_discount: float = 0.0  # 0 = off (spike 2 T12: voicing.discount_top_voice)
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,17 @@ class ChordsConfig:
     low_confidence: float = 0.1  # below this, text gets '?'
     no_chord_energy: float = 0.02  # chroma total below this -> no chord
     merge_min_beats: int = 1  # merge into spans; spans shorter than this get absorbed
+    # spike 2 switches (docs/audio-spike2-plan.md §5 "共通の形"); every default = spike 1 behaviour
+    resolution: str = 'beat'  # 'beat' | 'eighth' (T13)
+    confidence: str = 'margin'  # 'margin' | 'posterior' (T9: posterior.chord_posterior)
+    harmonics: str = 'none'  # 'none' | 'fixed' | 'profile' (T11: harmonics.templates)
+    harmonic_decay: float = 0.6  # 'fixed': weight of harmonic n = decay**(n-1)
+    bass_root: str = 'none'  # 'none' | 'lowest' | 'first' | 'octave' (T10: bassroot.root_evidence)
+    bass_root_weight: float = 0.0
+    slash: bool = False  # output slash chords (T10: bassroot.bass_notes)
+    seventh_mode: str = 'beat'  # 'beat' | 'segment' (T8: seventh.decide_segments)
+    vocab: str = 'v1'  # 'v1' (maj/min/7/maj7/min7) | 'v2' (design decision 8, T21: vocab.states)
+    theory_prior: float = 0.0  # 0 = off; strength of the theory prior (T26: harmony.transition, 2nd pass)
 
 
 @dataclass(frozen=True)
@@ -82,11 +96,15 @@ class SectionsConfig:
     repetition_weight: float = 0.5  # weight of the repetition-structure (lag) novelty
     snap_min_ratio: float = 0.8  # a loudness step at the grid bar < this x the step at the peak keeps the peak (0 = always snap)
     noise_factor: float = 2.5  # a peak must be >= this x the median valley of the novelty curve
+    percussive_weight: float = 0.0  # 0 = off (spike 2 T7)
 
 
 @dataclass(frozen=True)
 class KeyConfig:
     enabled: bool = True
+    track: str = 'global'  # 'global' (spike 1) | 'sections' (per-bar key HMM, T22: keytrack.estimate)
+    change_cost_mid: float = 0.0  # key change cost inside a section (T22 sets the value)
+    change_cost_boundary: float = 0.0  # key change cost at a section boundary
 
 
 @dataclass(frozen=True)
@@ -155,9 +173,45 @@ def load_config(path: str | None) -> Config:
         return apply_overrides(cfg, json.load(f))
 
 
+# Spike 2 fields and the value that means "off" (= spike 1 behaviour). A field at its off value is
+# left out of config_hash, so a config with every switch off keeps its spike 1 hash (results and
+# baselines stay comparable). Fixed values, not the current defaults: if T14 turns a switch on by
+# default, the hash changes as it should.
+SPIKE1_OFF_VALUES: dict[str, dict[str, Any]] = {
+    'beats': {'tempo_octave': 'none', 'tempo_hint': 0.0},
+    'chroma': {'top_voice_discount': 0.0},
+    'chords': {
+        'resolution': 'beat',
+        'confidence': 'margin',
+        'harmonics': 'none',
+        'harmonic_decay': 0.6,
+        'bass_root': 'none',
+        'bass_root_weight': 0.0,
+        'slash': False,
+        'seventh_mode': 'beat',
+        'vocab': 'v1',
+        'theory_prior': 0.0,
+    },
+    'sections': {'percussive_weight': 0.0},
+    'key': {'track': 'global', 'change_cost_mid': 0.0, 'change_cost_boundary': 0.0},
+}
+
+
+def _hash_dict(cfg: Config) -> dict[str, Any]:
+    d = config_to_dict(cfg)
+    for group, offs in SPIKE1_OFF_VALUES.items():
+        for k, off in offs.items():
+            if d[group][k] == off:
+                del d[group][k]
+    return d
+
+
 def config_hash(cfg: Config) -> str:
-    """12 hex chars of SHA-256 over the canonical JSON of all values (name included)."""
-    canon = json.dumps(config_to_dict(cfg), sort_keys=True, separators=(',', ':'))
+    """12 hex chars of SHA-256 over the canonical JSON of all values (name included).
+
+    Spike 2 fields at their off value (SPIKE1_OFF_VALUES) are left out, so spike 1 hashes are kept.
+    """
+    canon = json.dumps(_hash_dict(cfg), sort_keys=True, separators=(',', ':'))
     return hashlib.sha256(canon.encode('utf-8')).hexdigest()[:12]
 
 

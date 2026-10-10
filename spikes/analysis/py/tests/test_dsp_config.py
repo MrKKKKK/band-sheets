@@ -7,6 +7,7 @@ from dataclasses import FrozenInstanceError
 import numpy as np
 
 from py.dsp.config import (
+    SPIKE1_OFF_VALUES,
     Config,
     apply_overrides,
     config_hash,
@@ -14,7 +15,9 @@ from py.dsp.config import (
     config_to_dict,
     load_config,
 )
-from py.dsp.types import BeatChord, BeatGrid, Downbeats, Features, Section
+from py.dsp.types import BarKey, BeatChord, BeatGrid, Downbeats, Features, Section
+
+SPIKE1_DEFAULT_HASH = '99f2c324b973'  # config_hash(Config()) before spike 2 (results/ and baselines use it)
 
 
 class ConfigTest(unittest.TestCase):
@@ -76,6 +79,46 @@ class ConfigTest(unittest.TestCase):
                 json.dump({'sections': {'min_section_bars': 8}}, f)
             self.assertEqual(load_config(p), c)
         self.assertEqual(load_config(None), Config())
+
+
+class Spike2ConfigTest(unittest.TestCase):
+    def test_switches_default_off(self):
+        c = Config()
+        self.assertEqual((c.beats.tempo_octave, c.beats.tempo_hint), ('none', 0.0))
+        self.assertEqual(c.chroma.top_voice_discount, 0.0)
+        cc = c.chords
+        self.assertEqual(
+            (cc.resolution, cc.confidence, cc.harmonics, cc.harmonic_decay, cc.bass_root, cc.bass_root_weight,
+             cc.slash, cc.seventh_mode, cc.vocab, cc.theory_prior),
+            ('beat', 'margin', 'none', 0.6, 'none', 0.0, False, 'beat', 'v1', 0.0),
+        )
+        self.assertEqual(c.sections.percussive_weight, 0.0)
+        self.assertEqual((c.key.track, c.key.change_cost_mid, c.key.change_cost_boundary), ('global', 0.0, 0.0))
+
+    def test_off_values_are_the_defaults(self):
+        d = config_to_dict(Config())
+        for group, offs in SPIKE1_OFF_VALUES.items():
+            for k, v in offs.items():
+                self.assertEqual(d[group][k], v, f'{group}.{k}')
+
+    def test_default_hash_is_spike1_hash(self):
+        self.assertEqual(config_hash(Config()), SPIKE1_DEFAULT_HASH)
+        self.assertEqual(config_summary(Config()), {})
+
+    def test_switch_changes_hash_and_summary(self):
+        seen = {config_hash(Config())}
+        for group, offs in SPIKE1_OFF_VALUES.items():
+            for k, off in offs.items():
+                on = (not off) if isinstance(off, bool) else ('x' if isinstance(off, str) else off + 0.25)
+                c = apply_overrides(Config(), {group: {k: on}})
+                h = config_hash(c)
+                self.assertNotIn(h, seen, f'{group}.{k}')
+                seen.add(h)
+                self.assertEqual(config_summary(c), {group: {k: on}})
+
+    def test_bar_key(self):
+        k = BarKey(3, 7, 'major', 0.5)
+        self.assertEqual((k.bar, k.tonic, k.mode, k.confidence), (3, 7, 'major', 0.5))
 
 
 class TypesTest(unittest.TestCase):

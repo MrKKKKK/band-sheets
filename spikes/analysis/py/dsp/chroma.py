@@ -1,6 +1,9 @@
 """Per-beat chroma (docs/audio-spike1-plan.md, T3).
 
 beat_chroma(feat, grid, cfg) -> (chroma, bass), both shape (12, len(grid.times)).
+beat_chroma_bounds(feat, grid, cfg) -> (chroma, bass, bounds): also the column frame boundaries
+  (length n + 1) for the spike 2 hooks (bassroot). With chroma.top_voice_discount > 0 the full-range
+  frame chroma first goes through voicing.discount_top_voice (spike 2 T12).
 Column i covers [times[i], times[i+1]); the last column runs to the end of the audio.
 Frames before the first beat are dropped. Built by hand from frame indexes instead of
 librosa.util.sync, which returns an extra leading column for the pre-first-beat region.
@@ -15,6 +18,7 @@ from __future__ import annotations
 import librosa
 import numpy as np
 
+from . import voicing
 from .config import Config
 from .types import BeatGrid, Features
 
@@ -64,17 +68,24 @@ def last_beat_end(times, duration: float) -> float:
 
 
 def beat_chroma(feat: Features, grid: BeatGrid, cfg: Config) -> tuple[np.ndarray, np.ndarray]:
+    chroma, bass, _ = beat_chroma_bounds(feat, grid, cfg)
+    return chroma, bass
+
+
+def beat_chroma_bounds(feat: Features, grid: BeatGrid, cfg: Config) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     cc = cfg.chroma
     n = len(grid.times)
     if n == 0:
-        return np.zeros((12, 0)), np.zeros((12, 0))
+        return np.zeros((12, 0)), np.zeros((12, 0)), np.zeros(1, dtype=int)
     if cc.aggregate not in ('median', 'mean'):
         raise ValueError(f'unknown chroma aggregate: {cc.aggregate!r}')
     y = feat.y_harm
     full = _frame_chroma(y, feat.sr, feat.hop, cc.fmin_hz, cc.n_octaves, cc.bins_per_octave, cc.kind)
+    if cc.top_voice_discount > 0:
+        full = voicing.discount_top_voice(full, feat, cfg)
     bass = _frame_chroma(y, feat.sr, feat.hop, cc.bass_fmin_hz, cc.bass_octaves, cc.bins_per_octave, cc.kind)
     n_frames = full.shape[1]
     starts = librosa.time_to_frames(np.asarray(grid.times, dtype=float), sr=feat.sr, hop_length=feat.hop)
     end_frame = int(librosa.time_to_frames(last_beat_end(grid.times, feat.duration), sr=feat.sr, hop_length=feat.hop))
     bounds = np.append(np.clip(starts, 0, n_frames), min(max(end_frame, 0), n_frames))
-    return _aggregate(full, bounds, cc.aggregate), _aggregate(bass, bounds, cc.aggregate)
+    return _aggregate(full, bounds, cc.aggregate), _aggregate(bass, bounds, cc.aggregate), bounds
