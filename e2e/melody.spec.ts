@@ -50,6 +50,14 @@ test('melody: type notes, import lyrics from the chart, persist across reload', 
   // M2 regression: the alphaTab preview (mounted while the tab was hidden)
   // has drawn the melody part shortly after the tab opened.
   const preview = page.getByRole('region', { name: '仕上がりの確認' });
+  // alphaTab lazy-loads: it draws a partial only once it's in the viewport.
+  // (This used to pass only because alphaTab's own auto-scroll dragged the
+  // page down to the preview — the bug editor-scroll.spec.ts guards.)
+  const score = preview.locator('[data-state]');
+  await expect(score).toHaveAttribute('data-state', 'rendered', {
+    timeout: 5000,
+  });
+  await score.evaluate((e) => e.scrollIntoView({ block: 'start' }));
   await expect(preview.locator('svg').first()).toBeVisible({ timeout: 5000 });
 
   // コード譜から歌詞を取り込む: the chart's syllables (き ら き ら ひ か る

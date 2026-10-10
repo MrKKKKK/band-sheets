@@ -2,6 +2,7 @@ import {
   AlphaTabApi,
   FontFileFormat,
   NotationElement,
+  ScrollMode,
   Settings,
 } from '@coderline/alphatab';
 import bravuraOtf from '@coderline/alphatab/font/Bravura.otf?url';
@@ -50,6 +51,11 @@ function createSettings(): Settings {
     [FontFileFormat.OpenType, bravuraOtf],
   ]);
   settings.player.enablePlayer = false;
+  // Even without a player, alphaTab places its beat cursor after every
+  // render and the default scroll handler (ScrollMode.Continuous) then
+  // smooth-scrolls the page (html/body) to that beat: in the editors this
+  // yanked the window down to the preview on every note input.
+  settings.player.scrollMode = ScrollMode.Off;
   settings.notation.elements.set(NotationElement.EffectDynamics, false);
   return settings;
 }
