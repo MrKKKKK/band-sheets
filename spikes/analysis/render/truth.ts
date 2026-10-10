@@ -5,9 +5,13 @@
 // drum track MUST be first: alphaTab applies `\tf` (shuffle) per master bar,
 // but only to every bar when the first track carries it (otherwise only the
 // bars that state `\tf` themselves). A straight variant rewrites every `\tf`
-// to `\tf none`; the tempo is the variant's.
+// to `\tf none`; the tempo is the variant's. Tempo drift (`variant.tempoCurve`,
+// one BPM per bar) is applied to the imported score by `applyTempoCurve`
+// (one `Automation.buildTempoAutomation` at the start of each master bar),
+// before `generateMidi`.
 //
-// Truth (`buildTruth`), all times in seconds = tick / 960 × 60 / tempo:
+// Truth (`buildTruth`), all times in seconds from ticks, piecewise over the
+// MIDI's tempo changes (tick / 960 × 60 / tempo within one tempo):
 // - beats / downbeats: master bar start ticks + time signature;
 // - sections: master bar `section` markers (must match the chart order);
 // - melody notes and drum hits: the generated MIDI's note-on/off, NOT the
@@ -18,8 +22,9 @@
 // - leadInSec (variant): every time above is shifted by it (silence before bar 0);
 // - durationSec: the end of the last master bar (+ lead-in), NOT the wav
 //   length (the wav has a release tail; `source.audioSec` is its length).
-// Anything inconsistent (track order, more than one tempo, sections, bar
-// counts, a padded/missing bar in any track) throws a Japanese Error.
+// Anything inconsistent (track order, a tempo that is not the variant's /
+// its tempoCurve — changes only at bar starts —, sections, bar counts, a
+// padded/missing bar in any track) throws a Japanese Error.
 
 import * as alphaTab from '@coderline/alphatab';
 import type { midi as alphaMidi, model } from '@coderline/alphatab';
@@ -94,6 +99,29 @@ export function buildScoreTex(song: Song, pianoBody: string, variant: Variant): 
   });
 }
 
+/**
+ * Applies `variant.tempoCurve` (one BPM per master bar; bar 0 must equal
+ * `variant.tempo`) as a tempo automation at the start of every master bar,
+ * replacing the ones from the alphaTex. No-op without a curve. Call after
+ * `importScore` and before `generateMidi`.
+ */
+export function applyTempoCurve(score: model.Score, variant: Variant): void {
+  const curve = variant.tempoCurve;
+  if (curve === undefined) return;
+  const bars = score.masterBars;
+  if (curve.length !== bars.length) {
+    throw new Error(`tempoCurve の長さ ${curve.length} が楽譜の小節数 ${bars.length} と違います`);
+  }
+  const bad = curve.findIndex((bpm) => !(Number.isFinite(bpm) && bpm > 0));
+  if (bad >= 0) throw new Error(`tempoCurve の ${bad + 1} 小節目のテンポ ${curve[bad]} が正の数ではありません`);
+  if (curve[0] !== variant.tempo) {
+    throw new Error(`tempoCurve の最初のテンポ ${curve[0]} が変化形「${variant.name}」のテンポ ${variant.tempo} と違います`);
+  }
+  bars.forEach((mb, i) => {
+    mb.tempoAutomations = [alphaTab.model.Automation.buildTempoAutomation(false, 0, curve[i], 0)];
+  });
+}
+
 /** Imports an alphaTex document (throws alphaTab's error on bad input). */
 export function importScore(tex: string, settings = new alphaTab.Settings()): model.Score {
   const importer = new alphaTab.importer.AlphaTexImporter();
@@ -147,29 +175,15 @@ export function buildTruth(input: TruthInput): AnalysisResult {
     throw new Error(`メロディのトラックが 2 つ以上あります（${melodyTracks.map((t) => t.name).join(', ')}）`);
   }
 
-  // ---- tempo: exactly one, equal to the variant's ----
   const T = alphaTab.midi.MidiEventType;
   if (midi.division !== QUARTER_TICKS) throw new Error(`MIDI の分解能が ${midi.division} です（960 のはず）`);
   if (midi.tickShift !== 0) throw new Error(`MIDI の tickShift が ${midi.tickShift} です（弱起の小節は扱えません）`);
-  const tempos = midi.events.filter((e) => e.type === T.TempoChange) as alphaMidi.TempoChangeEvent[];
-  const automations = score.masterBars.flatMap((mb) => mb.tempoAutomations);
   const tempo = score.tempo;
-  if (
-    tempos.length !== 1 ||
-    tempos[0].tick !== 0 ||
-    tempos[0].beatsPerMinute !== tempo ||
-    automations.some((a) => a.value !== tempo)
-  ) {
-    throw new Error(
-      `テンポが 1 つではありません（MIDI: ${tempos.map((e) => `${e.beatsPerMinute}@${e.tick}`).join(', ')}）`,
-    );
-  }
   if (tempo !== variant.tempo) {
     throw new Error(`楽譜のテンポ ${tempo} が変化形「${variant.name}」のテンポ ${variant.tempo} と違います`);
   }
   const leadIn = variant.leadInSec ?? 0;
   if (!(leadIn >= 0)) throw new Error(`leadInSec ${leadIn} が負です`);
-  const sec = (tick: number) => round(leadIn + ((tick / QUARTER_TICKS) * 60) / tempo);
 
   // ---- bars, time signature, beats ----
   const masterBars = score.masterBars;
@@ -200,6 +214,53 @@ export function buildTruth(input: TruthInput): AnalysisResult {
     }
   });
   const endTick = masterBars.length * barTicks;
+
+  // ---- tempo: the variant's, or its tempoCurve per bar; changes only at bar starts ----
+  const expected = variant.tempoCurve ?? masterBars.map(() => variant.tempo);
+  if (expected.length !== masterBars.length) {
+    throw new Error(`tempoCurve の長さ ${expected.length} が楽譜の小節数 ${masterBars.length} と違います`);
+  }
+  const sameTempo = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * b;
+  masterBars.forEach((mb, i) => {
+    const off = mb.tempoAutomations.find((a) => a.ratioPosition !== 0 || a.isLinear || !sameTempo(a.value, expected[i]));
+    if (off) {
+      throw new Error(`${i + 1} 小節目の楽譜のテンポ ${off.value} が ${expected[i]} と違います（tempoCurve を applyTempoCurve で反映しましたか）`);
+    }
+  });
+  const tempoEvents = (midi.events.filter((e) => e.type === T.TempoChange) as alphaMidi.TempoChangeEvent[])
+    .slice()
+    .sort((a, b) => a.tick - b.tick);
+  if (tempoEvents.length === 0 || tempoEvents[0].tick !== 0) {
+    throw new Error('MIDI の先頭にテンポがありません');
+  }
+  const midBar = tempoEvents.find((e) => e.tick % barTicks !== 0);
+  if (midBar) {
+    throw new Error(`MIDI のテンポが ${Math.floor(midBar.tick / barTicks) + 1} 小節目の途中（tick ${midBar.tick}）で変わります`);
+  }
+  // Tempo in effect over each bar, from the MIDI (the last change at a tick wins).
+  const barTempo: number[] = [];
+  let k = 0;
+  let current = tempoEvents[0].beatsPerMinute;
+  for (let i = 0; i < masterBars.length; i++) {
+    const start = i * barTicks;
+    while (k < tempoEvents.length && tempoEvents[k].tick <= start) current = tempoEvents[k++].beatsPerMinute;
+    if (!sameTempo(current, expected[i])) {
+      throw new Error(`${i + 1} 小節目のテンポ ${current} が ${expected[i]} と違います（MIDI: ${tempoEvents.map((e) => `${e.beatsPerMinute}@${e.tick}`).join(', ')}）`);
+    }
+    barTempo.push(current);
+  }
+  if (k < tempoEvents.length) {
+    throw new Error(`MIDI の曲の終わり以降（tick ${tempoEvents[k].tick}）にテンポの変更があります`);
+  }
+  // Seconds at each bar start (before the lead-in), then linear within a bar.
+  const barSec = [0];
+  barTempo.forEach((bpm, i) => barSec.push(barSec[i] + ((barTicks / QUARTER_TICKS) * 60) / bpm));
+  const sec = (tick: number) => {
+    if (!(tick >= 0)) throw new Error(`tick ${tick} が負です`);
+    // Past the end (a note-off after the last bar) continues at the last bar's tempo.
+    const bar = Math.min(Math.floor(tick / barTicks), masterBars.length - 1);
+    return round(leadIn + barSec[bar] + (((tick - bar * barTicks) / QUARTER_TICKS) * 60) / barTempo[bar]);
+  };
   const beats = masterBars.flatMap((mb, bar) =>
     Array.from({ length: num }, (_, beat) => ({
       t: sec(mb.start + beat * beatTicks),

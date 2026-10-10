@@ -2,7 +2,9 @@ import json
 import os
 import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 import numpy as np
 import soundfile as sf
@@ -247,6 +249,167 @@ class TestAlignment(unittest.TestCase):
             chord = next(c for c in checks if c["label"] == "chord")
             self.assertFalse(chord["ok"])
             self.assertAlmostEqual(chord["value"], 0.5, delta=0.1)
+
+
+def _write_variant(d, rel_dir, name, truth, wav=True, wav_rel=None, truth_rel=None):
+    os.makedirs(os.path.join(d, rel_dir), exist_ok=True)
+    tp = truth_rel or f"{rel_dir}/{name}.truth.json"
+    with open(os.path.join(d, tp), "w") as f:
+        json.dump(truth, f)
+    wp = wav_rel or f"{rel_dir}/{name}.wav"
+    if wav:
+        os.makedirs(os.path.dirname(os.path.join(d, wp)), exist_ok=True)
+        write_chords(os.path.join(d, wp), truth, extra_tail=0.0)
+    return wp, tp
+
+
+def _quiet(*a, **k):
+    pass
+
+
+class TestLevels(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, derived=True, rec=True):
+        d = self.d
+        truth = make_truth()
+        wa, ta = _write_variant(d, "saints", "s0", truth)
+        wb, tb = _write_variant(d, "saints", "s0b", truth)
+        with open(os.path.join(d, "manifest.json"), "w") as f:
+            json.dump({"variants": [
+                {"name": "s0", "song": "saints", "wav": wa, "truth": ta},
+                {"name": "s0b", "song": "saints", "level": 1, "wav": wb, "truth": tb}]}, f)
+        if derived:
+            w1, t1 = _write_variant(d, "derived", "s0-n", truth)
+            w2, t2 = _write_variant(d, "derived", "h-n", truth)
+            with open(os.path.join(d, "derived", "manifest.derived.json"), "w") as f:
+                json.dump([
+                    {"name": "s0-n", "song": "saints", "base": "s0", "level": 1, "heldOut": False,
+                     "degrade": {"noiseSnrDb": 30}, "wav": w1, "truth": t1},
+                    {"name": "h-n", "song": "etude2", "base": "h", "level": 1, "heldOut": True,
+                     "degrade": {}, "wav": w2, "truth": t2}], f)
+        if rec:
+            os.makedirs(os.path.join(d, "rec"))
+            os.makedirs(os.path.join(os.path.dirname(d), "x"), exist_ok=True)
+            _write_variant(d, "rec", "take1", truth, wav_rel="rec/take1.wav")
+            with open(os.path.join(d, "rec", "manifest.rec.json"), "w") as f:
+                json.dump({"variants": [{"name": "rec-take1", "song": "rec", "level": "REC", "heldOut": False,
+                                         "wav": "rec/take1.wav", "truth": "rec/take1.truth.json"}]}, f)
+
+    def _run(self, **kw):
+        kw.setdefault("analyzers", ["oracle", "constant"])
+        return RA.run_all(self.d, log=_quiet, **kw)[0]
+
+    def test_load_variants_three_manifests(self):
+        self._build()
+        vs = {v["name"]: v for v in RA.load_variants(self.d)}
+        self.assertEqual(set(vs), {"s0", "s0b", "s0-n", "h-n", "rec-take1"})
+        self.assertEqual(vs["s0"]["level"], "0")
+        self.assertEqual(vs["s0b"]["level"], "1")
+        self.assertEqual(vs["rec-take1"]["level"], "REC")
+        self.assertTrue(vs["h-n"]["heldOut"])
+        self.assertFalse(vs["s0-n"]["heldOut"])
+
+    def test_derived_and_rec_missing(self):
+        self._build(derived=False, rec=False)
+        rows = self._run()
+        self.assertEqual({r["variant"] for r in rows}, {"s0", "s0b"})
+        self.assertTrue(os.path.exists(os.path.join(self.d, "results", "summary.levels.md")))
+
+    def test_rec_manifest_read_and_wav_outside_out(self):
+        self._build(derived=False)
+        rows = self._run(only="rec-*")
+        self.assertEqual({(r["variant"], r["level"], r["song"]) for r in rows},
+                         {("rec-take1", "REC", "rec")})
+
+    def test_level_means_and_heldout_excluded(self):
+        self._build()
+        rows = self._run(analyzers=["oracle"])
+        # make the held-out and level-1 constant distinguishable by tweaking one value
+        for r in rows:
+            r["values"] = [0.0] * len(r["values"])
+        by = {r["variant"]: r for r in rows}
+        by["s0b"]["values"] = [1.0] * len(RA.COLUMNS)
+        by["s0-n"]["values"] = [0.5] * len(RA.COLUMNS)
+        by["h-n"]["values"] = [0.9] * len(RA.COLUMNS)
+        tuned = [r for r in rows if not r["heldOut"]]
+        gm = RA.group_means(tuned, lambda r: (r["level"], r["analyzer"]))
+        self.assertEqual(gm[("0", "oracle")][0], 1)
+        self.assertEqual(gm[("1", "oracle")], (2, [0.75] * len(RA.COLUMNS)))
+        self.assertIn(("REC", "oracle"), gm)
+        md = RA.levels_markdown(rows)
+        held = md.split("## ホールドアウト")[1]
+        self.assertIn("h-n", held)
+        self.assertNotIn("h-n", md.split("## ホールドアウト")[0])
+        self.assertIn("0.750", md.split("## ホールドアウト")[0])
+
+    def test_none_ignored_in_means(self):
+        rows = [{"variant": "a", "analyzer": "x", "song": "s", "level": "0", "heldOut": False,
+                 "values": [None] * len(RA.COLUMNS)},
+                {"variant": "b", "analyzer": "x", "song": "s", "level": "0", "heldOut": False,
+                 "values": [0.4] + [None] * (len(RA.COLUMNS) - 1)}]
+        n, means = RA.group_means(rows, lambda r: r["level"])["0"]
+        self.assertEqual(n, 2)
+        self.assertAlmostEqual(means[0], 0.4)
+        self.assertIsNone(means[1])
+
+    def test_only_filter(self):
+        self._build()
+        rows = self._run(only="s0-*")
+        self.assertEqual({r["variant"] for r in rows}, {"s0-n"})
+
+    def test_dsp_skipped_when_analyze_absent(self):
+        self._build(derived=False, rec=False)
+        msgs = []
+        with mock.patch.dict(sys.modules, {"analyze": None}):
+            rows = RA.run_all(self.d, ["oracle", "dsp-v1"], log=msgs.append)[0]
+        self.assertEqual({r["analyzer"] for r in rows}, {"oracle"})
+        self.assertTrue(any("SKIP dsp-v1" in m for m in msgs), msgs)
+
+    def test_dsp_gets_only_wav_path(self):
+        self._build(derived=False, rec=False)
+        calls = []
+        fake = types.ModuleType("analyze")
+        fake.analyze = lambda wav, cfg: calls.append((wav, cfg)) or baseline.constant(8.0)
+        cfgp = os.path.join(self.d, "c.json")
+        with open(cfgp, "w") as f:
+            json.dump({}, f)
+        with mock.patch.dict(sys.modules, {"analyze": fake}):
+            rows = RA.run_all(self.d, ["dsp-v1"], dsp_config=cfgp, dsp_name="dsp-v1-x", log=_quiet)[0]
+        self.assertEqual({r["analyzer"] for r in rows}, {"dsp-v1-x"})
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(calls[0][0].endswith(".wav"))
+        self.assertTrue(os.path.exists(os.path.join(self.d, "results", "s0.dsp-v1-x.json")))
+
+    def test_mode_chord_ignores_truth(self):
+        with tempfile.TemporaryDirectory() as d:
+            truth = make_truth()  # Gm then C7: G minor triad + C dominant, both in the wav
+            p = os.path.join(d, "a.wav")
+            write_chords(p, truth, extra_tail=0.0)
+            base = baseline.ANALYZERS2["mode-chord"](truth, p)
+            bad = make_truth(bpm=90)
+            bad["chords"] = [{"start": 0, "end": 8, "root": "F#", "quality": "min", "bass": None,
+                              "text": "F#m", "confidence": 1}]
+            self.assertEqual(baseline.ANALYZERS2["mode-chord"](bad, p), base)
+            self.assertEqual(base["analyzer"]["name"], "mode-chord")
+            self.assertEqual(len(base["chords"]), 1)
+            self.assertEqual(len(base["beats"]), 16)
+            self.assertIn(base["chords"][0]["root"], ("G", "C", "Bb", "Eb"))
+
+    def test_mode_chord_picks_chord_from_wav(self):
+        with tempfile.TemporaryDirectory() as d:
+            truth = make_truth()
+            truth["chords"] = [{"start": 0, "end": 8, "root": "A", "quality": "min", "bass": None,
+                                "text": "Am", "confidence": 1}]
+            p = os.path.join(d, "a.wav")
+            write_chords(p, truth, extra_tail=0.0)
+            r = baseline.mode_chord_from_wav(p)
+            self.assertEqual((r["chords"][0]["root"], r["chords"][0]["quality"]), ("A", "min"))
 
 
 if __name__ == "__main__":

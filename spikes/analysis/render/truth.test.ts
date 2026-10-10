@@ -4,6 +4,7 @@ import { saintsSampleText } from '../../../src/lib/saintsSample';
 import type { Song } from '../../../src/lib/song';
 import { chordsPerBeat, chordTimeline } from './chordTimeline';
 import {
+  applyTempoCurve,
   buildScoreTex,
   buildTruth,
   generateMidi,
@@ -46,6 +47,7 @@ function variant(
 
 function input(tex: string, v: Variant, t: ChordTimeline = timeline): TruthInput {
   const score = importScore(tex);
+  applyTempoCurve(score, v);
   setPrograms(score);
   return {
     score,
@@ -304,6 +306,15 @@ describe('buildTruth: consistency checks', () => {
     expect(() => buildTruth(input(tex, { ...v, tempo: 120 }))).toThrow(/テンポ/);
   });
 
+  it('rejects a curve that was not applied to the score', () => {
+    const curved = { ...v, tempoCurve: Array.from({ length: 32 }, (_, i) => 116 + (i % 2)) };
+    const score = importScore(tex);
+    setPrograms(score);
+    expect(() => buildTruth({ ...input(tex, v), score, midi: generateMidi(score), variant: curved })).toThrow(
+      /テンポ/,
+    );
+  });
+
   it('rejects a tempo change inside the song', () => {
     const changed = tex.replace(
       /(\\track "Vocal"[\s\S]*?\\section "B"\n)/,
@@ -336,5 +347,123 @@ describe('buildTruth: consistency checks', () => {
 
   it('rejects a shuffle in a straight variant', () => {
     expect(() => buildTruth(input(tex, { ...v, swing: 'none' }))).toThrow(/シャッフル/);
+  });
+});
+
+describe('tempo drift (variant.tempoCurve)', () => {
+  // Bar 0 at 116, bar 1 at 117, then 118, 117, 116, 115, … (±1 BPM per bar).
+  const curve = Array.from({ length: 32 }, (_, i) => 116 + [0, 1, 2, 1, 0, -1, -2, -1][i % 8]);
+  const BAR0 = (4 * 60) / 116; // 2.068966
+  const BAR1 = (4 * 60) / 117; // 2.051282
+  const barStart = (bar: number) => {
+    let t = 0;
+    for (let i = 0; i < bar; i++) t += (4 * 60) / curve[i];
+    return t;
+  };
+  const curved = (v: Variant): Variant => ({ ...v, tempoCurve: curve, name: `${v.name}-drift` });
+
+  it('applyTempoCurve sets one tempo automation per master bar, and nothing without a curve', () => {
+    const v = curved(variant('full', 116, 'asWritten'));
+    const score = importScore(buildScoreTex(saints, pianoBody, v));
+    applyTempoCurve(score, v);
+    expect(score.tempo).toBe(116);
+    score.masterBars.forEach((mb, i) => {
+      expect(mb.tempoAutomations.map((a) => [a.ratioPosition, a.value, a.isLinear])).toEqual([
+        [0, curve[i], false],
+      ]);
+    });
+    const plain = variant('full', 116, 'asWritten');
+    const s2 = importScore(buildScoreTex(saints, pianoBody, plain));
+    applyTempoCurve(s2, plain);
+    expect(s2.masterBars.map((mb) => mb.tempoAutomations.length)).toEqual([1, ...Array(31).fill(0)]);
+  });
+
+  it('applyTempoCurve rejects a curve of the wrong length, a bad tempo, or bar 0 ≠ variant tempo', () => {
+    const v = variant('full', 116, 'asWritten');
+    const tex = buildScoreTex(saints, pianoBody, v);
+    expect(() => applyTempoCurve(importScore(tex), { ...v, tempoCurve: curve.slice(1) })).toThrow(
+      /tempoCurve.*31.*32/,
+    );
+    expect(() =>
+      applyTempoCurve(importScore(tex), { ...v, tempoCurve: curve.map((x, i) => (i === 5 ? 0 : x)) }),
+    ).toThrow(/tempoCurve/);
+    expect(() =>
+      applyTempoCurve(importScore(tex), { ...v, tempoCurve: curve.map((x, i) => (i === 0 ? 120 : x)) }),
+    ).toThrow(/tempoCurve.*116/);
+  });
+
+  it('times beats piecewise: bar 1 at 4 × 60/116 s, bar 2 at that + 4 × 60/117 s', () => {
+    const truth = truthFor(curved(variant('full', 116, 'asWritten')));
+    const beats = truth.beats!;
+    expect(beats).toHaveLength(128);
+    expect(beats[0].t).toBe(0);
+    expect(beats[4]).toMatchObject({ bar: 1, beat: 0, downbeat: true });
+    expect(beats[4].t).toBeCloseTo(BAR0, 6);
+    expect(beats[5].t).toBeCloseTo(BAR0 + 60 / 117, 6);
+    expect(beats[8].t).toBeCloseTo(BAR0 + BAR1, 6);
+    expect(beats[12].t).toBeCloseTo(BAR0 + BAR1 + (4 * 60) / 118, 6);
+    beats.forEach((b, i) => {
+      const [bar, beat] = [Math.floor(i / 4), i % 4];
+      expect(b).toMatchObject({ bar, beat });
+      expect(b.t).toBeCloseTo(barStart(bar) + (beat * 60) / curve[bar], 6);
+    });
+    expect(truth.source.durationSec).toBeCloseTo(barStart(32), 6);
+    expect(truth.render!.tempo).toBe(116);
+    const [a, b] = truth.sections!;
+    expect(a.end).toBeCloseTo(barStart(16), 6);
+    expect(b.start).toBeCloseTo(barStart(16), 6);
+    expect(b.end).toBeCloseTo(barStart(32), 6);
+    expect(truth.chords!.at(-1)!.end).toBeCloseTo(barStart(32), 6);
+  });
+
+  it('keeps notes from the MIDI: the melody G4 fills bar 1 at 117 BPM, the last note ends the song', () => {
+    const notes = truthFor(curved(variant('full', 116, 'asWritten'))).melody!.notes;
+    expect(notes[0].start).toBeCloseTo(60 / 116, 6);
+    expect(notes[3]).toMatchObject({ midi: 67 });
+    expect(notes[3].start).toBeCloseTo(BAR0, 6);
+    expect(notes[3].end).toBeCloseTo(BAR0 + BAR1, 6);
+    expect(notes.at(-1)!.start).toBeCloseTo(barStart(31), 6);
+    expect(notes.at(-1)!.end).toBeCloseTo(barStart(32), 6);
+  });
+
+  it('combines with shuffle: the off-beat hi-hat of bar 1 is at 2/3 of a 117 BPM beat', () => {
+    const truth = truthFor(curved(variant('full', 116, 'asWritten')));
+    const offs = truth.drums!.filter(
+      (d) => d.inst === 'HH' && d.t > BAR0 + 0.01 && d.t < BAR0 + 60 / 117 - 0.01,
+    );
+    expect(offs).toHaveLength(1);
+    expect(offs[0].t).toBeCloseTo(BAR0 + (2 / 3) * (60 / 117), 6);
+    expect(truth.swing).toEqual({ kind: '8', confidence: 1 });
+    // Straight: at 1/2 of the beat.
+    const straight = truthFor(curved(variant('piano+drums', 116, 'none')));
+    const off = straight.drums!.find(
+      (d) => d.inst === 'HH' && d.t > BAR0 + 0.01 && d.t < BAR0 + 60 / 117 - 0.01,
+    )!;
+    expect(off.t).toBeCloseTo(BAR0 + 60 / 117 / 2, 6);
+  });
+
+  it('combines with leadInSec: every time shifts by it', () => {
+    const v = { ...curved(variant('full', 116, 'asWritten')), leadInSec: 1.37 };
+    const a = truthFor(curved(variant('full', 116, 'asWritten')));
+    const b = truthFor(v);
+    const L = 1.37;
+    expect(b.beats![4].t).toBeCloseTo(L + BAR0, 6);
+    expect(b.beats![8].t).toBeCloseTo(L + BAR0 + BAR1, 6);
+    expect(b.source.durationSec).toBeCloseTo(L + barStart(32), 5);
+    a.beats!.forEach((x, i) => expect(b.beats![i].t).toBeCloseTo(x.t + L, 5));
+    a.melody!.notes.forEach((x, i) => expect(b.melody!.notes[i].start).toBeCloseTo(x.start + L, 5));
+    a.drums!.forEach((x, i) => expect(b.drums![i].t).toBeCloseTo(x.t + L, 5));
+    a.chords!.forEach((x, i) => expect(b.chords![i].start).toBeCloseTo(x.start + L, 5));
+  });
+
+  it('rejects a MIDI tempo that differs from the curve', () => {
+    const v = curved(variant('full', 116, 'asWritten'));
+    const tex = buildScoreTex(saints, pianoBody, v);
+    const score = importScore(tex);
+    applyTempoCurve(score, v);
+    score.masterBars[10].tempoAutomations[0].value = 130;
+    expect(() => buildTruth({ ...input(tex, v), score, midi: generateMidi(score) })).toThrow(
+      /11 小節目.*テンポ/,
+    );
   });
 });

@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Variant } from './types';
 
 /** The alphaTab version the spike was validated with; warn on anything else. */
 export const EXPECTED_ALPHATAB = '1.8.4';
@@ -25,6 +26,18 @@ export interface Manifest extends ManifestMeta {
 
 export function buildManifest(meta: ManifestMeta, variants: Record<string, unknown>[]): Manifest {
   return { ...meta, variants };
+}
+
+/** The spike 1 fields of a variant, for its manifest entry (`level`, `heldOut` always present). */
+export function variantExtras(v: Variant): Record<string, unknown> {
+  const out: Record<string, unknown> = { level: v.level ?? 0, heldOut: v.heldOut ?? false };
+  out.comp = v.comp ?? 'block4';
+  out.soundFont = v.soundFont ?? 'sonivox';
+  out.pianoGainDb = v.pianoGainDb ?? 0;
+  if (v.tempoCurve) out.tempoCurve = v.tempoCurve;
+  if (v.etudeSeed !== undefined) out.etudeSeed = v.etudeSeed;
+  if (v.seventhShare !== undefined) out.seventhShare = v.seventhShare;
+  return out;
 }
 
 /** Current git commit of `cwd`, or null (no git, not a repo, ...). */

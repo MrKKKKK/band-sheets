@@ -60,7 +60,43 @@ def oracle(truth):
     return out
 
 
+_PC_NAMES = ["C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
+
+
+def mode_chord_from_wav(wav_path):
+    """Constant analyzer: one chord for the whole wav (best major/minor triad template against the mean chroma)
+    plus the fixed 120 BPM grid. Reads only the wav, never a truth."""
+    import librosa
+    import numpy as np
+    y, sr = librosa.load(wav_path, sr=22050, mono=True)
+    duration = len(y) / float(sr)
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr).mean(axis=1) if len(y) else np.zeros(12)
+    best, best_score = (0, "maj"), -1.0
+    for root in range(12):
+        for q, third in (("maj", 4), ("min", 3)):
+            sc = sum(chroma[(root + i) % 12] for i in (0, third, 7))
+            if sc > best_score + 1e-12:
+                best, best_score = (root, q), sc
+    root, q = best
+    r = constant(duration)
+    name = _PC_NAMES[root]
+    r["analyzer"] = {"name": "mode-chord", "version": "0.1.0", "methods": ["mean-chroma-triad", "constant-120bpm"]}
+    r["chords"] = [{"start": 0.0, "end": duration, "root": name, "quality": q, "bass": None,
+                    "text": name + ("m" if q == "min" else ""), "confidence": 0}]
+    return r
+
+
+def _mode_chord(truth, wav_path):
+    return mode_chord_from_wav(wav_path)
+
+
+# Truth-only analyzers (constant/oracle) keep their one-argument form in ANALYZERS (importable as before);
+# ANALYZERS2 uniformly takes (truth, wav_path). Wav-only ones must never look at `truth`.
 ANALYZERS = {"constant": constant_from_truth, "oracle": oracle}
+ANALYZERS2 = {"constant": lambda truth, wav: constant_from_truth(truth),
+              "oracle": lambda truth, wav: oracle(truth),
+              "mode-chord": _mode_chord}
+NEEDS_WAV = {"mode-chord"}
 
 
 def main(argv=None):

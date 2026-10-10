@@ -18,10 +18,12 @@ import {
   EXPECTED_ALPHATAB,
   gitCommit,
   peakStats,
+  variantExtras,
 } from './manifest';
-import { MASTER_VOLUME, renderAudio, SOUND_FONT, TAIL_SEC } from './renderAudio';
+import { MASTER_VOLUME, renderAudio, SOUND_FONT, SOUND_FONT_FILES, TAIL_SEC } from './renderAudio';
 import {
   ALPHATAB_VERSION,
+  applyTempoCurve,
   buildScoreTex,
   buildTruth,
   generateMidi,
@@ -29,17 +31,32 @@ import {
   setPrograms,
 } from './truth';
 import { allVariants, ETUDE_SEED } from './variants';
+import type { Variant } from './types';
 import { encodeWav } from './wav';
 
 const OUT = fileURLToPath(new URL('../out/', import.meta.url));
 
 const etude = chordEtude(ETUDE_SEED);
-const texts = { saints: saintsSampleText, etude: etude.text };
-const songs = { saints: parseSong(texts.saints), etude: parseSong(texts.etude) };
-const timelines = {
-  saints: chordTimeline(songs.saints),
-  etude: chordTimeline(songs.etude),
-};
+const saints = parseSong(saintsSampleText);
+const saintsTimeline = chordTimeline(saints);
+
+/** Songs and timelines per variant: the etude depends on its seed / 7th share. */
+const etudeCache = new Map<string, { text: string; song: ReturnType<typeof parseSong>; timeline: ReturnType<typeof chordTimeline> }>();
+function songOf(v: Variant) {
+  if (v.song === 'saints') return { song: saints, timeline: saintsTimeline, bandsheet: null, text: undefined };
+  const seed = v.etudeSeed ?? ETUDE_SEED;
+  const key = `${seed}:${v.seventhShare ?? ''}`;
+  let e = etudeCache.get(key);
+  if (!e) {
+    const text = key === `${ETUDE_SEED}:` ? etude.text : chordEtude(seed, v.seventhShare).text;
+    const song = parseSong(text);
+    e = { text, song, timeline: chordTimeline(song) };
+    etudeCache.set(key, e);
+  }
+  const bandsheet = v.etudeSeed === undefined && v.seventhShare === undefined ? 'etude.bandsheet'
+    : `etude-seed${seed}${v.seventhShare !== undefined ? `-sev${v.seventhShare}` : ''}.bandsheet`;
+  return { song: e.song, timeline: e.timeline, bandsheet, text: e.text };
+}
 
 if (ALPHATAB_VERSION !== EXPECTED_ALPHATAB) {
   console.warn(
@@ -60,14 +77,17 @@ const t0 = Date.now();
 let totalBytes = 0;
 for (const v of allVariants()) {
   const t = Date.now();
-  const song = songs[v.song];
-  const timeline = timelines[v.song];
-  const score = importScore(buildScoreTex(song, pianoPartBody(timeline), v));
+  const { song, timeline, bandsheet, text } = songOf(v);
+  if (bandsheet && text && bandsheet !== 'etude.bandsheet') writeFileSync(join(OUT, 'etude', bandsheet), text);
+  const score = importScore(buildScoreTex(song, pianoPartBody(timeline, v.comp), v));
+  applyTempoCurve(score, v);
   setPrograms(score);
   const midi = generateMidi(score);
   const { samples, sampleRate } = renderAudio(midi, {
     click: v.click,
     leadInSec: v.leadInSec,
+    soundFont: v.soundFont,
+    pianoGainDb: v.pianoGainDb,
   });
   const truth = buildTruth({
     score,
@@ -76,7 +96,7 @@ for (const v of allVariants()) {
     variant: v,
     key: song.meta.key,
     sampleRate,
-    soundFont: SOUND_FONT,
+    soundFont: SOUND_FONT_FILES[v.soundFont ?? 'sonivox'],
     audioSec: samples.length / sampleRate,
   });
   const { peak, clipped } = peakStats(samples);
@@ -96,6 +116,7 @@ for (const v of allVariants()) {
     click: v.click,
     leadInSec: v.leadInSec ?? 0,
     audioSec: truth.source.audioSec,
+    ...variantExtras(v),
     peak: Math.round(peak * 1e4) / 1e4,
     wav,
     truth: tr,

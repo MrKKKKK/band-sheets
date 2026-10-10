@@ -82,3 +82,52 @@ describe('pianoPartBody: other shapes', () => {
     expect(midis(bs[1], 2)).toEqual([40, 60, 64, 67]);
   });
 });
+
+describe('pianoPartBody: comp shapes', () => {
+  const t = chordTimeline(parseSong(saintsSampleText));
+  const rowsOf = (comp: 'arp8' | 'whole') => load(pianoPartBody(t, comp));
+
+  it('block4 is the default', () => {
+    expect(pianoPartBody(t, 'block4')).toBe(pianoPartBody(t));
+  });
+  it('arp8: 8 eighth notes per bar, one tone each, from that beat\'s chord', () => {
+    const bs = bars(rowsOf('arp8'));
+    expect(bs).toHaveLength(32);
+    for (const b of bs) {
+      expect(b.voices[0].beats).toHaveLength(8);
+      for (const be of b.voices[0].beats) expect(be.notes).toHaveLength(1);
+    }
+    const pitches = (bar: number) => bs[bar].voices[0].beats.map((be) => be.notes[0].realValue);
+    expect(pitches(0)).toEqual([36, 60, 64, 67, 64, 60, 64, 67]); // C
+    // bar 14: C on beats 1-2, G7 on beats 3-4
+    const tones = chordMidi('G7');
+    expect(pitches(14).slice(4)).toEqual([2, 1, 2, 3].map((i) => tones[i])); // pattern runs per bar position
+    expect(bs[0].voices[0].beats[0].duration).toBe(8);
+  });
+  it('whole: one chord per bar (a bar with a change is split at the change)', () => {
+    const bs = bars(rowsOf('whole'));
+    expect(bs).toHaveLength(32);
+    expect(bs[0].voices[0].beats).toHaveLength(1);
+    expect(bs[0].voices[0].beats[0].duration).toBe(1);
+    expect(midis(bs[0], 0)).toEqual([36, 60, 64, 67]);
+    expect(midis(bs[7], 0)).toEqual([43, 55, 59, 62, 65]);
+    expect(bs[14].voices[0].beats).toHaveLength(2); // C | G7
+    expect(bs[14].voices[0].beats.map((b) => b.duration)).toEqual([2, 2]);
+    expect(midis(bs[14], 1)).toEqual([43, 55, 59, 62, 65]);
+    const single = bs.filter((b) => b.voices[0].beats.length === 1).length;
+    expect(single).toBeGreaterThanOrEqual(28);
+  });
+  it('whole in 3/4 uses a dotted half', () => {
+    const t3: ChordTimeline = {
+      ts: [3, 4],
+      bars: 1,
+      sections: [{ label: 'A', startBar: 0, bars: 1 }],
+      chords: [{ bar: 0, beat: 0, text: 'Am' }],
+    };
+    const imp = new importer.AlphaTexImporter();
+    imp.initFromString(`.\n\\track "P"\n\\ts 3 4\n${pianoPartBody(t3, 'whole')}\n`, new Settings());
+    const b = imp.readScore().tracks[0].staves[0].bars[0];
+    expect(b.voices[0].beats).toHaveLength(1);
+    expect(b.voices[0].beats[0].playbackDuration).toBe(960 * 3);
+  });
+});

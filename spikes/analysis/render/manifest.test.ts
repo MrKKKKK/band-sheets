@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildManifest, cleanGenerated, gitCommit, peakStats } from './manifest';
+import { buildManifest, cleanGenerated, gitCommit, peakStats, variantExtras } from './manifest';
 
 describe('cleanGenerated', () => {
   it('removes only generated files from the given dirs', () => {
@@ -38,5 +38,15 @@ describe('gitCommit', () => {
 describe('peakStats', () => {
   it('reports the peak and clipped count', () => {
     expect(peakStats(new Float32Array([0.5, -0.9, 1.25, -1]))).toEqual({ peak: 1.25, clipped: 2 });
+  });
+});
+
+describe('variantExtras', () => {
+  it('always carries level and heldOut, with defaults for the spike 0 shape', () => {
+    const base = { song: 'saints', mix: 'full', tempo: 116, swing: 'none', click: false, name: 'x' } as const;
+    expect(variantExtras({ ...base })).toMatchObject({ level: 0, heldOut: false, comp: 'block4', soundFont: 'sonivox', pianoGainDb: 0 });
+    expect(variantExtras({ ...base, level: 2, heldOut: true, comp: 'whole', etudeSeed: 2 })).toMatchObject({
+      level: 2, heldOut: true, comp: 'whole', etudeSeed: 2,
+    });
   });
 });

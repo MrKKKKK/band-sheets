@@ -57,7 +57,14 @@ export interface Etude {
   chordsPerBar: string[][];
 }
 
-export function chordEtude(seed: number): Etude {
+/**
+ * `seventhShare` (0-1): share of chord slots that are sevenths (7/maj7/m7).
+ * Absent = the original construction (all 24 triads + a few sevenths).
+ * With a share, the triads are a random subset of the 24 as far as the
+ * remaining slots go, so full triad coverage is only guaranteed for shares
+ * up to ~0.25.
+ */
+export function chordEtude(seed: number, seventhShare?: number): Etude {
   const rnd = prng(seed);
   // 16 unique bars (A1 + B1). Which bars carry two chords: at least 8, so
   // that there are >= 24 chord slots for all 24 triads.
@@ -66,7 +73,10 @@ export function chordEtude(seed: number): Etude {
   const slots = split.reduce((n, s) => n + (s ? 2 : 1), 0);
   const triads = ROOTS.flatMap((r) => [r, `${r}m`]);
   const extras = ['7', 'maj7', 'm7'];
-  const pool = [...triads];
+  const pool =
+    seventhShare === undefined
+      ? [...triads]
+      : shuffle(triads, rnd).slice(0, Math.max(0, slots - Math.round(seventhShare * slots)));
   while (pool.length < slots) {
     const r = ROOTS[Math.floor(rnd() * 12)];
     pool.push(r + extras[Math.floor(rnd() * extras.length)]);

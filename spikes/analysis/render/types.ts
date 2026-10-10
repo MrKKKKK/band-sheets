@@ -46,6 +46,41 @@ export interface Variant {
   /** Seconds of silence before bar 0 (default 0); all truth times shift by it. */
   leadInSec?: number;
   name: string;
+  // ---- spike 1 additions (docs/audio-spike1-plan.md); all optional, absent = as before ----
+  /** Accompaniment shape (default block4 = a chord on every beat). */
+  comp?: 'block4' | 'arp8' | 'whole';
+  soundFont?: 'sonivox' | 'musescore';
+  /** Piano level in dB relative to the default balance. */
+  pianoGainDb?: number;
+  /** Tempo per bar (length = number of bars). */
+  tempoCurve?: number[];
+  etudeSeed?: number;
+  seventhShare?: number;
+  /** Difficulty level L0-L3. */
+  level?: 0 | 1 | 2 | 3;
+  /** Held-out variant: not looked at during tuning. */
+  heldOut?: boolean;
+}
+
+/** Difficulty level (also written to manifest.json entries as `level`). */
+export type Level = 0 | 1 | 2 | 3;
+
+/** One entry of manifest.derived.json (wavs made by py/degrade.py). Paths are relative to out/. */
+export interface DerivedManifestEntry {
+  name: string;
+  song: Variant['song'];
+  /** Name of the base variant this was derived from. */
+  base: string;
+  level: Level;
+  heldOut: boolean;
+  degrade: {
+    noiseSnrDb?: number;
+    reverbRt60?: number;
+    gainEnvDb?: number;
+    gainDb?: number;
+  };
+  wav: string;
+  truth: string;
 }
 
 // ---- Answer / analysis-result JSON (all times in seconds) ----

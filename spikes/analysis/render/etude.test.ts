@@ -92,4 +92,21 @@ describe('chordEtude', () => {
     );
     expect(piano.readScore().tracks[0].staves[0].bars).toHaveLength(32);
   });
+
+  it('seventhShare controls the share of 7th chords and keeps the structure', () => {
+    const share = (xs: string[][]) => {
+      const f = xs.flat();
+      return f.filter((c) => ['7', 'maj7', 'min7'].includes(parseChordSymbol(c).quality)).length / f.length;
+    };
+    expect(chordEtude(1, undefined).text).toBe(e.text);
+    for (const seed of [1, 2, 3]) {
+      const heavy = chordEtude(seed, 0.4);
+      expect(heavy.chordsPerBar).toHaveLength(32);
+      expect(chordEtude(seed, 0.4).text).toBe(heavy.text);
+      expect(share(heavy.chordsPerBar)).toBeGreaterThanOrEqual(0.3);
+      expect(share(heavy.chordsPerBar)).toBeGreaterThan(share(chordEtude(seed).chordsPerBar));
+      expect(heavy.chordsPerBar.slice(16, 24)).toEqual(heavy.chordsPerBar.slice(0, 8));
+      expect(chordTimeline(parseSong(heavy.text)).bars).toBe(32);
+    }
+  });
 });

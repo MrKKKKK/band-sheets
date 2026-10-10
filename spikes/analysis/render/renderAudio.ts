@@ -2,7 +2,7 @@
 // (docs/audio-spike0-plan.md, "事前に確かめたこと" 1). No browser needed:
 // AlphaSynth gets a no-op output and `exportAudio` renders synchronously.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as alphaTab from '@coderline/alphatab';
 import type { midi } from '@coderline/alphatab';
@@ -10,17 +10,35 @@ import { downmixStereo } from './wav';
 
 export const SAMPLE_RATE = 44100;
 export const SOUND_FONT = 'sonivox.sf2';
+export type SoundFontName = 'sonivox' | 'musescore';
+/** File name recorded in manifests / truth `render.soundFont`. */
+export const SOUND_FONT_FILES: Record<SoundFontName, string> = {
+  sonivox: SOUND_FONT,
+  musescore: 'MuseScore_General.sf2', // converted from the .sf3 by sf3ToSf2.py (alphaTab cannot read sf3)
+};
 
-let soundFontBytes: Uint8Array | undefined;
-function loadSoundFont(): Uint8Array {
-  if (!soundFontBytes) {
+const soundFontCache = new Map<SoundFontName, Uint8Array>();
+function loadSoundFont(name: SoundFontName): Uint8Array {
+  let bytes = soundFontCache.get(name);
+  if (!bytes) {
     // The package `exports` hides package.json; this file lives in spikes/analysis/render/.
-    const path = fileURLToPath(
-      new URL(`../../../node_modules/@coderline/alphatab/dist/soundfont/${SOUND_FONT}`, import.meta.url),
-    );
-    soundFontBytes = new Uint8Array(readFileSync(path));
+    const url =
+      name === 'sonivox'
+        ? new URL(`../../../node_modules/@coderline/alphatab/dist/soundfont/${SOUND_FONT}`, import.meta.url)
+        : new URL(`../soundfonts/${SOUND_FONT_FILES.musescore}`, import.meta.url);
+    const path = fileURLToPath(url);
+    if (!existsSync(path)) {
+      const sf3 = fileURLToPath(new URL('../soundfonts/MuseScore_General.sf3', import.meta.url));
+      throw new Error(
+        existsSync(sf3)
+          ? `音色ファイル ${path} がありません。render/sf3ToSf2.py で sf3 から変換してください（CLAUDE.md の Python の実行方法）`
+          : `音色ファイル ${sf3} がありません。spikes/analysis/fetch-soundfont.sh を実行して取得し、render/sf3ToSf2.py で変換してください`,
+      );
+    }
+    bytes = new Uint8Array(readFileSync(path));
+    soundFontCache.set(name, bytes);
   }
-  return soundFontBytes;
+  return bytes;
 }
 
 const emitter = (): alphaTab.IEventEmitter => ({ on: () => () => {}, off: () => {} });
@@ -57,6 +75,23 @@ export interface RenderOptions {
   leadInSec?: number;
   /** Release tail after the MIDI's last tick (default `TAIL_SEC`). */
   tailSec?: number;
+  /** Default 'sonivox'. 'musescore' needs soundfonts/MuseScore_General.sf3 (fetch-soundfont.sh). */
+  soundFont?: SoundFontName;
+  /** Piano level in dB relative to the default balance (default 0). */
+  pianoGainDb?: number;
+}
+
+const GM_PIANO = 0;
+/** MIDI channels (not percussion) whose program is the piano. */
+function pianoChannels(file: midi.MidiFile): number[] {
+  const T = alphaTab.midi.MidiEventType;
+  const ch = new Set<number>();
+  for (const e of file.events) {
+    if (e.type !== T.ProgramChange) continue;
+    const p = e as midi.ProgramChangeEvent;
+    if (p.channel !== 9 && p.program === GM_PIANO) ch.add(p.channel);
+  }
+  return [...ch];
 }
 
 /**
@@ -66,7 +101,7 @@ export interface RenderOptions {
  */
 function withTail(file: midi.MidiFile, tailSec: number): midi.MidiFile {
   const T = alphaTab.midi.MidiEventType;
-  const tempo = (file.events.find((e) => e.type === T.TempoChange) as midi.TempoChangeEvent | undefined)
+  const tempo = (file.events.filter((e) => e.type === T.TempoChange).at(-1) as midi.TempoChangeEvent | undefined)
     ?.beatsPerMinute;
   if (!tempo || tailSec <= 0) return file;
   const copy = new alphaTab.midi.MidiFile();
@@ -88,9 +123,13 @@ export function renderAudio(
   const sampleRate = opts.sampleRate ?? SAMPLE_RATE;
   const synth = new alphaTab.synth.AlphaSynth(noopOutput(sampleRate), 500);
   const options = new alphaTab.synth.AudioExportOptions();
-  options.soundFonts = [loadSoundFont()];
+  options.soundFonts = [loadSoundFont(opts.soundFont ?? 'sonivox')];
   options.sampleRate = sampleRate;
   options.masterVolume = MASTER_VOLUME;
+  if (opts.pianoGainDb) {
+    const g = 10 ** (opts.pianoGainDb / 20);
+    for (const c of pianoChannels(file)) options.trackVolume.set(c, g);
+  }
   options.metronomeVolume = opts.click ? 1 : 0;
   const exporter = synth.exportAudio(options, withTail(file, opts.tailSec ?? TAIL_SEC), [], new Map());
   const chunks: Float32Array[] = [];

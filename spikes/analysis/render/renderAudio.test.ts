@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { generateMidi, importScore } from './truth';
 import { MASTER_VOLUME, renderAudio } from './renderAudio';
@@ -55,5 +57,27 @@ describe('renderAudio', () => {
     const click = renderAudio(mid, { click: true });
     expect(peak(silent.samples)).toBeLessThan(0.001);
     expect(peak(click.samples)).toBeGreaterThan(0.01);
+  });
+});
+
+describe('renderAudio: soundfont / balance', () => {
+  const two = importScore(`\\title "t"\n\\tempo 120\n\\ts 4 4\n.\n\\track "Piano"\n\\staff{score}\n\\instrument 0\n(c4 e4 g4).1 | r.1`);
+  const m = generateMidi(two);
+  const hasSf = existsSync(fileURLToPath(new URL('../soundfonts/MuseScore_General.sf2', import.meta.url)));
+
+  it.runIf(hasSf)('renders 2 bars with the musescore font at the computed length', () => {
+    const { samples, sampleRate } = renderAudio(m, { soundFont: 'musescore', tailSec: 0 });
+    expect(Math.abs(samples.length - 4 * sampleRate)).toBeLessThanOrEqual(64);
+    expect(peak(samples)).toBeGreaterThan(0.01);
+    expect(peak(samples)).toBeLessThan(1);
+    const sonivox = renderAudio(m, { tailSec: 0 });
+    expect(samples.some((s, i) => s !== sonivox.samples[i])).toBe(true);
+  }, 60000);
+
+  it('lowers the piano by pianoGainDb', () => {
+    const base = peak(renderAudio(m, { tailSec: 0 }).samples);
+    const low = peak(renderAudio(m, { tailSec: 0, pianoGainDb: -9 }).samples);
+    expect(low / base).toBeGreaterThan(0.3);
+    expect(low / base).toBeLessThan(0.4); // 10^(-9/20) = 0.355
   });
 });
