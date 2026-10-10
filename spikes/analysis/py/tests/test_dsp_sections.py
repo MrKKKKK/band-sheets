@@ -6,6 +6,7 @@ import numpy as np
 from py.dsp.config import Config, SectionsConfig
 from py.dsp.sections import (
     bar_features,
+    beat_loudness_db,
     find_sections,
     block_novelty,
     segment_bars,
@@ -203,6 +204,13 @@ class BeatLevelTest(unittest.TestCase):
         self.assertAlmostEqual(bc[0, 0], np.mean([1, 2, 3, 4]))
         self.assertAlmostEqual(bc[3, 0], np.mean([13, 14]))
         self.assertTrue(np.allclose(bl, -20.0))
+
+    def test_last_beat_loudness_ignores_tail(self):
+        # R8: 4 loud beats (0.5 s each) then 2 s of silence; the last beat is not diluted by the tail
+        sr = 4000
+        y = np.concatenate([0.5 * np.ones(2 * sr), np.zeros(2 * sr)])
+        loud = beat_loudness_db(y, sr, np.array([0.0, 0.5, 1.0, 1.5]), 4.0)
+        self.assertTrue(np.allclose(loud, loud[0], atol=0.1), loud)
 
     def _inputs(self, phase=1):
         sr, bpm = 4000, 120

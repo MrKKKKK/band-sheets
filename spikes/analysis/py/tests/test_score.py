@@ -122,6 +122,59 @@ class ScoreTest(unittest.TestCase):
         r = make_truth(chords=[ch(0, 2, "F", "maj"), ch(2, 8, "C", "maj")], bars=4)
         self.assertEqual(S.score(t, r)["chords"]["perBar"], 0.75)
 
+    def test_tail_beats_after_truth_not_penalized(self):
+        # R5: analyzer beats in the ring-out after the last truth beat (> last + half interval) are not scored
+        t = make_truth()
+        r = copy.deepcopy(t)
+        last = t["beats"][-1]["t"]
+        r["beats"] += [{"t": last + BI * k, "downbeat": k % 4 == 0} for k in range(1, 12)]
+        s = S.score(t, r)
+        self.assertEqual(s["beats"]["f"], 1.0)
+        self.assertEqual(s["beats"]["nEst"], len(t["beats"]))
+        self.assertEqual(s["downbeats"]["f"], 1.0)
+        # beats before the first truth beat (minus tolerance) are dropped too
+        r["beats"].insert(0, {"t": t["beats"][0]["t"] - 0.3, "downbeat": False})
+        self.assertEqual(S.score(t, r)["beats"]["f"], 1.0)
+
+    def test_extra_beat_inside_window_is_still_an_error(self):
+        t = make_truth()
+        r = copy.deepcopy(t)
+        r["beats"].append({"t": t["beats"][-1]["t"] + 0.2, "downbeat": False})  # < half interval after last
+        self.assertLess(S.score(t, r)["beats"]["f"], 1.0)
+
+    def test_chord_boundary_at_beat_midpoint_is_not_ambiguous(self):
+        # R6: truth changes C -> G exactly at the midpoint of beat 2 (t=1.25); a result boundary
+        # 10 ms either side must score the same (eighth-note resolution), while the old
+        # midpoint sampling flipped one half of beat 2.
+        t = make_truth(chords=[ch(0, 1.25, "C", "maj"), ch(1.25, 8, "G", "maj")])
+        sc = []
+        for eps in (-0.01, 0.0, 0.01):
+            r = make_truth(chords=[ch(0, 1.25 + eps, "C", "maj"), ch(1.25 + eps, 8, "G", "maj")])
+            c = S.score(t, r)["chords"]
+            self.assertEqual(c["perBeat"], 1.0, eps)
+            sc.append(c["perBeatMidpoint"])
+        self.assertNotEqual(sc[0], sc[2])  # the legacy value is the ambiguous one
+        # half a beat wrong (result switches one eighth late) costs exactly half a beat of 16
+        r = make_truth(chords=[ch(0, 1.5, "C", "maj"), ch(1.5, 8, "G", "maj")])
+        c = S.score(t, r)["chords"]
+        self.assertAlmostEqual(c["perBeat"], 15.5 / 16)
+        self.assertEqual(c["nBeatsScored"], 16)
+
+    def test_last_beat_no_chord_is_a_miss_and_chord_is_a_hit(self):
+        # R8: scoring side of the last beat: truth covers it (window extended by a median interval)
+        t = make_truth(chords=[ch(0, 8, "C", "maj")])
+        r_n = make_truth(chords=[ch(0, 7.5, "C", "maj")])  # no chord on the last beat
+        c = S.score(t, r_n)["chords"]
+        self.assertEqual(c["nBeatsScored"], 16)
+        self.assertAlmostEqual(c["perBeat"], 15 / 16)
+        r_ok = make_truth(chords=[ch(0, 8, "C", "maj")])
+        self.assertEqual(S.score(t, r_ok)["chords"]["perBeat"], 1.0)
+        # a truth whose last chord ends before the last beat: that beat is simply not counted
+        t2 = make_truth(chords=[ch(0, 7.5, "C", "maj")])
+        c2 = S.score(t2, r_n)["chords"]
+        self.assertEqual(c2["nBeatsScored"], 15)
+        self.assertEqual(c2["perBeat"], 1.0)
+
     def test_downbeats_none_without_flags(self):
         t = make_truth()
         r = {"beats": [{"t": b["t"]} for b in t["beats"]]}

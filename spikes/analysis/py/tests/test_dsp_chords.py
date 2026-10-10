@@ -94,6 +94,13 @@ class ChromaTest(unittest.TestCase):
         _, bass = beat_chroma(feat, grid, Config())
         self.assertEqual(int(np.argmax(bass[:, 1])), 7)
 
+    def test_last_beat_ignores_decay_tail(self):
+        # R8: the last beat's span ends one beat interval after it, not at the audio end
+        feat, grid = make([('C', 4)], n_extra_tail=2.0)
+        self.assertEqual(names(est(feat, grid, Config())), ['C'] * 4)
+        feat, grid = make([('C', 3), ('G', 2)], n_extra_tail=2.0)
+        self.assertEqual(names(est(feat, grid, cfg_with(smoothing='none'))), ['C'] * 3 + ['G'] * 2)
+
     def test_mean_aggregate(self):
         feat, grid = make(SEQ)
         cfg = replace(Config(), chroma=replace(Config().chroma, aggregate='mean'))

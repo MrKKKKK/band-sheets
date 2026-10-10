@@ -7,7 +7,10 @@ A metric whose input is missing in truth or result is None ("not evaluated").
 Downbeats are None when no result beat carries a "downbeat" key at all (analyzer does not estimate them).
 
 Chord rules (decision 8):
-- Per beat: the chord at the midpoint of each truth beat; root (enharmonic-equal) + maj/min class
+- Per beat (R6, eighth-note resolution): each truth beat is sampled at two points, 1/4 and 3/4 of the way
+  through it (the middle of each eighth note), each worth half a beat; "perBeat" and the n* counts are in
+  beats (so they can end in .5). A chord boundary exactly at a beat's midpoint (anticipations) is therefore
+  not ambiguous. The legacy single midpoint sample is kept as "perBeatMidpoint". Per sample: root (enharmonic-equal) + maj/min class
   (maj/7/maj7 -> maj, min/min7 -> min). Beats without a truth chord are not counted. Truth chords of
   class None (dim/aug/sus4) or of a quality outside KNOWN_QUALITIES are excluded (counted in
   nBeatsExcluded / nBeatsUnknownQualityTruth). A result chord with a quality outside KNOWN_QUALITIES
@@ -87,16 +90,25 @@ def _beats(truth, result):
     if not tb or rb is None:
         return None, None
     ref = np.array(sorted(b["t"] for b in tb), dtype=float)
-    est = np.array(sorted(b["t"] for b in rb), dtype=float)
+    lo, hi = _beat_window(ref)
+    clip = lambda ts: np.array([t for t in sorted(ts) if lo <= t <= hi], dtype=float)
+    est = clip(b["t"] for b in rb)
     out = {"f": _beat_f(ref, est), "nRef": int(len(ref)), "nEst": int(len(est))}
     ref_d = np.array(sorted(b["t"] for b in tb if b.get("downbeat")), dtype=float)
     if len(ref_d) == 0:
         return out, None
     if not any("downbeat" in b for b in rb):
         return out, None  # analyzer does not estimate downbeats: not evaluated
-    est_d = np.array(sorted(b["t"] for b in rb if b.get("downbeat")), dtype=float)
+    est_d = clip(b["t"] for b in rb if b.get("downbeat"))
     down = {"f": _beat_f(ref_d, est_d), "nRef": int(len(ref_d)), "nEst": int(len(est_d))}
     return out, down
+
+
+def _beat_window(ref):
+    """(lo, hi): analyzer beats outside [first truth beat - tolerance, last truth beat + half an interval]
+    are not scored (R5): the truth ends at the last annotated bar while the audio may ring on."""
+    med = _median_interval(ref) or 0.0
+    return float(ref[0]) - BEAT_TOLERANCE, float(ref[-1]) + med / 2
 
 
 def _beat_f(ref, est):
@@ -142,6 +154,39 @@ def _beat_windows(beats):
     return out
 
 
+def _score_points(points, ttrack, rtrack):
+    """Score chords at [(time, weight)] sample points; counts are weighted sums."""
+    acc = dict(scored=0.0, hit=0.0, excluded=0.0, unknown_truth=0.0, unknown_result=0.0,
+               seventh_truth=0.0, seventh_result=0.0, seventh_hit=0.0)
+    for tm, w in points:
+        t = ttrack.at(tm)
+        if t is None:
+            continue  # truth has no chord: not counted
+        if t["quality"] not in KNOWN_QUALITIES:
+            acc["unknown_truth"] += w
+            acc["excluded"] += w
+            continue
+        tcls = quality_class(t["quality"])
+        if tcls is None:
+            acc["excluded"] += w  # dim / aug / sus4 in truth: excluded
+            continue
+        acc["scored"] += w
+        r = rtrack.at(tm)  # a result with no chord here (N / gap, e.g. the last beat, R8) is a miss
+        t7 = has_seventh(t["quality"])
+        r_known = r is not None and r["quality"] in KNOWN_QUALITIES
+        if r is not None and not r_known:
+            acc["unknown_result"] += w
+        r7 = r_known and has_seventh(r["quality"])
+        is_hit = r_known and note_to_pc(r["root"]) == note_to_pc(t["root"]) and quality_class(r["quality"]) == tcls
+        if is_hit:
+            acc["hit"] += w
+        acc["seventh_truth"] += w * t7
+        acc["seventh_result"] += w * r7
+        if is_hit and r7 and t7:
+            acc["seventh_hit"] += w
+    return {k: (int(v) if float(v).is_integer() else v) for k, v in acc.items()}
+
+
 def _chords(truth, result):
     tc, rc = truth.get("chords"), result.get("chords")
     tb = truth.get("beats")
@@ -150,38 +195,18 @@ def _chords(truth, result):
     ttrack, rtrack = _ChordTrack(tc), _ChordTrack(rc)
     wins = _beat_windows(tb)
 
-    scored = hit = excluded = unknown_truth = unknown_result = 0
-    seventh_truth = seventh_result = seventh_hit_r = seventh_hit_p = 0
-    for _, _, mid, _ in wins:
-        t = ttrack.at(mid)
-        if t is None:
-            continue  # truth has no chord: not counted
-        if t["quality"] not in KNOWN_QUALITIES:
-            unknown_truth += 1
-            excluded += 1
-            continue
-        tcls = quality_class(t["quality"])
-        if tcls is None:
-            excluded += 1  # dim / aug / sus4 in truth: excluded
-            continue
-        scored += 1
-        r = rtrack.at(mid)
-        t7 = has_seventh(t["quality"])
-        r_known = r is not None and r["quality"] in KNOWN_QUALITIES
-        if r is not None and not r_known:
-            unknown_result += 1
-        r7 = r_known and has_seventh(r["quality"])
-        is_hit = r_known and note_to_pc(r["root"]) == note_to_pc(t["root"]) and quality_class(r["quality"]) == tcls
-        if is_hit:
-            hit += 1
-        seventh_truth += t7
-        seventh_result += r7
-        if is_hit and r7 and t7:
-            seventh_hit_r += 1
+    # R6: eighth-note resolution (two samples per beat, weight 1/2 each); the midpoint scan is kept as a reference
+    eighth_pts = [(w[0] + f * (w[3] - w[0]), 0.5) for w in wins for f in (0.25, 0.75)]
+    main = _score_points(eighth_pts, ttrack, rtrack)
+    legacy = _score_points([(w[2], 1.0) for w in wins], ttrack, rtrack)
+    scored, hit = main["scored"], main["hit"]
+    excluded, unknown_truth, unknown_result = main["excluded"], main["unknown_truth"], main["unknown_result"]
+    seventh_truth, seventh_result, seventh_hit_r = main["seventh_truth"], main["seventh_result"], main["seventh_hit"]
 
     bar_acc, bars_scored, bars_hit = _per_bar(wins, ttrack, rtrack)
     return {
         "perBeat": hit / scored if scored else None,
+        "perBeatMidpoint": legacy["hit"] / legacy["scored"] if legacy["scored"] else None,
         "perBar": bar_acc,
         "seventhRecall": seventh_hit_r / seventh_truth if seventh_truth else None,
         "seventhPrecision": seventh_hit_r / seventh_result if seventh_result else None,

@@ -51,6 +51,7 @@ import string
 import numpy as np
 
 from .config import Config, SectionsConfig
+from .chroma import last_beat_end
 from .types import BeatGrid, Downbeats, Features, Section
 
 LOUDNESS_SCALE_DB = 3.0  # loudness novelty 1 - exp(-|dL| / this)
@@ -86,9 +87,9 @@ def find_sections(
 
 
 def beat_loudness_db(y: np.ndarray, sr: int, times: np.ndarray, duration: float) -> np.ndarray:
-    """RMS level in dB of each beat span [times[i], times[i+1]) (last one to `duration`)."""
+    """RMS level in dB of each beat span [times[i], times[i+1]) (last one: one median beat interval, R8)."""
     y = np.asarray(y, dtype=float)
-    edges = np.append(np.asarray(times, dtype=float), max(duration, float(times[-1]) if len(times) else 0.0))
+    edges = np.append(np.asarray(times, dtype=float), last_beat_end(times, duration) if len(times) else 0.0)
     idx = np.clip(np.round(edges * sr).astype(int), 0, len(y))
     out = np.empty(len(times))
     for i in range(len(times)):

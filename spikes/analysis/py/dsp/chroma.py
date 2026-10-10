@@ -48,6 +48,21 @@ def _aggregate(frames: np.ndarray, bounds: np.ndarray, how: str) -> np.ndarray:
     return out
 
 
+def last_beat_end(times, duration: float) -> float:
+    """End of the last beat span: last beat + median beat interval, capped at the audio end (R8).
+
+    Ending the last span at the audio end would fold the decay/silence after the music into the
+    last beat (median chroma ~ silence -> 'no chord'; RMS diluted).
+    """
+    times = np.asarray(times, dtype=float)
+    if len(times) == 0:
+        return float(duration)
+    if len(times) < 2:
+        return max(float(duration), float(times[-1]))
+    end = float(times[-1] + np.median(np.diff(times)))
+    return min(max(end, float(times[-1])), max(float(duration), float(times[-1])))
+
+
 def beat_chroma(feat: Features, grid: BeatGrid, cfg: Config) -> tuple[np.ndarray, np.ndarray]:
     cc = cfg.chroma
     n = len(grid.times)
@@ -60,5 +75,6 @@ def beat_chroma(feat: Features, grid: BeatGrid, cfg: Config) -> tuple[np.ndarray
     bass = _frame_chroma(y, feat.sr, feat.hop, cc.bass_fmin_hz, cc.bass_octaves, cc.bins_per_octave, cc.kind)
     n_frames = full.shape[1]
     starts = librosa.time_to_frames(np.asarray(grid.times, dtype=float), sr=feat.sr, hop_length=feat.hop)
-    bounds = np.append(np.clip(starts, 0, n_frames), n_frames)
+    end_frame = int(librosa.time_to_frames(last_beat_end(grid.times, feat.duration), sr=feat.sr, hop_length=feat.hop))
+    bounds = np.append(np.clip(starts, 0, n_frames), min(max(end_frame, 0), n_frames))
     return _aggregate(full, bounds, cc.aggregate), _aggregate(bass, bounds, cc.aggregate)
