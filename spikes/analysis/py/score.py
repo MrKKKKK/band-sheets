@@ -93,7 +93,10 @@ def _beats(truth, result):
     lo, hi = _beat_window(ref)
     clip = lambda ts: np.array([t for t in sorted(ts) if lo <= t <= hi], dtype=float)
     est = clip(b["t"] for b in rb)
-    out = {"f": _beat_f(ref, est), "nRef": int(len(ref)), "nEst": int(len(est))}
+    out = {"f": _beat_f(ref, est), "nRef": int(len(ref)), "nEst": int(len(est)),
+           # Q7: beats outside the scored window are not errors in `f`, but they are visible to the user
+           "nEstOutsideBefore": int(sum(1 for b in rb if b["t"] < lo)),
+           "nEstOutsideAfter": int(sum(1 for b in rb if b["t"] > hi))}
     ref_d = np.array(sorted(b["t"] for b in tb if b.get("downbeat")), dtype=float)
     if len(ref_d) == 0:
         return out, None

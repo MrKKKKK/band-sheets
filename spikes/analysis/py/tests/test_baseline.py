@@ -1,3 +1,4 @@
+import csv
 import json
 import os
 import sys
@@ -492,3 +493,171 @@ class TestLevels(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _fake_analyze_module(calls=None):
+    fake = types.ModuleType("analyze")
+    fake.analyze = lambda wav, cfg: (calls.append(wav) if calls is not None else None) or baseline.constant(8.0)
+    return fake
+
+
+GIT_A = {"commit": "abc1234", "dirty": False, "diffHash": None}
+GIT_B = {"commit": "def5678", "dirty": True, "diffHash": "0f0f"}
+
+
+class TestPhase0Name(unittest.TestCase):
+    """Q3: the comparison row follows --dsp-name so a tuning run never overwrites the default baseline."""
+
+    def _run(self, **kw):
+        d = self.enterContext(tempfile.TemporaryDirectory())
+        t = make_truth()
+        wa, ta = _write_variant(d, "saints", "s0", t)
+        with open(os.path.join(d, "manifest.json"), "w") as f:
+            json.dump({"variants": [{"name": "s0", "song": "saints", "wav": wa, "truth": ta}]}, f)
+        with mock.patch.dict(sys.modules, {"analyze": _fake_analyze_module()}):
+            rows = RA.run_all(d, ["dsp-v1", RA.PHASE0], log=_quiet, **kw)[0]
+        return d, rows
+
+    def test_default_name_keeps_dsp_phase0(self):
+        d, rows = self._run()
+        self.assertEqual({r["analyzer"] for r in rows}, {"dsp-v1", "dsp-phase0"})
+        self.assertTrue(os.path.exists(os.path.join(d, "results", "s0.dsp-phase0.json")))
+
+    def test_custom_name_gets_its_own_phase0(self):
+        d, rows = self._run(dsp_name="dsp-try")
+        self.assertEqual({r["analyzer"] for r in rows}, {"dsp-try", "dsp-try-phase0"})
+        self.assertTrue(os.path.exists(os.path.join(d, "results", "s0.dsp-try-phase0.json")))
+        self.assertFalse(os.path.exists(os.path.join(d, "results", "s0.dsp-phase0.json")))
+        with open(os.path.join(d, "results", "s0.dsp-try-phase0.json")) as f:
+            self.assertEqual(json.load(f)["result"]["analyzer"]["name"], "dsp-try-phase0")
+
+
+class TestPartialRunKeepsSummary(unittest.TestCase):
+    """R15: --only rewrites summary.* together with the rows of the earlier full run."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = self.tmp.name
+        t = make_truth()
+        entries = []
+        for n in ("a-1", "a-2", "b-1"):
+            w, tp = _write_variant(self.d, "song", n, t)
+            entries.append({"name": n, "song": "song", "wav": w, "truth": tp})
+        with open(os.path.join(self.d, "manifest.json"), "w") as f:
+            json.dump({"variants": entries}, f)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _csv_rows(self):
+        with open(os.path.join(self.d, "results", "summary.csv")) as f:
+            return [(r[0], r[1]) for r in list(csv.reader(f))[1:]]
+
+    def test_only_keeps_other_rows(self):
+        RA.run_all(self.d, ["oracle", "constant"], log=_quiet)
+        full = self._csv_rows()
+        self.assertEqual(len(full), 6)
+        rows, _ = RA.run_all(self.d, ["oracle", "constant"], only="a-*", log=_quiet)
+        self.assertEqual(self._csv_rows(), full)  # same rows, same order
+        self.assertEqual({r["variant"] for r in rows}, {"a-1", "a-2", "b-1"})
+        md = open(os.path.join(self.d, "results", "summary.md")).read()
+        self.assertIn("b-1", md)
+        self.assertIn("b-1", open(os.path.join(self.d, "results", "summary.levels.md")).read() + "b-1")
+
+    def test_only_without_earlier_run_has_just_those_rows(self):
+        rows, _ = RA.run_all(self.d, ["oracle"], only="a-*", log=_quiet)
+        self.assertEqual({r["variant"] for r in rows}, {"a-1", "a-2"})
+
+    def test_only_replaces_rows_that_were_rerun(self):
+        RA.run_all(self.d, ["oracle"], log=_quiet)
+        path = os.path.join(self.d, "results", "b-1.oracle.json")
+        with open(path) as f:
+            data = json.load(f)
+        data["score"]["beats"]["f"] = 0.25  # an old b-1 result must show up as such
+        with open(path, "w") as f:
+            json.dump(data, f)
+        rows, _ = RA.run_all(self.d, ["oracle"], only="a-1", log=_quiet)
+        by = {r["variant"]: r for r in rows}
+        self.assertEqual(by["b-1"]["values"][0], 0.25)
+        self.assertEqual(by["a-1"]["values"][0], 1.0)
+
+
+class TestHeldOutLog(unittest.TestCase):
+    """Q1 / R19: looking at held-out data or the private recording is logged with commit, dirty flag, config hash."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = self.tmp.name
+        t = make_truth()
+        entries = []
+        for n, extra in (("tuned", {}), ("held", {"heldOut": True}), ("rec-01", {"level": "REC", "song": "rec"})):
+            w, tp = _write_variant(self.d, "song", n, t)
+            entries.append({"name": n, "song": "song", "wav": w, "truth": tp, **extra})
+        with open(os.path.join(self.d, "manifest.json"), "w") as f:
+            json.dump({"variants": entries}, f)
+        self.log_path = os.path.join(self.d, "results", "heldout-log.jsonl")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run(self, git=GIT_A, **kw):
+        msgs = []
+        RA.run_all(self.d, ["oracle"], log=msgs.append, git_info=lambda: git, **kw)
+        return msgs
+
+    def _entries(self):
+        if not os.path.exists(self.log_path):
+            return []
+        with open(self.log_path) as f:
+            return [json.loads(line) for line in f if line.strip()]
+
+    def test_no_log_without_held_out_or_rec(self):
+        self._run(only="tuned")
+        self.assertEqual(self._entries(), [])
+
+    def test_rec_and_held_out_logged_as_separate_lines(self):
+        self._run(include_held_out=True)
+        es = self._entries()
+        self.assertEqual({e["kind"] for e in es}, {"heldOut", "rec"})
+        by = {e["kind"]: e for e in es}
+        self.assertEqual(by["heldOut"]["variants"], ["held"])
+        self.assertEqual(by["rec"]["variants"], ["rec-01"])
+        for e in es:
+            self.assertEqual(e["commit"], "abc1234")
+            self.assertFalse(e["dirty"])
+            self.assertEqual(len(e["configHash"]), 12)
+            self.assertIn("time", e)
+
+    def test_rec_only_when_held_out_not_requested(self):
+        self._run()  # rec-01 is not held out: scored by default
+        self.assertEqual([e["kind"] for e in self._entries()], ["rec"])
+
+    def test_log_grows_by_one_line_per_kind(self):
+        self._run(include_held_out=True)
+        self._run(git=GIT_B, include_held_out=True)
+        self.assertEqual(len(self._entries()), 4)
+        self.assertTrue(self._entries()[-1]["dirty"])
+        self.assertEqual(self._entries()[-1]["diffHash"], "0f0f")
+
+    def test_second_run_with_same_config_hash_warns(self):
+        first = self._run(include_held_out=True)
+        self.assertFalse(any("WARNING" in m for m in first), first)
+        second = self._run(include_held_out=True)
+        warn = [m for m in second if "WARNING" in m]
+        self.assertEqual(len(warn), 2, second)  # one per kind
+        self.assertTrue(any("heldOut" in m for m in warn))
+        self.assertTrue(any("rec" in m for m in warn))
+
+    def test_different_config_hash_does_not_warn(self):
+        self._run(include_held_out=True)
+        cfgp = os.path.join(self.d, "c.json")
+        with open(cfgp, "w") as f:
+            json.dump({"chords": {"self_transition": 0.5}}, f)
+        msgs = self._run(dsp_config=cfgp)  # tuning path: rec only (held-out refused with a config)
+        self.assertFalse(any("WARNING" in m for m in msgs), msgs)
+        self.assertEqual(len(self._entries()), 3)
+
+    def test_git_state_outside_a_repo(self):
+        s = RA.git_state(self.d)
+        self.assertEqual(set(s), {"commit", "dirty", "diffHash"})
+        self.assertIsNone(s["commit"])

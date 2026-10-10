@@ -289,3 +289,31 @@ class ScoreTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OutsideWindowBeatsTest(unittest.TestCase):
+    """Q7: analyzer beats outside the scored window are counted (before / after), not hidden."""
+
+    def test_counts_before_and_after(self):
+        t = make_truth()
+        r = copy.deepcopy(t)
+        last = t["beats"][-1]["t"]
+        r["beats"].insert(0, {"t": t["beats"][0]["t"] - 0.3, "downbeat": False})  # 1 before
+        r["beats"] += [{"t": last + BI * k, "downbeat": False} for k in (1, 2)]  # 2 after
+        b = S.score(t, r)["beats"]
+        self.assertEqual(b["nEstOutsideBefore"], 1)
+        self.assertEqual(b["nEstOutsideAfter"], 2)
+        self.assertEqual(b["nEst"], len(t["beats"]))  # in-window count unchanged
+        self.assertEqual(b["f"], 1.0)
+
+    def test_zero_when_nothing_outside(self):
+        t = make_truth()
+        b = S.score(t, copy.deepcopy(t))["beats"]
+        self.assertEqual((b["nEstOutsideBefore"], b["nEstOutsideAfter"]), (0, 0))
+
+    def test_extra_beat_inside_window_is_not_outside(self):
+        t = make_truth()
+        r = copy.deepcopy(t)
+        r["beats"].append({"t": t["beats"][-1]["t"] + 0.2, "downbeat": False})
+        b = S.score(t, r)["beats"]
+        self.assertEqual((b["nEstOutsideBefore"], b["nEstOutsideAfter"]), (0, 0))

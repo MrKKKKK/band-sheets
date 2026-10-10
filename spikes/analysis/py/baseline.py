@@ -60,7 +60,7 @@ def oracle(truth):
     return out
 
 
-def phase0_from(result):
+def phase0_from(result, name="dsp-phase0"):
     """The analyzer's own beats with the downbeat phase fixed to 0: beat i is a downbeat iff i % beats_per_bar == 0.
 
     The trivial rival of a real downbeat finder (R2): in every base variant the first sound is the downbeat,
@@ -74,7 +74,7 @@ def phase0_from(result):
         b["downbeat"] = i % bpb == 0
         b["bar"], b["beat"] = i // bpb, i % bpb
     analyzer = dict(out.get("analyzer") or {})
-    analyzer["name"] = "dsp-phase0"
+    analyzer["name"] = name
     out["analyzer"] = analyzer
     return out
 
