@@ -87,7 +87,7 @@ class FileTest(unittest.TestCase):
                 json.dump({"variants": [{"name": "v1", "song": "s", "truth": "t.truth.json"}]}, f)
             with open(os.path.join(d, "results", "v1.dsp-v1.json"), "w") as f:
                 json.dump({"result": res, "score": {}}, f)
-            md = R.build_report(d, "dsp-v1", log=lambda *_: None)
+            md = R.build_report(d, "dsp-v1", plots=["v1"], log=lambda *_: None)
             self.assertIn("L0", md)
             self.assertIn("plots/v1.dsp-v1.png", md)
             self.assertTrue(os.path.getsize(os.path.join(d, "results", "plots", "v1.dsp-v1.png")) > 0)
@@ -114,6 +114,72 @@ class FileTest(unittest.TestCase):
             self.assertNotIn("| h |", main_part)  # not in the per-song table
             self.assertIn("held1", held_part)
             self.assertIn("対象: 1 変化形", md)
+
+
+class Q6R17Test(unittest.TestCase):
+    """Hand-computed: truth beats at 0,.5,..; chords C [0,2) G [2,4) Am [4,6) F [6,8); 16 beats -> 32 samples."""
+
+    def setUp(self):
+        self.truth = {"beats": beats(16), "timeSignature": {"num": 4},
+                      "chords": [ch(0, 2, "C"), ch(2, 4, "G"), ch(4, 6, "A", "min"), ch(6, 8, "F")]}
+
+    def test_two_point_scoring_splits_a_beat(self):
+        # result switches to the right chord at t=2.125: beat [2,2.5) has samples 2.125 (right) and 2.375 (right);
+        # a switch at 2.25 makes sample 2.125 wrong and 2.375 right -> half a beat.
+        res = {"beats": beats(16), "chords": [ch(0, 2.25, "C"), ch(2.25, 4, "G"), ch(4, 6, "A", "min"), ch(6, 8, "F")]}
+        a = R.analyze_variant(self.truth, res)
+        self.assertAlmostEqual(a["n"], 16)
+        self.assertAlmostEqual(a["cats"]["correct"], 15.5)
+        self.assertAlmostEqual(a["cats"]["fifth"], 0.5)  # C vs G
+        self.assertEqual(a["kinds"]["fifth_down"], 0.5)  # truth G, result C: a fourth above / fifth below
+
+    def test_question_table_values(self):
+        # 4 beats of G? wrong (D?), 4 beats of C right plain, rest missed
+        res = {"beats": beats(16), "chords": [ch(0, 2, "C"), ch(2, 4, "D", text="D?")]}
+        a = R.analyze_variant(self.truth, res)
+        self.assertEqual(a["qsplit"]["?"], [4, 0])
+        self.assertEqual(a["qsplit"]["plain"], [4, 4])
+        lines = R._question_table([("x", R.aggregate([a]))])
+        self.assertEqual(lines[2], "| x | 4 | 100.0% | 4 | 0.0% |")
+
+    def test_error_kinds(self):
+        self.assertEqual(R.error_kind((0, "maj"), (7, "maj")), "fifth_up")
+        self.assertEqual(R.error_kind((0, "maj"), (5, "maj")), "fifth_down")
+        self.assertEqual(R.error_kind((0, "maj"), (9, "min")), "relative")
+        self.assertIsNone(R.error_kind((0, "maj"), (0, "maj")))
+
+    def _write(self, d, variants, truth, res):
+        os.makedirs(os.path.join(d, "results"))
+        with open(os.path.join(d, "t.truth.json"), "w") as f:
+            json.dump(truth, f)
+        with open(os.path.join(d, "manifest.json"), "w") as f:
+            json.dump({"variants": variants}, f)
+        for v in variants:
+            with open(os.path.join(d, "results", f"{v['name']}.dsp-v1.json"), "w") as f:
+                json.dump({"result": res[v["name"]], "score": {}}, f)
+
+    def test_m_excluded_from_totals_and_rec_has_no_names(self):
+        good = {"beats": beats(16), "chords": [ch(0, 2, "C"), ch(2, 4, "G"), ch(4, 6, "A", "min"), ch(6, 8, "F")]}
+        bad = {"beats": beats(16), "chords": [ch(0, 8, "D")]}
+        vs = [{"name": "base1", "song": "s", "truth": "t.truth.json", "level": 0},
+              {"name": "mid1", "song": "s", "truth": "t.truth.json", "level": "M"},
+              {"name": "secretfile", "song": "secretsong", "truth": "t.truth.json", "level": "REC"}]
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, vs, self.truth, {"base1": bad, "mid1": good, "secretfile": bad})
+            md = R.build_report(d, "dsp-v1", log=lambda *_: None)
+            self.assertNotIn("secretfile", md)
+            self.assertNotIn("secretsong", md)
+            self.assertNotIn("LREC", md)
+            self.assertIn("| REC |", md)
+            self.assertIn("| REC-1 |", md)
+            self.assertIn("| M |", md)
+            # D vs truth: both base1 and REC are 'bad'; M is perfect and must not dilute the overall row
+            overall = [l for l in md.splitlines() if l.startswith("| 全体 | ")][0]
+            self.assertTrue(overall.startswith("| 全体 | 2 | 32 |"), overall)
+            # no chord-pair names for REC: the only pair table is for L0 (D appears there, not as REC)
+            self.assertIn("REC-1.dsp-v1.png", md)
+            self.assertTrue(os.path.exists(os.path.join(d, "results", "plots", "REC-1.dsp-v1.png")))
+            self.assertFalse(os.path.exists(os.path.join(d, "results", "plots", "secretfile.dsp-v1.png")))
 
 
 if __name__ == "__main__":
