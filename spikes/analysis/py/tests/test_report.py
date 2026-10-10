@@ -182,5 +182,33 @@ class Q6R17Test(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(d, "results", "plots", "secretfile.dsp-v1.png")))
 
 
+class T20ReportTest(unittest.TestCase):
+    def test_vocab_and_key_tables(self):
+        truth = {"beats": beats(16), "timeSignature": {"num": 4},
+                 "chords": [ch(0, 4, "C", "6"), ch(4, 8, "G", "7(b5)")],
+                 "keys": [{"startBar": 0, "key": "C"}]}
+        res = {"beats": beats(16), "chords": [ch(0, 4, "C"), ch(4, 8, "G", "7")],
+               "keys": [{"startBar": 0, "tonic": "C", "mode": "major", "confidence": 1.0}]}
+        a = R.analyze_variant(truth, res)
+        self.assertEqual(a["vocab"]["nBeatsScored"], 8)
+        self.assertEqual(a["vocab"]["nBeatsDropped"], 8)
+        self.assertEqual(a["keys"]["nBars"], 4)
+        agg = R.aggregate([a, R.analyze_variant(truth, res)])
+        self.assertEqual(agg["vocab"]["nBeatsHit"], 16)
+        self.assertEqual(agg["keyVariants"], 2)
+        v = "\n".join(R._vocab_table([("L0", agg)]))
+        self.assertIn("| L0 | 16 | 100.0% | 100.0% | 16 | 0 | - |", v)
+        k = "\n".join(R._key_table([("L0", agg)]))
+        self.assertIn("| L0 | 2 | 8 | 100.0% | 100.0% | 0/0/0 | - |", k)
+
+    def test_variant_without_keys_or_vocab_rows(self):
+        a = R.analyze_variant({"beats": beats(4)}, {"beats": beats(4)})
+        self.assertIsNone(a["vocab"])
+        self.assertIsNone(a["keys"])
+        agg = R.aggregate([a])
+        self.assertEqual(agg["keyVariants"], 0)
+        self.assertIn("| x | 0 | 0 | - | - | 0/0/0 | - |", "\n".join(R._key_table([("x", agg)])))
+
+
 if __name__ == "__main__":
     unittest.main()

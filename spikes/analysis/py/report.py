@@ -219,13 +219,25 @@ def tempo_class(truth, result):
     return "other"
 
 
+VOCAB_COUNTS = ("nBeatsScored", "nBeatsHit", "nBeatsTriadHit", "nBeatsDropped", "nBassScored", "nBassHit")
+KEY_COUNTS = ("nBars", "nBarsHit", "nBarsNear", "nChangeRef", "nChangeEst", "nChangeHit")
+
+
+def vocab_key_counts(truth, result):
+    """(vocab counts or None, key counts or None) for one variant, from score.py (T20)."""
+    v = (S._chords(truth, result) or {}).get("vocab")
+    k = S._score_keys(truth, result)
+    return ({c: v[c] for c in VOCAB_COUNTS} if v else None), ({c: k[c] for c in KEY_COUNTS} if k else None)
+
+
 def analyze_variant(truth, result):
     beats = chord_beats(truth, result)
+    vocab, keys = vocab_key_counts(truth, result)
     cats, pairs = confusion(beats)
     return {"n": sum(b[4] for b in beats), "cats": cats, "pairs": pairs, "kinds": kind_counts(beats),
             "calib": calibration(beats),
             "qsplit": question_split(beats), "phase": phase_error(truth, result),
-            "tempo": tempo_class(truth, result)}
+            "tempo": tempo_class(truth, result), "vocab": vocab, "keys": keys}
 
 
 # ---------------- aggregation ----------------
@@ -233,9 +245,15 @@ def analyze_variant(truth, result):
 def aggregate(items):
     agg = {"variants": 0, "n": 0, "cats": Counter(), "pairs": Counter(), "kinds": Counter(), "calib": [[0, 0] for _ in range(N_BINS)],
            "qsplit": {"?": [0, 0], "plain": [0, 0]}, "phase": Counter(), "phaseVariants": Counter(),
-           "tempo": Counter()}
+           "tempo": Counter(), "vocab": Counter(), "vocabVariants": 0, "keys": Counter(), "keyVariants": 0}
     for a in items:
         agg["variants"] += 1
+        if a.get("vocab"):
+            agg["vocab"].update(a["vocab"])
+            agg["vocabVariants"] += 1
+        if a.get("keys"):
+            agg["keys"].update(a["keys"])
+            agg["keyVariants"] += 1
         agg["n"] += a["n"]
         agg["cats"].update(a["cats"])
         agg["pairs"].update(a["pairs"])
@@ -395,6 +413,31 @@ def _question_table(rows):
     return lines
 
 
+def _vocab_table(rows):
+    """rows: [(label, agg)] -> vocabulary chord / triad class / slash-bass hit rates and dropped beats (T20)."""
+    lines = ["| 対象 | 語彙の拍数 | 語彙のコード/拍 | 3和音の種類/拍 | 外した拍 | 分数の拍数 | ベースの当たり(記録) |",
+             "|---|---|---|---|---|---|---|"]
+    for label, a in rows:
+        v = a["vocab"]
+        lines.append(f"| {label} | {_num(v['nBeatsScored'])} | {_pct(v['nBeatsHit'], v['nBeatsScored'])} | "
+                     f"{_pct(v['nBeatsTriadHit'], v['nBeatsScored'])} | {_num(v['nBeatsDropped'])} | "
+                     f"{_num(v['nBassScored'])} | {_pct(v['nBassHit'], v['nBassScored'])} |")
+    return lines
+
+
+def _key_table(rows):
+    """rows: [(label, agg)] -> key per bar, near key per bar (record), key-change F (+-1 bar); only variants with truth keys."""
+    lines = ["| 対象 | 調つき変化形数 | 小節数 | 調/小節 | 近い調/小節(記録) | 変わり目 正解/解析/一致 | 変わり目 F |",
+             "|---|---|---|---|---|---|---|"]
+    for label, a in rows:
+        k = a["keys"]
+        ref, est, hit = k["nChangeRef"], k["nChangeEst"], k["nChangeHit"]
+        f = "-" if not ref else f"{2 * hit / (ref + est):.3f}"
+        lines.append(f"| {label} | {a['keyVariants']} | {_num(k['nBars'])} | {_pct(k['nBarsHit'], k['nBars'])} | "
+                     f"{_pct(k['nBarsNear'], k['nBars'])} | {ref}/{est}/{hit} | {f} |")
+    return lines
+
+
 def _kind_table(rows):
     """rows: [(label, agg)] -> mistakes by kind (shares of scored beats); no chord names."""
     lines = ["| 対象 | 拍数 | 誤り計 | " + " | ".join(KIND_JA[k] for k in KINDS) + " |", "|" + "---|" * (3 + len(KINDS))]
@@ -453,6 +496,14 @@ def build_report(out_dir, analyzer, only=None, plots=None, log=print):
     L += ["", "## 取り違えの種類(コード名なし)", "",
           "誤りの拍数を、種類ごとに全拍数に対する割合で示す。LR と REC は特に見る。", ""]
     L += _kind_table([(_level_label(l), by_level[l]) for l in levels] + [("全体", total)])
+    L += ["", "## 語彙のコード(設計判断 8)", "",
+          "正解の側だけ対応の規則(`map_vocab`)で語彙に直す。語彙のコード/拍はルート+語彙の種類、3和音の種類は maj/min/dim/aug/sus4"
+          "(7・M7→maj、m7→min、m7b5・dim7→dim)。外した拍は語彙に無い形(`7(b5)`・`7(#5)`・`aug7`・`mM7`・`sus2` など)で採点しない拍。"
+          "ベースの当たりは正解に分数コードのある拍だけの記録。", ""]
+    L += _vocab_table([(_level_label(l), by_level[l]) for l in levels] + [("全体", total)])
+    L += ["", "## 調(正解に調の注記がある変化形だけ)", "",
+          "小節ごとに主音と長短が一致した割合。近い調は同じ調・平行調・同主調・5度隣の調のどれか(記録)。変わり目 F は ±1 小節で照合。", ""]
+    L += _key_table([(_level_label(l), by_level[l]) for l in levels] + [("全体", total)])
     L += ["", "## `?` の有無ごとの誤り率", "",
           "解析のコードのテキストが `?` で終わる拍と、そうでない拍の誤り率(コード無しの拍は除く)。", ""]
     L += _question_table([(_level_label(l), by_level[l]) for l in levels] + [("全体", total)])
