@@ -57,6 +57,7 @@
  * `writeDrumSection` / `reflowDrumSection` the same way with a drum codec.
  */
 
+import { KS_NAMES } from './keys';
 import { barTicks, isValidTicks, WHOLE_TICKS } from './melody';
 import type { MelodyEvent, TimeSig } from './melody';
 import {
@@ -251,18 +252,6 @@ export type PreambleOverrides =
   /** A `\ts` / `\ks` the app cannot interpret: keep the part read-only. */
   | { unsupported: true };
 
-/** alphaTab 1.8.4's `\ks` names (lowercase; it matches case-insensitively). */
-const KS_NAMES = new Set(
-  [
-    'cb gb db ab eb bb f c g d a e b f# c#',
-    'cbmajor gbmajor dbmajor abmajor ebmajor bbmajor fmajor cmajor gmajor',
-    'dmajor amajor emajor bmajor f#major c#major',
-    'abminor ebminor bbminor fminor cminor gminor dminor aminor eminor',
-    'bminor f#minor c#minor g#minor d#minor a#minor',
-  ]
-    .join(' ')
-    .split(' '),
-);
 const TS_DENOMINATORS = new Set(['1', '2', '4', '8', '16', '32']);
 
 /**

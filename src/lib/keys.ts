@@ -57,3 +57,31 @@ export function diatonicChords(key: string): string[] {
 function mod(n: number, m: number): number {
   return ((n % m) + m) % m;
 }
+
+/** alphaTab 1.8.4's `\ks` names (lowercase; it matches case-insensitively). */
+export const KS_NAMES = new Set(
+  [
+    'cb gb db ab eb bb f c g d a e b f# c#',
+    'cbmajor gbmajor dbmajor abmajor ebmajor bbmajor fmajor cmajor gmajor',
+    'dmajor amajor emajor bmajor f#major c#major',
+    'abminor ebminor bbminor fminor cminor gminor dminor aminor eminor',
+    'bminor f#minor c#minor g#minor d#minor a#minor',
+  ]
+    .join(' ')
+    .split(' '),
+);
+
+/**
+ * The alphaTex `\ks` argument for an app key ("G" → "g", "F#m" → "f#minor"),
+ * or undefined when the key is invalid or has no key signature in alphaTab
+ * (e.g. "G#" major, "D#m" is fine, "Fb").
+ */
+export function alphaTexKeyName(key: string | undefined): string | undefined {
+  const parsed = key === undefined ? null : parseKey(key);
+  if (!parsed) return undefined;
+  const name =
+    parsed.tonic.toLowerCase() +
+    parsed.accidental +
+    (parsed.minor ? 'minor' : '');
+  return KS_NAMES.has(name) ? name : undefined;
+}

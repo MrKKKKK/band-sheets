@@ -1,3 +1,4 @@
+import { alphaTexKeyName } from './keys';
 import { isDrumPart, type Part, type Song } from './song';
 
 /** App-default drum aliases (name, GM percussion note). */
@@ -42,7 +43,7 @@ export function partsToAlphaTex(song: Song, partNames?: string[]): string {
   const ts = parseTimeSignature(song.meta.time);
   const tracks = song.parts
     .filter((p) => !partNames || partNames.includes(p.name))
-    .map((p) => trackTex(p, ts));
+    .map((p) => trackTex(p, ts, alphaTexKeyName(song.meta.key)));
 
   // One blank line between tracks for readability when debugging.
   return [header.join('\n'), tracks.join('\n\n')]
@@ -51,7 +52,11 @@ export function partsToAlphaTex(song: Song, partNames?: string[]): string {
     .concat('\n');
 }
 
-function trackTex(part: Part, ts: [number, number] | undefined): string {
+function trackTex(
+  part: Part,
+  ts: [number, number] | undefined,
+  ks: string | undefined,
+): string {
   const body = part.body === '' ? [] : part.body.split('\n');
   const has = (re: RegExp) => re.test(part.body);
   const drum = isDrumPart(part);
@@ -73,6 +78,9 @@ function trackTex(part: Part, ts: [number, number] | undefined): string {
     defaults.push('\\staff {score}');
   }
   if (ts && !has(/\\ts\b/)) defaults.push(`\\ts ${ts[0]} ${ts[1]}`);
+
+  // Key signature for pitched parts only (percussion has none).
+  if (ks && !drum && !has(/\\ks\b/)) defaults.push(`\\ks ${ks}`);
 
   const lines = [
     `\\track ${quote(part.name)}`,
