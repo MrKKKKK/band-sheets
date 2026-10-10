@@ -313,7 +313,7 @@ test('offline: the cached list is shown; sign out clears it', async ({
   await page.getByRole('button', { name: 'ログイン中' }).click();
   await page.getByRole('button', { name: 'ログアウト' }).click();
   await expect(
-    page.getByRole('button', { name: 'ログインせずに編集を始める →' }),
+    page.getByRole('button', { name: '新しい曲を作る →' }),
   ).toBeVisible();
   expect(
     await page.evaluate(() => localStorage.getItem('band-sheets:auth')),

@@ -129,9 +129,7 @@ describe('Root routing', () => {
     expect(
       screen.getByRole('button', { name: 'Google でログイン' }),
     ).toBeInTheDocument();
-    await user.click(
-      screen.getByRole('button', { name: 'ログインせずに編集を始める →' }),
-    );
+    await user.click(screen.getByRole('button', { name: '新しい曲を作る →' }));
     expect(
       await screen.findByRole('heading', { level: 1, name: '無題の曲' }),
     ).toBeInTheDocument();
@@ -172,7 +170,7 @@ describe('Root sample song', () => {
   it('sign-in screen 「サンプル曲を追加」 opens a new song with the sample (device only)', async () => {
     const { user, storage } = setup({ status: 'signedOut' });
     await user.click(
-      screen.getByRole('button', { name: 'サンプル曲を追加（聖者の行進） →' }),
+      screen.getByRole('button', { name: 'サンプル曲で試す（聖者の行進）' }),
     );
     expect(
       await screen.findByRole('heading', { level: 1, name: '聖者の行進' }),

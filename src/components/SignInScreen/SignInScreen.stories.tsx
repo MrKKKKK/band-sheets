@@ -33,20 +33,25 @@ export const Default: Story = {
     expect(
       canvas.getByRole('heading', {
         level: 2,
-        name: 'このアプリがさわれるもの',
+        name: 'Google ドライブに保存する（任意）',
       }),
     ).toBeVisible();
+    // The scope explanation is collapsed until opened.
+    expect(
+      canvas.getByText(/サードパーティのアプリとサービス/),
+    ).not.toBeVisible();
+    await userEvent.click(canvas.getByText('このアプリがさわれるもの'));
     expect(canvas.getByText(/サードパーティのアプリとサービス/)).toBeVisible();
     await userEvent.click(
       canvas.getByRole('button', { name: 'Google でログイン' }),
     );
     expect(onSignIn).toHaveBeenCalledOnce();
     await userEvent.click(
-      canvas.getByRole('button', { name: 'ログインせずに編集を始める →' }),
+      canvas.getByRole('button', { name: '新しい曲を作る →' }),
     );
     expect(onStartWithoutSignIn).toHaveBeenCalledOnce();
     await userEvent.click(
-      canvas.getByRole('button', { name: 'サンプル曲を追加（聖者の行進） →' }),
+      canvas.getByRole('button', { name: 'サンプル曲で試す（聖者の行進）' }),
     );
     expect(onAddSample).toHaveBeenCalledOnce();
     expect(canvas.queryByRole('status')).not.toBeInTheDocument();
@@ -67,7 +72,7 @@ export const SigningIn: Story = {
     );
     // Starting without signing in stays available while waiting.
     await userEvent.click(
-      canvas.getByRole('button', { name: 'ログインせずに編集を始める →' }),
+      canvas.getByRole('button', { name: '新しい曲を作る →' }),
     );
     expect(onStartWithoutSignIn).toHaveBeenCalledOnce();
   },
@@ -100,13 +105,13 @@ export const NotConfigured: Story = {
       'Drive は設定されていません',
     );
     await userEvent.click(
-      canvas.getByRole('button', { name: 'ログインせずに編集を始める →' }),
+      canvas.getByRole('button', { name: '新しい曲を作る →' }),
     );
     expect(onStartWithoutSignIn).toHaveBeenCalledOnce();
   },
 };
 
-/** Without `onAddSample` the sample button is not shown. */
+/** Without `onAddSample` the primary button starts a new song. */
 export const NoSampleButton: Story = {
   args: { onAddSample: undefined },
   play: async ({ canvasElement }) => {
@@ -114,6 +119,10 @@ export const NoSampleButton: Story = {
     expect(
       canvas.queryByRole('button', { name: /サンプル曲/ }),
     ).not.toBeInTheDocument();
+    await userEvent.click(
+      canvas.getByRole('button', { name: '新しい曲を作る' }),
+    );
+    expect(onStartWithoutSignIn).toHaveBeenCalledOnce();
   },
 };
 

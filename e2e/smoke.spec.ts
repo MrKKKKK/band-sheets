@@ -5,7 +5,7 @@ test('app loads', async ({ page }) => {
   await page.goto('/');
   // No songs and not signed in: the sign-in screen.
   await expect(
-    page.getByRole('button', { name: 'ログインせずに編集を始める →' }),
+    page.getByRole('button', { name: '新しい曲を作る →' }),
   ).toBeVisible();
   await openNewSong(page);
 });
@@ -15,7 +15,7 @@ test('sample song: added from the sign-in screen, every section editable in the 
 }) => {
   await freshStart(page);
   await page
-    .getByRole('button', { name: 'サンプル曲を追加（聖者の行進） →' })
+    .getByRole('button', { name: 'サンプル曲で試す（聖者の行進）' })
     .click();
   await expect(page).toHaveURL(/#\/edit\//);
   await expect(
