@@ -225,7 +225,8 @@ def load_manifests(out_dir):
             name = v.get("name") or (os.path.basename(truth).replace(".truth.json", "") if truth else None)
             if name:
                 res[name] = {"truth": truth, "song": v.get("song", ""),
-                             "level": str(v.get("level", 0 if rel == "manifest.json" else "?"))}
+                             "level": str(v.get("level", 0 if rel == "manifest.json" else "?")),
+                             "heldOut": bool(v.get("heldOut", False))}
     return res
 
 
@@ -329,7 +330,8 @@ def _calib_table(a):
 
 def build_report(out_dir, analyzer, only=None, plots_per_level=2, log=print):
     manifests = load_manifests(out_dir)
-    entries = []  # (name, level, song, truth, result, analysis)
+    entries = []  # (name, level, song, truth, result, analysis); tuned variants only
+    held_entries = []  # same, held-out variants: reported separately
     for name, rpath in load_results(out_dir, analyzer, only):
         meta = manifests.get(name)
         if not meta or not meta["truth"] or not os.path.exists(os.path.join(out_dir, meta["truth"])):
@@ -339,7 +341,8 @@ def build_report(out_dir, analyzer, only=None, plots_per_level=2, log=print):
             truth = json.load(f)
         with open(rpath) as f:
             result = json.load(f)["result"]
-        entries.append((name, meta["level"], meta["song"], truth, result, analyze_variant(truth, result)))
+        e = (name, meta["level"], meta["song"], truth, result, analyze_variant(truth, result))
+        (held_entries if meta["heldOut"] else entries).append(e)  # held-out never enters the main tables (R10)
     levels = sorted({e[1] for e in entries}, key=_level_key)
     songs = sorted({e[2] for e in entries})
     by_level = {l: aggregate([e[5] for e in entries if e[1] == l]) for l in levels}
@@ -347,7 +350,7 @@ def build_report(out_dir, analyzer, only=None, plots_per_level=2, log=print):
     total = aggregate([e[5] for e in entries])
 
     L = [f"# 誤りの分析 ({analyzer})", "",
-         f"対象: {len(entries)} 変化形。拍ごとに、正解コードのある拍の中点で解析のコードと比べる(長短のある3和音のみ)。", ""]
+         f"対象: {len(entries)} 変化形(ホールドアウト {len(held_entries)} 本は別集計)。拍ごとに、正解コードのある拍の中点で解析のコードと比べる(長短のある3和音のみ)。", ""]
     L += ["## レベル別の概要", ""] + _cat_table([(f"L{l}", by_level[l]) for l in levels] + [("全体", total)]) + [""]
     L += ["## 曲(song)別", ""] + _cat_table([(s or "(不明)", by_song[s]) for s in songs]) + [""]
     L += ["## 変化形ごとの取り違え", ""] + _cat_table(
@@ -362,6 +365,13 @@ def build_report(out_dir, analyzer, only=None, plots_per_level=2, log=print):
     L += ["", "## 確信度ごとの正解率(全体)", ""] + _calib_table(total)
     for l in levels:
         L += ["", f"### L{l}", ""] + _calib_table(by_level[l])
+    L += ["", "## ホールドアウト(別集計、上の表・全体には含めない)", ""]
+    if held_entries:
+        hlevels = sorted({e[1] for e in held_entries}, key=_level_key)
+        L += _cat_table([(f"L{l}", aggregate([e[5] for e in held_entries if e[1] == l])) for l in hlevels]
+                        + [(e[0], aggregate([e[5]])) for e in held_entries])
+    else:
+        L += ["なし"]
     L += ["", "## 小節の頭の位相のずれ", "",
           "変化形ごとの最頻のずれ(解析の小節頭が正解の小節の何拍目に当たるか)の変化形数。括弧内は小節頭ごとの拍数。", "",
           "| レベル | 0拍 | 1拍 | 2拍 | 3拍 |", "|---|---|---|---|---|"]

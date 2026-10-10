@@ -117,6 +117,48 @@ class TestRunAll(unittest.TestCase):
             self.assertEqual(len(open(os.path.join(res, "summary.csv")).read().strip().splitlines()), 5)
 
 
+class TestHeldOutGuard(unittest.TestCase):
+    """R10: held-out variants are skipped by default and never allowed in a tuning (--dsp-config) run."""
+
+    def _dir(self, d):
+        os.makedirs(os.path.join(d, "song"))
+        for n in ("tuned", "held"):
+            with open(os.path.join(d, "song", f"{n}.truth.json"), "w") as f:
+                json.dump(make_truth(), f)
+        manifest = {"variants": [
+            {"name": "tuned", "song": "song", "wav": "song/tuned.wav", "truth": "song/tuned.truth.json"},
+            {"name": "held", "song": "song", "wav": "song/held.wav", "truth": "song/held.truth.json",
+             "heldOut": True}]}
+        with open(os.path.join(d, "manifest.json"), "w") as f:
+            json.dump(manifest, f)
+
+    def test_skipped_by_default(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._dir(d)
+            msgs = []
+            rows, _ = RA.run_all(d, ["oracle"], log=msgs.append)
+            self.assertEqual({r["variant"] for r in rows}, {"tuned"})
+            self.assertTrue(any("held-out: skipped 1" in m for m in msgs), msgs)
+            self.assertFalse(os.path.exists(os.path.join(d, "results", "held.oracle.json")))
+
+    def test_included_only_on_request(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._dir(d)
+            rows, _ = RA.run_all(d, ["oracle"], include_held_out=True)
+            self.assertEqual({r["variant"] for r in rows}, {"tuned", "held"})
+
+    def test_refused_in_tuning_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._dir(d)
+            with self.assertRaises(RA.HeldOutError):
+                RA.run_all(d, ["oracle"], dsp_config="cfg.json", include_held_out=True)
+            with self.assertRaises(RA.HeldOutError):
+                RA.main(["--out", d, "--analyzers", "oracle", "--dsp-config", "cfg.json", "--include-held-out"])
+            # a tuning run without the flag is fine (held-out simply skipped)
+            rows, _ = RA.run_all(d, ["oracle"], dsp_config="cfg.json")
+            self.assertEqual({r["variant"] for r in rows}, {"tuned"})
+
+
 def write_chords(path, truth, shift=0.0, with_clicks=False, extra_tail=2.0):
     """Decaying triad on every truth beat (+ optional 1 kHz clicks), so onsets and chroma are testable."""
     dur = truth["source"]["durationSec"] + extra_tail
@@ -338,6 +380,7 @@ class TestLevels(unittest.TestCase):
 
     def _run(self, **kw):
         kw.setdefault("analyzers", ["oracle", "constant"])
+        kw.setdefault("include_held_out", True)  # these tests check the held-out table layout
         return RA.run_all(self.d, log=_quiet, **kw)[0]
 
     def test_load_variants_three_manifests(self):

@@ -1,7 +1,10 @@
 """Run every baseline analyzer on every variant in out/manifest.json and score it.
 
 Usage: python py/run_all.py [--out DIR] [--analyzers constant,oracle,mode-chord,dsp-v1] [--only GLOB]
-                            [--dsp-config x.json] [--dsp-name dsp-v1]
+                            [--dsp-config x.json] [--dsp-name dsp-v1] [--include-held-out]
+Held-out variants (manifest "heldOut": true) are SKIPPED unless --include-held-out is given, and that flag is
+refused together with --dsp-config: held-out data may only be run with the default (frozen) config, never in a
+tuning / selection loop (R10).
 (DIR defaults to <spikes/analysis>/out). Analyzers get (truth, wav_path); dsp-v1 is given ONLY the wav path.
 
 Three manifests are read (only manifest.json is required; paths relative to DIR):
@@ -120,7 +123,15 @@ class DspAnalyzer:
         return self.fn(wav_path, self.cfg)
 
 
-def run_all(out_dir, analyzers=None, only=None, dsp_config=None, dsp_name="dsp-v1", log=print):
+class HeldOutError(ValueError):
+    """Held-out data requested in a tuning / selection path (R10)."""
+
+
+def run_all(out_dir, analyzers=None, only=None, dsp_config=None, dsp_name="dsp-v1", log=print,
+            include_held_out=False):
+    if include_held_out and dsp_config is not None:
+        raise HeldOutError("held-out variants must not be run with --dsp-config (tuning path); "
+                           "evaluate them once with the default config")
     results_dir = os.path.join(out_dir, "results")
     os.makedirs(results_dir, exist_ok=True)
     names = list(analyzers) if analyzers else list(DEFAULT_ANALYZERS)
@@ -139,8 +150,12 @@ def run_all(out_dir, analyzers=None, only=None, dsp_config=None, dsp_name="dsp-v
             raise ValueError(f"unknown analyzer {a!r}")
     rows = []
     timings = {}
+    n_held_skipped = 0
     for v in load_variants(out_dir):
         if only and not fnmatch.fnmatch(v["name"], only):
+            continue
+        if v["heldOut"] and not include_held_out:
+            n_held_skipped += 1
             continue
         tpath = os.path.join(out_dir, v["truth"])
         if not os.path.exists(tpath):
@@ -165,6 +180,8 @@ def run_all(out_dir, analyzers=None, only=None, dsp_config=None, dsp_name="dsp-v
                 json.dump({"result": result, "score": scores}, f, indent=2, ensure_ascii=False)
             rows.append({"variant": v["name"], "analyzer": aname, "song": v["song"], "level": v["level"],
                          "heldOut": v["heldOut"], "values": [_get(scores, p) for _, p in COLUMNS]})
+    if n_held_skipped:
+        log(f"held-out: skipped {n_held_skipped} variants (use --include-held-out for the final evaluation)")
     header = ["variant", "analyzer"] + [c for c, _ in COLUMNS]
     with open(os.path.join(results_dir, "summary.csv"), "w", newline="") as f:
         w = csv.writer(f)
@@ -238,11 +255,13 @@ def main(argv=None):
                     help="comma list from constant,oracle,mode-chord,dsp-v1")
     ap.add_argument("--only", help="glob on the variant name")
     ap.add_argument("--dsp-config", help="JSON file with (partial) dsp Config overrides")
+    ap.add_argument("--include-held-out", action="store_true",
+                    help="also run held-out variants (final evaluation only; refused with --dsp-config)")
     ap.add_argument("--dsp-name", default="dsp-v1", help="analyzer name used in the output files/tables")
     args = ap.parse_args(argv)
     t0 = time.perf_counter()
     rows, timings = run_all(args.out, [a for a in args.analyzers.split(",") if a], args.only,
-                            args.dsp_config, args.dsp_name)
+                            args.dsp_config, args.dsp_name, include_held_out=args.include_held_out)
     print(f"scored {len(rows)} (variant x analyzer) in {time.perf_counter() - t0:.2f} s")
     print(f"wrote {os.path.join(args.out, 'results', 'summary.md')} (+ summary.csv, summary.levels.md)")
 

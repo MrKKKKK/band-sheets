@@ -93,6 +93,28 @@ class FileTest(unittest.TestCase):
             self.assertTrue(os.path.getsize(os.path.join(d, "results", "plots", "v1.dsp-v1.png")) > 0)
             self.assertTrue(os.path.exists(os.path.join(d, "results", "report.md")))
 
+    def test_held_out_is_a_separate_table(self):
+        truth = {"beats": beats(16), "timeSignature": {"num": 4}, "sections": [{"start": 0, "end": 4, "label": "A"}],
+                 "chords": [ch(0, 4, "C"), ch(4, 8, "A", "min")]}
+        res = {"beats": beats(16), "sections": [], "chords": [ch(0, 4, "C"), ch(4, 8, "A", "min")]}
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "results"))
+            with open(os.path.join(d, "t.truth.json"), "w") as f:
+                json.dump(truth, f)
+            with open(os.path.join(d, "manifest.json"), "w") as f:
+                json.dump({"variants": [{"name": "tuned1", "song": "s", "truth": "t.truth.json"},
+                                        {"name": "held1", "song": "h", "truth": "t.truth.json", "heldOut": True}]}, f)
+            for n in ("tuned1", "held1"):
+                with open(os.path.join(d, "results", f"{n}.dsp-v1.json"), "w") as f:
+                    json.dump({"result": res, "score": {}}, f)
+            md = R.build_report(d, "dsp-v1", log=lambda *_: None)
+            main_part, held_part = md.split("## ホールドアウト", 1)
+            self.assertIn("tuned1", main_part)
+            self.assertNotIn("held1", main_part)
+            self.assertNotIn("| h |", main_part)  # not in the per-song table
+            self.assertIn("held1", held_part)
+            self.assertIn("対象: 1 変化形", md)
+
 
 if __name__ == "__main__":
     unittest.main()
