@@ -5,6 +5,7 @@
  * resets that item.
  */
 import { isDrumPart, type Song } from './song';
+import { clampTranspose } from './transpose';
 
 export type ViewerLayout = 'part' | 'score';
 export type NavMode = 'page' | 'scroll' | 'auto';
@@ -21,6 +22,8 @@ export interface ViewerSettings {
   zoom: number; // ZOOM_STEPS のどれか
   speedPct: number; // 50..150, 5 刻み
   countIn: boolean;
+  /** 表示だけの移調（半音、−6..+6）。曲のテキストは変えない */
+  transpose: number;
 }
 
 export const ZOOM_STEPS: readonly number[] = [0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4];
@@ -68,6 +71,7 @@ export function defaultViewerSettings(song: Song): ViewerSettings {
     zoom: DEFAULT_ZOOM,
     speedPct: DEFAULT_SPEED,
     countIn: true,
+    transpose: 0,
   };
 }
 
@@ -130,5 +134,9 @@ export function normalizeViewerSettings(
     zoom,
     speedPct,
     countIn: typeof raw.countIn === 'boolean' ? raw.countIn : d.countIn,
+    transpose:
+      typeof raw.transpose === 'number' && Number.isFinite(raw.transpose)
+        ? clampTranspose(raw.transpose)
+        : d.transpose,
   };
 }

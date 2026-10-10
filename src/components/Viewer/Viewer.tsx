@@ -45,6 +45,7 @@ import {
   type SheetAnchor,
   type SheetLayout,
 } from '../ViewerSheet/sheetModel';
+import { clampTranspose, formatTranspose, keyLabel } from '../../lib/transpose';
 import { ViewerSheet } from '../ViewerSheet/ViewerSheet';
 import { ViewerToolbar } from '../ViewerToolbar/ViewerToolbar';
 import { browserClock, type ViewerClock } from './viewerClock';
@@ -408,6 +409,14 @@ export function Viewer({
     saveViewerSettings(storage, songId, next);
   };
 
+  const changeTranspose = (n: number) => {
+    const t = clampTranspose(n);
+    if (t === settings.transpose) return;
+    update({ transpose: t });
+    const label = keyLabel(song.meta.key, t);
+    say(`移調 ${formatTranspose(t)}${label ? `、${label}` : ''}`);
+  };
+
   const zoomIdx = ZOOM_STEPS.indexOf(settings.zoom);
   const canZoomOut = zoomIdx > 0;
   const canZoomIn = zoomIdx < ZOOM_STEPS.length - 1;
@@ -680,6 +689,9 @@ export function Viewer({
           canZoomOut={canZoomOut}
           canZoomIn={canZoomIn}
           onZoomOut={() => zoomBy(-1)}
+          transpose={settings.transpose}
+          onTransposeChange={changeTranspose}
+          songKey={song.meta.key}
           onZoomIn={() => zoomBy(1)}
           onBack={onExit}
           backLabel={backLabel}
@@ -716,6 +728,7 @@ export function Viewer({
               scoreHidden={settings.scoreHidden}
               scoreChart={settings.scoreChart}
               zoom={settings.zoom}
+              transpose={settings.transpose}
               playingSection={highlight}
               onLayout={setLayout}
             />

@@ -11,6 +11,7 @@ import bravuraWoff2 from '@coderline/alphatab/font/Bravura.woff2?url';
 import { useEffect, useRef, useState } from 'react';
 import type { ShuffleMarkAt } from '../../lib/viewerSections';
 import { injectBravuraFontFace } from '../PartScore/bravuraFont';
+import { transposeScore } from '../../lib/transposeScore';
 import { percussionStemsUp } from '../PartScore/percussionStems';
 import styles from './SectionScore.module.css';
 import { ShuffleMark } from './ShuffleMark';
@@ -40,6 +41,11 @@ export interface SectionScoreProps {
    * One entry per drum track (m6-review.md R5).
    */
   shuffleMarks?: readonly ShuffleMarkAt[];
+  /**
+   * Display-only transposition in semitones (default 0; drums stay). Applied
+   * to the imported model (`transposeScore`), the tex is untouched.
+   */
+  transpose?: number;
   /**
    * Called after every finished render (alphaTab can finish twice per
    * `tex()`, and again after a zoom/width change) — use the latest call.
@@ -250,6 +256,7 @@ export function SectionScore({
   zoom,
   firstBar,
   shuffleMarks,
+  transpose = 0,
   onLayout,
   onError,
 }: SectionScoreProps) {
@@ -263,12 +270,14 @@ export function SectionScore({
   const markKey = (shuffleMarks ?? []).map((m) => m.track).join(',');
   const live = useRef({
     firstBar,
+    transpose,
     onLayout,
     onError,
     markTracks: markKey ? markKey.split(',').map(Number) : [],
   });
   useEffect(() => {
     live.current.firstBar = firstBar;
+    live.current.transpose = transpose;
     live.current.onLayout = onLayout;
     live.current.onError = onError;
   });
@@ -292,6 +301,7 @@ export function SectionScore({
     }
     apiRef.current = api;
     api.scoreLoaded.on((score) => {
+      transposeScore(score, live.current.transpose);
       percussionStemsUp(score);
       for (const t of live.current.markTracks) reserveMarkBand(score, t);
     });
@@ -353,7 +363,7 @@ export function SectionScore({
       tex,
       Array.from({ length: trackCount }, (_, i) => i),
     );
-  }, [tex, trackCount, markKey]);
+  }, [tex, trackCount, markKey, transpose]);
 
   useEffect(() => {
     if (zoomRef.current === zoom) return;

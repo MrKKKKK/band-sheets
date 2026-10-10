@@ -33,6 +33,7 @@ describe('defaultViewerSettings', () => {
       zoom: 1,
       speedPct: 100,
       countIn: true,
+      transpose: 0,
     });
   });
   it('falls back to the first part when all are drums', () => {
@@ -60,6 +61,7 @@ describe('normalizeViewerSettings', () => {
       zoom: 1.2,
       speedPct: 75,
       countIn: false,
+      transpose: -2,
     };
     expect(normalizeViewerSettings(raw, band)).toEqual(raw);
   });
@@ -96,6 +98,20 @@ describe('normalizeViewerSettings', () => {
       100,
     );
     expect(normalizeViewerSettings({ speedPct: NaN }, band).speedPct).toBe(100);
+  });
+});
+
+describe('transpose setting', () => {
+  it('defaults to 0, rounds and clamps to -6..6', () => {
+    expect(normalizeViewerSettings({}, band).transpose).toBe(0);
+    expect(normalizeViewerSettings({ transpose: 9 }, band).transpose).toBe(6);
+    expect(normalizeViewerSettings({ transpose: -9 }, band).transpose).toBe(-6);
+    expect(normalizeViewerSettings({ transpose: 2.6 }, band).transpose).toBe(3);
+  });
+  it('rejects non-numbers and old settings without it', () => {
+    for (const v of ['2', null, NaN, Infinity, true]) {
+      expect(normalizeViewerSettings({ transpose: v }, band).transpose).toBe(0);
+    }
   });
 });
 
