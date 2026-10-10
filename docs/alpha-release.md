@@ -21,6 +21,7 @@
 - 2026-10-10: リポジトリは**公開**、ライセンスは **MIT** に決定（ユーザー）。個人のパス 2 か所を直し、`LICENSE`・README（ひな形から差し替え）・`package.json` の `license`・`.nvmrc`（Node 24、GitHub Actions のビルド用）を追加。コミットの作者は `MrKKKKK <38149405+MrKKKKK@users.noreply.github.com>`（このリポジトリだけの設定。Gmail を公開しないため）。
 - 2026-10-10: 手順 1・2 完了。https://github.com/MrKKKKK/band-sheets （公開、ブランチ `main`）。
 - 2026-10-10: 公開先を GitHub Pages に変更。`.github/workflows/deploy-pages.yml`（`main` への push で、ビルドして公開）を追加。サブフォルダで公開するため、ワークフローの中だけ `vite build --base=/band-sheets/` にしている（`vite.config.ts` は変えていないので、開発サーバーと e2e は `/` のまま）。手元でこのビルドを試し、フォントなども `/band-sheets/` から読み込まれることを確認。Pages は `gh api` で有効化（build_type=workflow）。クライアント ID はリポジトリの Actions 変数 `VITE_GOOGLE_CLIENT_ID` から渡す（2026-10-10 に `.env.local` と同じ値を登録）。Google Cloud の承認済みの生成元に `https://mrkkkkk.github.io` を追加済み（ユーザー）。手順 3・4 完了。
+- 2026-10-10: 手順 5（ユーザー）。iPad は持っていないので、閲覧は ASUS Chromebook（CM3001DM2、Chrome）で確認。問題なし: ログイン（ポップアップが止められない。M7 R9）、PC で保存した曲を開いて楽譜が正しく表示される（フォント）、演奏用の画面を開いたままでも画面が消えない（Wake Lock）。読み上げ（M6 R15）は未確認（VoiceOver は Apple の機能。Chromebook では ChromeVox）。iPad の Safari での確認は、iPad が手に入るまで保留。
 
 ## 次の手順
 
