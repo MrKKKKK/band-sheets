@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { allVariants } from './variants';
 
 describe('allVariants', () => {
-  const v = allVariants();
+  // Modulation variants (spike 2, T23) are tested in modulate.test.ts.
+  const v = allVariants().filter((x) => !x.modulation);
   const l0 = v.filter((x) => x.level === 0 && !x.heldOut && !x.name.startsWith('etude7') );
   it('has unique names and a level on every variant', () => {
     expect(new Set(v.map((x) => x.name)).size).toBe(v.length);

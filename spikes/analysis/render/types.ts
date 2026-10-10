@@ -79,6 +79,27 @@ export interface Variant {
   pickupBeats?: number;
   /** Share of etude chord slots replaced by dim / aug / sus4 / m7b5 / dim7. */
   vocabShare?: number;
+  // ---- spike 2 addition (T23) ----
+  /** Modulation variant: the chart sections (indexes in chart order) listed here are transposed. */
+  modulation?: Modulation;
+}
+
+/**
+ * Modulation of a variant (docs/audio-spike2-plan.md, design decision 11): `sections` (chart-section
+ * indexes) are transposed by `semitones`; the other sections keep the song's key `baseKey`.
+ * `tag` goes into the variant name.
+ */
+export interface Modulation {
+  sections: number[];
+  semitones: number;
+  baseKey: string;
+  tag: string;
+}
+
+/** One entry of the truth `keys`: from bar `startBar` (0 = first downbeat) the key is `key` ("C", "F#m"). */
+export interface TruthKey {
+  startBar: number;
+  key: string;
 }
 
 /** Difficulty level (also written to manifest.json entries as `level`). */
@@ -169,6 +190,8 @@ export interface AnalysisResult {
   beats?: AnalysisBeat[];
   timeSignature?: { num: number; den: number; confidence: number };
   key?: { tonic: string; mode: 'major' | 'minor'; confidence: number };
+  /** Truth only (spike 2, T23, modulation variants): the key per bar run; scored by py/score.py. */
+  keys?: TruthKey[];
   sections?: { start: number; end: number; label: string }[];
   chords?: AnalysisChord[];
   melody?: { notes: AnalysisNote[] };

@@ -43,6 +43,7 @@ export function variantExtras(v: Variant): Record<string, unknown> {
   if (v.etudeForm !== undefined) out.etudeForm = v.etudeForm;
   if (v.pickupBeats !== undefined) out.pickupBeats = v.pickupBeats;
   if (v.vocabShare !== undefined) out.vocabShare = v.vocabShare;
+  if (v.modulation !== undefined) out.modulation = v.modulation;
   return out;
 }
 

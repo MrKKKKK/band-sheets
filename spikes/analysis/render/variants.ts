@@ -2,7 +2,7 @@
 // spike 0 review additions (R5: etude full / shuffle, R6: lead-in silence).
 
 import type { Comp } from './pianoPart';
-import type { Level, Mix, Variant } from './types';
+import type { Level, Mix, Modulation, Variant } from './types';
 
 export const ETUDE_SEED = 1;
 
@@ -39,6 +39,7 @@ interface Extra {
    */
   etude?: 'etude2' | 'etude7' | 'etude3' | 'etudevoc';
   lrGrade?: 0 | 1 | 2;
+  modulation?: Modulation;
 }
 
 function make(
@@ -59,6 +60,7 @@ function make(
     x.comp ? `-${x.comp}` : '',
     x.pianoGainDb !== undefined ? `-pianoM${-x.pianoGainDb}` : '',
     x.drift ? '-drift' : '',
+    x.modulation ? `-mod${x.modulation.tag}` : '',
   ];
   const name = `${prefix}${MIX_NAME[mix]}-t${tempo}-${feel}${click ? '-click' : ''}${lead}${tags.join('')}`;
   const v: Variant = { song, mix, tempo, swing, click, name, level: x.level ?? 0 };
@@ -81,6 +83,7 @@ function make(
   }
   if (x.comp === 'rec') v.recSeed = v.etudeSeed ?? 1;
   if (x.lrGrade !== undefined) v.lrGrade = x.lrGrade;
+  if (x.modulation) v.modulation = x.modulation;
   if (x.heldOut) v.heldOut = true;
   return v;
 }
@@ -131,5 +134,19 @@ export function allVariants(): Variant[] {
   out.push(lr('etude', { lrGrade: 1, etude: 'etude3', heldOut: true, soundFont: 'musescore' }));
   // Level V: the etude with dim / aug / sus4 / m7b5 / dim7 mixed in (block chords, full mix).
   out.push(et({ level: 'V', etude: 'etudevoc' }));
+  // ---- spike 2 (T23): modulation variants, L0 and LR grade 1 (piano only, MuseScore timbre) ----
+  // The etudes have no key of their own (random-walk chords); 'C' is a nominal base key for the truth.
+  const modEt = (semitones: number, sections: number[], tag: string): Modulation => ({ sections, semitones, baseKey: 'C', tag });
+  const mods: [Variant['song'], Modulation][] = [
+    ['etude', modEt(7, [1, 3], 'Bup7')], // B1 and B2 up a fifth (to the dominant)
+    ['etude', modEt(1, [3], 'LastUp1')],
+    ['saints', modEt(2, [1], 'LastUp2')], // last chorus up a whole tone
+  ];
+  for (const [song, modulation] of mods) {
+    out.push(song === 'etude' ? et({ level: 0, modulation }) : sa({ level: 0, modulation }));
+    out.push(lr(song, { lrGrade: 1, soundFont: 'musescore', modulation }));
+  }
+  // Held-out: etude2 (seed 2), last section +2, L0.
+  out.push(et({ level: 0, etude: 'etude2', heldOut: true, modulation: modEt(2, [3], 'LastUp2') }));
   return out;
 }

@@ -38,6 +38,7 @@ import type {
   AnalysisNote,
   AnalysisResult,
   ChordTimeline,
+  TruthKey,
   Variant,
 } from './types';
 
@@ -149,6 +150,8 @@ export interface TruthInput {
   variant: Variant;
   /** `song.meta.key` ("C", "F#m", "Bb"…); omitted from the truth when absent. */
   key?: string;
+  /** Key per bar run (modulation variants, spike 2 T23); written to the truth as `keys`. */
+  keys?: TruthKey[];
   sampleRate: number;
   /** Sound font file name, e.g. "sonivox.sf2". */
   soundFont: string;
@@ -376,6 +379,7 @@ export function buildTruth(input: TruthInput): AnalysisResult {
   };
   const key = parseSongKey(input.key);
   if (key) result.key = key;
+  if (input.keys) result.keys = input.keys.map((k) => ({ ...k }));
   result.sections = sections;
   result.chords = chords;
   if (melodyIndex !== undefined) result.melody = { notes };

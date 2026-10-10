@@ -13,6 +13,7 @@ import { parseSong } from '../../../src/lib/parseSong';
 import { saintsSampleText } from '../../../src/lib/saintsSample';
 import { chordTimeline } from './chordTimeline';
 import { chordEtude, chordEtudeAABA } from './etude';
+import { modulatedBars, modulateSong, modulationKeys, transposeMelodyBars } from './modulate';
 import { pianoPartBody, recComp } from './pianoPart';
 import {
   buildManifest,
@@ -98,13 +99,20 @@ const t0 = Date.now();
 let totalBytes = 0;
 for (const v of selected) {
   const t = Date.now();
-  const { song, timeline: written, bandsheet, text } = songOf(v);
-  if (bandsheet && text && bandsheet !== 'etude.bandsheet') writeFileSync(join(OUT, 'etude', bandsheet), text);
+  const base = songOf(v);
+  const { bandsheet, text } = base;
+  if (bandsheet && text && bandsheet !== 'etude.bandsheet' && !v.modulation) writeFileSync(join(OUT, 'etude', bandsheet), text);
+  // Modulation variant (spike 2, T23): transposed chart sections -> chord timeline; the melody bars follow below.
+  const m = v.modulation;
+  if (m && v.pickupBeats) throw new Error(`「${v.name}」: 転調と弱起は一緒に使えません`);
+  const song = m ? modulateSong(base.song, m) : base.song;
+  const written = m ? chordTimeline(song) : base.timeline;
   // comp 'rec' also moves anticipated chord changes: the truth follows the returned timeline.
   const rec = v.comp === 'rec' ? recComp(written, { seed: v.recSeed, pickupBeats: v.pickupBeats ?? 0 }) : null;
   const timeline = rec ? rec.timeline : written;
   if (!rec && v.pickupBeats) throw new Error(`「${v.name}」: 弱起は comp 'rec' だけで扱えます`);
   const score = importScore(buildScoreTex(song, rec ? rec.body : pianoPartBody(written, v.comp), v));
+  if (m) transposeMelodyBars(score, modulatedBars(base.timeline, m), m.semitones);
   applyTempoCurve(score, v);
   setPrograms(score);
   const midi = generateMidi(score);
@@ -119,7 +127,8 @@ for (const v of selected) {
     midi,
     timeline,
     variant: v,
-    key: song.meta.key,
+    key: m ? m.baseKey : song.meta.key,
+    ...(m ? { keys: modulationKeys(base.timeline, m) } : {}),
     sampleRate,
     soundFont: SOUND_FONT_FILES[v.soundFont ?? 'sonivox'],
     audioSec: samples.length / sampleRate,
