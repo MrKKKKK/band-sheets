@@ -46,11 +46,11 @@ class ChromaConfig:
 @dataclass(frozen=True)
 class ChordsConfig:
     smoothing: str = 'viterbi'  # 'viterbi' | 'median' | 'none'
-    self_transition: float = 0.9  # P(same chord continues) for Viterbi
+    self_transition: float = 0.6  # P(same chord continues) for Viterbi (T12: 0.9 -> 0.6)
     median_width: int = 3  # beats (odd), for 'median'
     use_seventh: bool = True
-    seventh_weight: float = 0.95  # template weight (< 1) for 7th chords
-    seventh_margin: float = 0.05  # 7th only if it beats the best triad by this
+    seventh_weight: float = 0.98  # template weight (< 1) for 7th chords (T12: 0.95 -> 0.98)
+    seventh_margin: float = 0.0  # 7th only if it beats the best triad by this (T12: 0.05 -> 0)
     low_confidence: float = 0.1  # below this, text gets '?'
     no_chord_energy: float = 0.02  # chroma total below this -> no chord
     merge_min_beats: int = 1  # merge into spans; spans shorter than this get absorbed
@@ -77,7 +77,7 @@ class SectionsConfig:
     snap_bars: int = 4  # snap boundaries to multiples of this (0 = off)
     same_label_similarity: float = 0.85  # >= this -> same label
     chroma_weight: float = 1.0
-    loudness_weight: float = 0.5
+    loudness_weight: float = 0.25  # T12: 0.5 -> 0.25
     min_novelty: float = 0.25  # absolute novelty floor (guards songs with no real change)
     repetition_weight: float = 0.5  # weight of the repetition-structure (lag) novelty
     snap_min_ratio: float = 0.8  # a loudness step at the grid bar < this x the step at the peak keeps the peak (0 = always snap)
