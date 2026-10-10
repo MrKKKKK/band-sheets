@@ -95,11 +95,15 @@
   height: 20px;
 }
 
-/* Hover feedback is for real pointers only: on touch it would stay stuck. */
+/*
+ * Hover feedback is for real pointers only: on touch it would stay stuck.
+ * The zone itself stays transparent (a tinted zone hid the sheet on PC,
+ * issue #3); only the edge arrow, which sits outside the notes, darkens.
+ */
 @media (hover: hover) {
-  .zone:not(:disabled):hover,
-  .zonePlay:not(:disabled):hover {
-    background: var(--accent-bg);
+  .zone:not(:disabled):hover .arrow,
+  .zonePlay:not(:disabled):hover .arrow {
+    opacity: 0.8;
   }
 }
 
