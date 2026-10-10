@@ -4,10 +4,12 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Root } from './Root';
+import { saintsSampleText } from './lib/saintsSample';
 import type { AuthStatus } from './lib/auth/gis';
 import { createFakeAuth } from './lib/auth/fakeAuth';
 import {
@@ -163,6 +165,67 @@ describe('Root routing', () => {
     );
     const row = await screen.findByTestId('song-row-new-1');
     expect(row).toHaveAttribute('data-status', 'localOnly');
+  });
+});
+
+describe('Root sample song', () => {
+  it('sign-in screen 「サンプル曲を追加」 opens a new song with the sample (device only)', async () => {
+    const { user, storage } = setup({ status: 'signedOut' });
+    await user.click(
+      screen.getByRole('button', { name: 'サンプル曲を追加（聖者の行進） →' }),
+    );
+    expect(
+      await screen.findByRole('heading', { level: 1, name: '聖者の行進' }),
+    ).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/edit/new-1');
+    await openTextEditor(user);
+    expect(textarea()).toHaveValue(saintsSampleText);
+    expect(loadDraftRecord(storage, 'new-1')).toMatchObject({
+      text: saintsSampleText,
+      baseVersion: null,
+    });
+    // Back on the list it is an ordinary device-only song (not on Drive
+    // yet, so leaving asks like any unsaved new song).
+    await user.click(screen.getByRole('button', { name: '‹ 曲の一覧' }));
+    await user.click(
+      await screen.findByRole('button', { name: '保存せずに戻る' }),
+    );
+    const row = await screen.findByTestId('song-row-new-1');
+    expect(row).toHaveAttribute('data-status', 'localOnly');
+    expect(within(row).getByText('聖者の行進')).toBeInTheDocument();
+  });
+
+  it('list 「サンプル曲を追加」 makes a new copy each time; Ctrl+S saves it to Drive', async () => {
+    const { user, drive } = setup({ files: [SONG] });
+    await user.click(
+      await screen.findByRole('button', { name: 'サンプル曲を追加' }),
+    );
+    expect(
+      await screen.findByRole('heading', { level: 1, name: '聖者の行進' }),
+    ).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/edit/new-1');
+    act(() => {
+      ctrlS();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('save-status')).toHaveAttribute(
+        'data-state',
+        'saved',
+      ),
+    );
+    const saved = drive.files().filter((f) => f.text === saintsSampleText);
+    expect(saved).toHaveLength(1);
+    expect(saved[0].meta.appProperties?.songId).toBe('new-1');
+
+    // A second press makes a second, separate song.
+    await user.click(screen.getByRole('button', { name: '‹ 曲の一覧' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'サンプル曲を追加' }),
+    );
+    expect(
+      await screen.findByRole('heading', { level: 1, name: '聖者の行進' }),
+    ).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/edit/new-2');
   });
 });
 

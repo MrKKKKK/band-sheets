@@ -4,6 +4,7 @@ import { SignInScreen } from './SignInScreen';
 
 const onSignIn = fn();
 const onStartWithoutSignIn = fn();
+const onAddSample = fn();
 
 const meta = {
   title: 'Sync/SignInScreen',
@@ -13,10 +14,12 @@ const meta = {
     configured: true,
     onSignIn,
     onStartWithoutSignIn,
+    onAddSample,
   },
   beforeEach: () => {
     onSignIn.mockClear();
     onStartWithoutSignIn.mockClear();
+    onAddSample.mockClear();
   },
 } satisfies Meta<typeof SignInScreen>;
 
@@ -42,6 +45,10 @@ export const Default: Story = {
       canvas.getByRole('button', { name: 'ログインせずに編集を始める →' }),
     );
     expect(onStartWithoutSignIn).toHaveBeenCalledOnce();
+    await userEvent.click(
+      canvas.getByRole('button', { name: 'サンプル曲を追加（聖者の行進） →' }),
+    );
+    expect(onAddSample).toHaveBeenCalledOnce();
     expect(canvas.queryByRole('status')).not.toBeInTheDocument();
   },
 };
@@ -96,6 +103,17 @@ export const NotConfigured: Story = {
       canvas.getByRole('button', { name: 'ログインせずに編集を始める →' }),
     );
     expect(onStartWithoutSignIn).toHaveBeenCalledOnce();
+  },
+};
+
+/** Without `onAddSample` the sample button is not shown. */
+export const NoSampleButton: Story = {
+  args: { onAddSample: undefined },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(
+      canvas.queryByRole('button', { name: /サンプル曲/ }),
+    ).not.toBeInTheDocument();
   },
 };
 

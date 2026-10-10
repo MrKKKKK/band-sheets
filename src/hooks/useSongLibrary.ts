@@ -110,6 +110,23 @@ export function upsertEntry(
   });
 }
 
+/**
+ * A new device-only song: its draft (no Drive version yet) plus its list
+ * entry, the state a 「新しい曲」 reaches after its first edit. Used by the
+ * local 「複製」 and by 「サンプル曲を追加」; saving it to Drive works like
+ * any new song.
+ */
+export function addLocalSong(
+  storage: KeyValueStorage | null,
+  songId: string,
+  text: string,
+  at: Date,
+): void {
+  const savedAt = at.toISOString();
+  saveDraftRecord(storage, songId, { v: 1, text, baseVersion: null, savedAt });
+  upsertEntry(storage, { songId, ...textFields(text), modifiedTime: savedAt });
+}
+
 export function findEntry(
   storage: KeyValueStorage | null,
   songId: string,
@@ -553,18 +570,7 @@ export function useSongLibrary(
         if (text === undefined)
           return Promise.resolve({ ok: false, reason: 'notAllowed' });
         const copy = withTitle(text, copyTitle(textFields(text).title));
-        const savedAt = nowRef.current().toISOString();
-        saveDraftRecord(storage, newId, {
-          v: 1,
-          text: copy,
-          baseVersion: null,
-          savedAt,
-        });
-        upsertEntry(storage, {
-          songId: newId,
-          ...textFields(copy),
-          modifiedTime: savedAt,
-        });
+        addLocalSong(storage, newId, copy, nowRef.current());
         return Promise.resolve({ ok: true, songId: newId });
       }
       const token = s.ensureToken();

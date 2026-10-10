@@ -34,6 +34,8 @@ export type SongListProps = {
 
   // Actions (the caller owns Drive / navigation)
   onNew: () => void;
+  /** 「サンプル曲を追加」 (a new song from the built-in sample). No button when omitted. */
+  onAddSample?: () => void;
   onOpen: (songId: string) => void;
   onOpenView: (songId: string) => void;
   /**
@@ -93,6 +95,7 @@ export function SongList({
   refreshing = false,
   connection,
   onNew,
+  onAddSample,
   onOpen,
   onOpenView,
   canRename,
@@ -214,6 +217,9 @@ export function SongList({
           >
             並び順: {ORDER_LABEL[order]}
           </Button>
+          {onAddSample ? (
+            <Button onClick={onAddSample}>サンプル曲を追加</Button>
+          ) : null}
           <Button variant="primary" onClick={onNew}>
             <svg
               width="16"

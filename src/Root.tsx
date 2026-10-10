@@ -20,6 +20,7 @@ import { TabletSongList } from './components/TabletSongList/TabletSongList';
 import type { ViewerClock } from './components/Viewer/viewerClock';
 import { useDriveSession, type FailReason } from './hooks/useDriveSession';
 import {
+  addLocalSong,
   useSongLibrary,
   type ActionResult,
   type SongLibrary,
@@ -27,6 +28,7 @@ import {
 import type { AuthErrorKind, DriveAuth } from './lib/auth/gis';
 import type { DriveClient } from './lib/drive/driveClient';
 import { parseRoute, routeHash, type Route } from './lib/route';
+import { saintsSampleText } from './lib/saintsSample';
 import {
   loadBase,
   loadDraftRecord,
@@ -196,6 +198,16 @@ export function Root({
     [resolve],
   );
 
+  // 「サンプル曲を追加」: a new song (new id, like `#/new`) that starts as a
+  // device-only draft of the sample text, then opens in the editor. Saved
+  // to Drive like any new song; pressing twice makes two copies.
+  const addSample = () => {
+    const songId = newId();
+    created.add(songId);
+    addLocalSong(storage, songId, saintsSampleText, now?.() ?? new Date());
+    navigate({ screen: 'edit', songId });
+  };
+
   // Drafts written by the editor (flushed when it unmounts) don't notify
   // the library: re-read when the list is shown.
   const { reload } = library;
@@ -342,6 +354,7 @@ export function Root({
         error={signInError}
         onSignIn={signIn}
         onStartWithoutSignIn={() => navigate({ screen: 'new' })}
+        onAddSample={addSample}
       />
     );
   } else if (tablet) {
@@ -388,6 +401,7 @@ export function Root({
             : undefined
         }
         onNew={() => navigate({ screen: 'new' })}
+        onAddSample={addSample}
         onOpen={(id) => navigate({ screen: 'edit', songId: id })}
         onOpenView={(id) => navigate({ screen: 'view', songId: id })}
         canRename={library.canRename}

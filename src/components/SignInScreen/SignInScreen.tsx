@@ -15,6 +15,11 @@ export interface SignInScreenProps {
   onSignIn: () => void;
   /** 「ログインせずに編集を始める →」 (the caller routes to `#/new`). */
   onStartWithoutSignIn: () => void;
+  /**
+   * 「サンプル曲を追加（聖者の行進） →」: the caller makes a new song from
+   * the built-in sample and opens it. No button when omitted.
+   */
+  onAddSample?: () => void;
 }
 
 const SCOPE_ITEMS = [
@@ -42,6 +47,7 @@ export function SignInScreen({
   error,
   onSignIn,
   onStartWithoutSignIn,
+  onAddSample,
 }: SignInScreenProps) {
   return (
     <main className={styles.screen}>
@@ -101,6 +107,15 @@ export function SignInScreen({
         >
           ログインせずに編集を始める →
         </Button>
+        {onAddSample && (
+          <Button
+            variant="ghost"
+            className={styles.startLocal}
+            onClick={onAddSample}
+          >
+            サンプル曲を追加（聖者の行進） →
+          </Button>
+        )}
       </section>
 
       <aside className={styles.side} aria-label="ログインの説明">

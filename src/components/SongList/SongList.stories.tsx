@@ -93,6 +93,7 @@ const meta = {
     onSignOut: fn(),
     onRefresh: fn(),
     onNew: fn(),
+    onAddSample: fn(),
     onOpen: fn(),
     onOpenView: fn(),
     onRename: fn(),
@@ -145,6 +146,8 @@ export const Default: Story = {
     expect(args.onOpenView).toHaveBeenCalledWith('s2');
     await userEvent.click(c.getByRole('button', { name: '新しい曲' }));
     expect(args.onNew).toHaveBeenCalledTimes(1);
+    await userEvent.click(c.getByRole('button', { name: 'サンプル曲を追加' }));
+    expect(args.onAddSample).toHaveBeenCalledTimes(1);
     await userEvent.click(c.getByRole('button', { name: '最新の状態に更新' }));
     expect(args.onRefresh).toHaveBeenCalledTimes(1);
   },
@@ -159,6 +162,20 @@ export const Empty: Story = {
     expect(c.queryByRole('table')).not.toBeInTheDocument();
     await userEvent.click(c.getByRole('button', { name: '新しい曲を作る' }));
     expect(args.onNew).toHaveBeenCalledTimes(1);
+    // The sample button stays in the toolbar of an empty list.
+    await userEvent.click(c.getByRole('button', { name: 'サンプル曲を追加' }));
+    expect(args.onAddSample).toHaveBeenCalledTimes(1);
+  },
+};
+
+/** Without `onAddSample` the button is not shown. */
+export const NoSampleButton: Story = {
+  args: { onAddSample: undefined },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    expect(
+      c.queryByRole('button', { name: 'サンプル曲を追加' }),
+    ).not.toBeInTheDocument();
   },
 };
 
