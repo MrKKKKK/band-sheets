@@ -84,10 +84,28 @@ def _check_chord(t, ln):
     return t
 
 
-def _parse_bar(seg, ln, num, eps, prev=None):
+def scale_durations(ds, total):
+    """Scale positive ints ds to sum to `total` (largest remainder, each >= 1 when total >= len(ds)). Deterministic."""
+    s = sum(ds)
+    ideal = [d * total / s for d in ds]
+    out = [max(1, int(x)) for x in ideal]
+    order = sorted(range(len(ds)), key=lambda i: (-(ideal[i] - int(ideal[i])), i))
+    while sum(out) < total:
+        for i in order:
+            if sum(out) < total:
+                out[i] += 1
+    while sum(out) > total:
+        i = max((j for j in range(len(out)) if out[j] > 1), key=lambda j: (out[j] - ideal[j], -j))
+        out[i] -= 1
+    return out
+
+
+def _parse_bar(seg, ln, num, eps, prev=None, fix=None):
     """One bar segment -> [[chord, eighths], ...] or None when empty. Bracket form `[Dm]---[Am7]- --`: each `-` after a
     chord is one eighth of that chord, spaces are ignored; no dashes at all = split equally (a lone chord = whole bar).
-    Old form `C . Em .`: tokens split the bar equally, `.` continues the previous chord."""
+    Old form `C . Em .`: tokens split the bar equally, `.` continues the previous chord.
+    fix (a list, charts only): a bar whose length does not fit is stretched / shrunk to the bar (a Japanese note is
+    appended to `fix`) instead of raising; recordings pass None and keep the strict errors."""
     if seg.strip() == "[":  # stray bracket at the end of a line: no bar
         return None
     if "[" in seg or re.fullmatch(r"\s*-[-\s]*", seg):  # a dash-only bar = the previous chord all through the bar
@@ -113,11 +131,25 @@ def _parse_bar(seg, ln, num, eps, prev=None):
         tot = lead + sum(d for _, d in cur)
         if tot == 0:
             n = len(cur)
+            if eps % n and fix is not None:
+                unit = 2 if n <= eps // 2 else 1
+                ds = [u * unit for u in scale_durations([1] * n, eps // unit)]
+                fix.append(f"{ln}行目: 小節が {n} 個に分かれて等分できないので、できるだけ均等に分けました")
+                return [[c, d] for (c, _), d in zip(cur, ds)]
             if eps % n:
                 raise IntakeError(f"{ln}行目: 小節「{seg.strip()}」は {n} 個に分かれますが、1小節({num}拍)を等分できません")
             return [[c, eps // n] for c, _ in cur]
+        if any(d == 0 for _, d in cur) and fix is not None:
+            for c in cur:
+                c[1] = c[1] or 2
+            fix.append(f"{ln}行目: 「-」のあるコードとないコードが混ざった小節を、1小節に合わせて整えました")
+            tot = lead + sum(d for _, d in cur)
         if any(d == 0 for _, d in cur):
             raise IntakeError(f"{ln}行目: 小節「{seg.strip()}」は「-」のあるコードとないコードが混ざっています(長さが決まりません)")
+        if tot != eps and fix is not None:
+            ds = scale_durations(([lead] if lead else []) + [d for _, d in cur], eps)
+            fix.append(f"{ln}行目: 小節の長さが「-」{tot}個で、1小節({eps}個)と合わないので、1小節に伸縮しました")
+            return ([[prev, ds[0]]] if lead else []) + [[c, d] for (c, _), d in zip(cur, ds[1:] if lead else ds)]
         if tot != eps:
             raise IntakeError(f"{ln}行目: 小節「{seg.strip()}」の長さが「-」{tot}個(八分音符{tot}個)で、"
                               f"1小節({num}拍 = 八分音符{eps}個)と合いません")
@@ -126,6 +158,17 @@ def _parse_bar(seg, ln, num, eps, prev=None):
     if not toks:
         return None
     n = len(toks)
+    if eps % n and fix is not None:
+        unit = 2 if n <= eps // 2 else 1  # whole beats when possible
+        ds = [u * unit for u in scale_durations([1] * n, eps // unit)]
+        fix.append(f"{ln}行目: 小節が {n} 個に分かれて等分できないので、できるだけ均等に分けました")
+        entries = []
+        for t, d in zip(toks, ds):
+            if t == "." and entries:
+                entries[-1][1] += d
+            elif t != ".":
+                entries.append([_check_chord(t, ln), d])
+        return entries
     if eps % n:
         raise IntakeError(f"{ln}行目: 小節「{seg.strip()}」は {n} 個に分かれますが、1小節({num}拍)を等分できません")
     if toks[0] == ".":
@@ -155,13 +198,14 @@ def _count_bars(line):
     return sum(1 for seg in line.split("|") if seg.split()) if "|" in line else 1
 
 
-def parse_txt(text, require_style=True, allow_sequence=False):
+def parse_txt(text, require_style=True, allow_sequence=False, fix_bars=None):
     """-> annotation dict for rec_truth.build_truth (without wav / firstSoundSec) plus meta keys:
     style (primary = first of `styles`), styles (list), start (sec or None), maximizer (bool or None).
     Raises IntakeError (Japanese, line-numbered). CRLF and trailing spaces are fine; `キー: ?` = no key.
     A `キー:` line AFTER the first bar line marks a modulation from the next bar (T28): the dict then also has
     "keys" = [{startBar, key}, ...] (the header key first, at bar 0). `require_style=False` (chart-only
-    songs, py/charts.py) lets `弾き方:` be missing (style None).
+    songs, py/charts.py) lets `弾き方:` be missing (style None). `fix_bars` (a list, charts only) turns a bar whose
+    length does not fit the time signature into a stretched bar + a note in the list instead of an error.
     Chord lines: `| C . Em . |` (old) or `|[Dm]---[Am7]- --[Abm7]--|` (each `-` = one eighth). Lines with chords
     among lyrics and no bar line (`[CM7]words[D]words`) have no timing: with allow_sequence=True the result is
     sequence-only ("timing": "sequence", "sequence": [chord texts], "bars": []); lyrics are never kept."""
@@ -294,7 +338,7 @@ def parse_txt(text, require_style=True, allow_sequence=False):
             for seg in line.split("|"):
                 if not bars and pickup and re.fullmatch(r"\s*-[-\s]*", seg) and seg.count("-") == pickup * eps // num:
                     continue  # leading dashes = the (chordless) pickup beats written as `--|`
-                entries = _parse_bar(seg, ln, num, eps, bars[-1][-1][0] if bars else None)
+                entries = _parse_bar(seg, ln, num, eps, bars[-1][-1][0] if bars else None, fix_bars)
                 if entries:
                     bars.append(entries)
         if not bars:

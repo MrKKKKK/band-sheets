@@ -99,7 +99,7 @@ class TestProcess(unittest.TestCase):
         self.assertTrue(any("簡略化" in m for m in self.msgs))
 
     def test_errors_do_not_name_the_file_and_do_not_register(self):
-        write(self.d, "secret-title.txt", "bpm: 100\n| C | Hm7 |\n")
+        write(self.d, "secret-title.txt", "bpm: 100\nキー: Q\n| C | F |\n")
         write(self.d, "pu.txt", "bpm: 100\n拍子: 3/4\n弱起: 1拍\n| C |\n")
         write(self.d, "nc.txt", "bpm: 100\n| N.C. |\n")
         self.assertEqual(self.run_it(), 3)
@@ -127,6 +127,123 @@ class TestProcess(unittest.TestCase):
         self.assertEqual(rc, 1)  # the title leaked into a (non-ignored) file of the scanned tree
         write(os.path.join(self.t.name, "src"), "n.md", "clean\n")
         self.assertEqual(C.main(["--charts", self.d, "--out", self.out, "--privacy-root", self.t.name]), 0)
+
+
+LYRICS = """bpm: 100
+キー: C
+Aメロ
+[C]あいうえ[G]おかきく[Am]けこさし[F]すせそた
+[Verse]
+[C] [G] [Am] [F]
+キー: D
+[D]あいうえおかきくけこさしすせそた[A]ちつてと
+"""
+
+
+class TestLyricCharts(unittest.TestCase):
+    def conv(self, text):
+        ann, fmt, warns = C.parse_chart(text)
+        return ann, fmt, warns
+
+    def test_lyric_line_proportional_timing(self):
+        ann, fmt, w = self.conv("bpm: 100\n[C]あいうえ[G]おかきく[Am]けこさし[F]すせそた\n")
+        self.assertEqual(fmt, "lyrics")
+        self.assertEqual(ann["bars"], [[["C", 4], ["G", 4]], [["Am", 4], ["F", 4]]])  # 16 chars -> 2 bars, 4 beats each
+
+    def test_deterministic_and_whole_bars(self):
+        a = self.conv(LYRICS)[0]["bars"]
+        self.assertEqual(a, self.conv(LYRICS)[0]["bars"])
+        for bar in a:
+            self.assertEqual(sum(n for _, n in bar), 8)
+
+    def test_unequal_lengths_snap_to_2_4_8_beats(self):
+        ann, _, _ = self.conv("bpm: 100\n[C]あ[G]いうえおかきくけこさしすせそ\n")
+        beats = [sum(n for c, n in b if c == "C") for b in ann["bars"]]
+        self.assertEqual(sum(sum(n for _, n in b) for b in ann["bars"]) % 8, 0)
+        self.assertEqual(ann["bars"][0][0], ["C", 4])  # 1 char: minimum 2 beats, but bars fill up: C 2 beats + G 6 beats
+        self.assertTrue(beats)
+
+    def test_chord_only_line_is_one_bar_per_chord(self):
+        ann, fmt, _ = self.conv("bpm: 100\n[C] [G] [Am]\n[F]あいうえ\n")
+        self.assertEqual(fmt, "lyrics")
+        self.assertEqual(ann["bars"][:3], [[["C", 8]], [["G", 8]], [["Am", 8]]])
+
+    def test_mid_song_key_and_header_key(self):
+        ann, _, _ = self.conv(LYRICS)
+        self.assertEqual(ann["keys"], [{"startBar": 0, "key": "C"}, {"startBar": 6, "key": "D"}])
+
+    def test_long_chord_continues_over_the_bar_line(self):
+        ann, _, _ = self.conv("bpm: 100\n[C]あい[G]うえおかきくけこさしすせそ\n")
+        flat = [(c, n) for b in ann["bars"] for c, n in b]
+        self.assertTrue(all(n > 0 for _, n in flat))
+        self.assertEqual(sum(n for _, n in flat), 8 * len(ann["bars"]))
+
+    def test_section_lines_and_odd_tokens_are_skipped(self):
+        text = "bpm: 100\n-- X --\n[Chorus]\n{title: x}\n[C]あい[N.C.]うえ[G](×2)→\n[Hm7]おか[F]\n歌詞だけ\n"
+        ann, fmt, w = self.conv(text)
+        self.assertEqual(fmt, "lyrics")
+        chords = [c for b in ann["bars"] for c, _ in b]
+        self.assertEqual(set(chords), {"C", "N.C.", "G", "F"})
+        self.assertTrue(any("読めない" in x for x in w))
+        for x in w:
+            self.assertNotIn("Hm7", x)
+
+    def test_missing_bpm_defaults_to_120(self):
+        ann, _, w = self.conv("[C]あいうえ[G]おかきく\n")
+        self.assertEqual(ann["tempo"], 120.0)
+        self.assertTrue(any("120" in x for x in w))
+
+    def test_all_bar_lines_use_the_bar_parser(self):
+        ann, fmt, w = self.conv("bpm: 100\n[Verse]\n| C | Am7 . F . |\n")
+        self.assertEqual((fmt, w), ("bars", []))
+        self.assertEqual(ann["bars"], [[["C", 8]], [["Am7", 4], ["F", 4]]])
+
+    def test_mismatched_dash_bar_is_stretched_for_charts_only(self):
+        text = "bpm: 100\n|[C]----[G]--|[Am]--------|\n"
+        ann, fmt, w = self.conv(text)
+        self.assertEqual(fmt, "bars")
+        self.assertEqual([sum(n for _, n in b) for b in ann["bars"]], [8, 8])
+        self.assertEqual(ann["bars"][0], [["C", 5], ["G", 3]])
+        self.assertEqual(len(w), 2 - 1)
+        with self.assertRaises(I.IntakeError):  # recordings stay strict
+            I.parse_txt(text, require_style=False)
+
+    def test_bar_lines_inside_a_lyric_file_keep_timing(self):
+        ann, fmt, _ = self.conv("bpm: 100\n| C | G |\n[Am]あいうえ[F]おかきく\n")
+        self.assertEqual(fmt, "lyrics")
+        self.assertEqual(ann["bars"][:2], [[["C", 8]], [["G", 8]]])
+
+    def test_three_four_lyrics(self):
+        ann, _, _ = self.conv("bpm: 100\n拍子: 3/4\n[C]あいうえお[G]かきくけこ\n")
+        for bar in ann["bars"]:
+            self.assertEqual(sum(n for _, n in bar), 6)
+
+    def test_compound_meter_is_skipped_but_registered(self):
+        d = tempfile.TemporaryDirectory()
+        cd = os.path.join(d.name, "recordings", "charts")
+        os.makedirs(cd)
+        write(cd, "a.txt", "bpm: 90\n拍子: 6/8\n[C]あいうえ[G]おかきく\n")
+        msgs = []
+        self.assertEqual(C.process(cd, os.path.join(d.name, "out"), log=msgs.append), 0)
+        song = json.load(open(os.path.join(cd, "chart-01.song.json")))
+        self.assertEqual(song["skipped"], "compound meter")
+        self.assertNotIn("bars", song)
+        self.assertTrue(any("複合拍子" in m for m in msgs))
+        d.cleanup()
+
+    def test_lyrics_are_not_stored(self):
+        d = tempfile.TemporaryDirectory()
+        cd = os.path.join(d.name, "recordings", "charts")
+        os.makedirs(cd)
+        write(cd, "a.txt", "bpm: 100\n[C]あいうえお[G]かきくけこ\n")
+        msgs = []
+        C.process(cd, os.path.join(d.name, "out"), log=msgs.append)
+        raw = open(os.path.join(cd, "chart-01.song.json"), encoding="utf-8").read()
+        for frag in ("あい", "かき", "うえ"):
+            self.assertNotIn(frag, raw)
+            self.assertNotIn(frag, "\n".join(msgs))
+        self.assertEqual(json.loads(raw)["format"], "lyrics")
+        d.cleanup()
 
 
 if __name__ == "__main__":

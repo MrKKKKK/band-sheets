@@ -15,6 +15,10 @@ For every chart this script
      G7(#9) -> G7, N.C. kept as "N.C."), key runs, heldOut,
   4. runs privacy_check.
 Nothing of a chart (name, chords) is printed or written to any tracked place.
+
+Two chart formats (parse_chart): bar/dash charts (`| C | Am7 . F . |`, `|[Dm]---[Am7]- --|`) and lyric charts pasted from
+ChordWiki (`[C]あいう[G]えお`, ChordPro-like; timing is derived from the lyric length, see lyric_bars). Lyrics are only
+used for that timing and are never stored. A compound meter (6/8, 12/8) is registered but marked skipped.
 """
 import argparse
 import datetime
@@ -22,6 +26,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import intake as I  # noqa: E402
@@ -62,6 +67,246 @@ def simplify_chord(text):
     else:
         out = ""
     return root + out + (f"/{bass}" if bass else "")
+
+
+# ---------------------------------------------------------------- chart text -> annotation
+
+BEAT_CHOICES = (2, 4, 8)  # a chord lasts 2 / 4 / 8 beats (plus 1 and 2 bars in odd meters)
+_REPEAT = re.compile(r"×\s*\d*|[xX]\s*\d+")
+
+
+def _is_chord(t):
+    t = t.strip()
+    if t.upper() in ("N.C.", "N"):
+        return True
+    try:
+        RT.parse_chord(t)
+        return True
+    except ValueError:
+        return False
+
+
+def _count_chars(text):
+    """Number of kana / kanji / letters / digits (spaces, punctuation, marks and symbols are ignored)."""
+    return sum(1 for ch in _REPEAT.sub("", text) if unicodedata.category(ch)[0] in "LN")
+
+
+def line_beats(counts, num):
+    """Beats per chord of ONE lyric line (deterministic; see lyric_bars). counts = lyric characters until the next
+    chord. Returns ints with sum == bars * num, each >= 2."""
+    k = len(counts)
+    total_chars = sum(counts)
+    bars_min = -(-2 * k // num)  # every chord lasts at least 2 beats
+    est = int(total_chars / (2 * num) + 0.5)  # about one character per eighth note
+    want = max(bars_min, est)
+    bars = next((b for b in (2, 4, 8) if b >= want), want)
+    total = bars * num
+    allowed = sorted(set(BEAT_CHOICES) | {num, 2 * num})
+    ideal = [max(2.0, total * c / total_chars) for c in counts]
+    cur = [min(allowed, key=lambda a, x=x: (abs(a - x), a)) for x in ideal]
+    for _ in range(200):
+        if sum(cur) == total:
+            break
+        if sum(cur) > total:
+            cand = [i for i in range(k) if cur[i] > allowed[0]]
+            if not cand:
+                break
+            i = max(cand, key=lambda j: (cur[j] - ideal[j], -j))
+            cur[i] = max(a for a in allowed if a < cur[i])
+        else:
+            i = max(range(k), key=lambda j: (ideal[j] - cur[j], -j))
+            cur[i] = min((a for a in allowed if a > cur[i]), default=cur[i] + 1)
+    while sum(cur) != total:  # odd meters: close the last difference by single beats
+        if sum(cur) > total:
+            i = max((j for j in range(k) if cur[j] > 2), key=lambda j: (cur[j] - ideal[j], -j))
+            cur[i] -= 1
+        else:
+            i = max(range(k), key=lambda j: (ideal[j] - cur[j], -j))
+            cur[i] += 1
+    return cur
+
+
+def lyric_bars(segs, num):
+    """One lyric line, segs = [(chord, lyric characters until the next chord)] -> bars [[chord, eighths], ...].
+    Timing rule (deterministic):
+      * chord-only line (no lyric characters at all): one bar per chord;
+      * otherwise the line gets 2, 4 or 8 bars: the smallest of these >= max(est, ceil(2 * chords / beats per bar)),
+        est = round(characters / (2 * beats per bar)) (about one character per eighth note); more bars only when
+        the chords alone need them;
+      * chord durations are proportional to their characters (a chord at the end of the line takes up to the end
+        of the line), each snapped to 2 / 4 / 8 beats (plus 1 and 2 bars in odd meters), minimum 2 beats, then
+        adjusted step by step (the chord furthest from its ideal share moves first, earlier chords first on ties)
+        until the line is a whole number of bars;
+      * a chord longer than what is left of the bar continues into the next bar (same chord, like `-` runs)."""
+    eps = num * 2
+    if sum(n for _, n in segs) == 0:
+        return [[[c, eps]] for c, _ in segs]
+    bars, cur, used = [], [], 0
+    for (c, _), b in zip(segs, line_beats([n for _, n in segs], num)):
+        left = b * 2
+        while left:
+            take = min(left, eps - used)
+            cur.append([c, take])
+            used += take
+            left -= take
+            if used == eps:
+                bars.append(cur)
+                cur, used = [], 0
+    return bars
+
+
+def _clean_bar_line(line):
+    """Bar-form line -> (line without odd tokens, number dropped): bracket contents that are no chord, stray symbols
+    next to dashes, tokens such as `×2` `(` `→` in the `| C Am |` form."""
+    dropped = 0
+    if "[" in line or re.fullmatch(r"[\s|\-.]*", line):
+        out = []
+        for p in re.split(r"(\[[^\]]*\])", line):
+            if p.startswith("["):
+                if _is_chord(p[1:-1]):
+                    out.append(p)
+                else:
+                    dropped += 1
+            else:
+                rest = re.sub(r"[|\-.\s]", "", p)
+                dropped += 1 if rest else 0
+                out.append(re.sub(r"[^|\-.\s]", "", p))
+        return "".join(out), dropped
+    segs = []
+    for seg in line.split("|"):
+        ts = []
+        for t in seg.split():
+            if t == "." or _is_chord(t):
+                ts.append(t)
+            else:
+                dropped += 1
+        segs.append(" ".join(ts))
+    return "|".join(segs), dropped
+
+
+def parse_chart(text):
+    """Chart text -> (ann, fmt, warns). ann = parse_txt's annotation (bars, tempo, keys ...), fmt = 'bars' or 'lyrics',
+    warns = content-free Japanese notes (line numbers / counts only). A compound meter (6/8, 9/8, 12/8) returns
+    ({"skipped": "compound meter"}, None, warns). Raises I.IntakeError.
+    Lines are classified first: header `key: value` lines (bpm / 拍子 / キー / 弱起; other keys such as a title are
+    ignored), `キー:` after the first chord line = modulation from the next bar, section names / dividers /
+    ChordPro directives / lyric-only lines are ignored, chord lines are 'bar' lines (a `|` bar line, or dash timing
+    `[C]--[G]--`) or lyric lines (`[C]あいう[G]えお`, or just `[C] [G]`). If every chord line is a bar line the
+    existing bar/dash parser is used (a bar whose length does not fit the time signature is stretched with a
+    warning); otherwise the whole file is converted by the lyric rule (lyric_bars; bar lines inside such a file
+    keep their own timing). Missing bpm = 120 (warned). Lyrics are never kept."""
+    warns = []
+    head, rows = {}, []  # head: key -> (ln, text); rows: (ln, kind, payload)
+    seen_chord = False
+    ignored_kv = 0
+    for ln, raw in enumerate(text.lstrip("﻿").splitlines(), 1):
+        line = I._norm(raw).strip()
+        if not line or line.startswith("#") or (line.startswith("{") and line.endswith("}")):
+            continue
+        line = re.sub(r"\[\s*\|\s*\]", " ", line)
+        if re.fullmatch(r"[—–―－-]+[^|\[\]]*[—–―－-]+|[—–―－-]+", line) or not line.strip():
+            continue
+        if "[" not in line and "|" not in line:
+            m = re.fullmatch(r"([^:]+?)\s*:\s*(.*)", line)
+            k = I.KEYS.get(m.group(1).strip().lower()) if m else None
+            if k == "key" and seen_chord:
+                rows.append((ln, "key", m.group(2).strip()))
+            elif k in ("bpm", "time", "key", "pickup"):
+                head[k] = (ln, m.group(2).strip())
+            elif m:
+                ignored_kv += 1
+            continue  # otherwise a section name / lyric-only line
+        brs = [m.group(1) for m in I._BRACKET.finditer(line)]
+        if brs and not any(_is_chord(b) for b in brs):
+            continue  # [Verse] [Chorus] ...: a section label
+        outside = _REPEAT.sub("", I._BRACKET.sub("", line))
+        has_text = any(unicodedata.category(ch)[0] in "LN" for ch in outside)
+        if "|" in line and not brs:
+            kind = "bar"
+        elif brs and not has_text and ("|" in line or "-" in outside):
+            kind = "bar"
+        else:
+            kind = "lyric"
+        seen_chord = True
+        rows.append((ln, kind, line))
+    if ignored_kv:
+        warns.append(f"タイトルなど使わない項目の行 {ignored_kv} 行を読み飛ばしました")
+    if not any(r[1] in ("bar", "lyric") for r in rows):
+        raise I.IntakeError("コードの行がありません")
+    mt = re.fullmatch(r"(\d+)\s*/\s*(\d+)", head["time"][1]) if "time" in head else None
+    if mt and mt.group(2) == "8" and int(mt.group(1)) in (6, 9, 12):
+        return {"skipped": "compound meter"}, None, warns
+    if "bpm" not in head:
+        warns.append("bpm の指定がないので 120 にしました")
+        head["bpm"] = (0, "120")
+    nlines = max([v[0] for v in head.values()] + [r[0] for r in rows])
+    grid = [""] * nlines
+    names = {"bpm": "bpm", "time": "拍子", "key": "キー", "pickup": "弱起"}
+    pre = [f"bpm: {head['bpm'][1]}"] if head["bpm"][0] == 0 else []
+    for k, (ln, v) in head.items():
+        if ln:
+            grid[ln - 1] = f"{names[k]}: {v}"
+    chord_rows = [r for r in rows if r[1] != "key"]
+    if all(r[1] == "bar" for r in chord_rows):
+        for ln, kind, payload in rows:
+            if kind == "key":
+                grid[ln - 1] = "キー: " + payload
+                continue
+            line, dropped = _clean_bar_line(payload)
+            if dropped:
+                warns.append(f"{ln}行目: コードとして読めない {dropped} 個を読み飛ばしました")
+            grid[ln - 1] = line
+        fix = []
+        ann = I.parse_txt("\n".join(pre + grid), require_style=False, fix_bars=fix)
+        return ann, "bars", warns + fix
+    ann = I.parse_txt("\n".join(pre + grid) + "\n| C |", require_style=False)  # validates / reads the header
+    num, eps = ann["timeSignature"][0], ann["eighthsPerBar"]
+    if ann.pop("pickupBeats", 0):
+        warns.append("歌詞形式では弱起は使いません(無視しました)")
+    bars, key_changes, fix, skipped = [], [], [], 0
+    for ln, kind, payload in rows:
+        if kind == "key":
+            if RT._key_text(payload) is None:
+                raise I.IntakeError(f"{ln}行目: キーは C・F#・Bb・Am のように書きます")
+            key_changes.append((ln, payload, len(bars)))
+        elif kind == "bar":
+            line, dropped = _clean_bar_line(payload)
+            skipped += dropped
+            for seg in line.split("|"):
+                entries = I._parse_bar(seg, ln, num, eps, bars[-1][-1][0] if bars else None, fix)
+                if entries:
+                    bars.append(entries)
+        else:
+            out = []
+            for m in re.finditer(r"\[([^\]]*)\]([^\[]*)", payload.replace("|", " ")):
+                n = _count_chars(m.group(2))
+                if _is_chord(m.group(1)):
+                    out.append([I._check_chord(m.group(1).strip(), ln), n])
+                else:
+                    skipped += 1
+                    if out:
+                        out[-1][1] += n  # its lyric still belongs to the chord before it
+            if out:
+                bars += lyric_bars(out, num)
+    if skipped:
+        warns.append(f"コードとして読めない部分 {skipped} 個を読み飛ばしました")
+    if not bars:
+        raise I.IntakeError("コードがありません")
+    keys = []
+    if key_changes:
+        if ann.get("key"):
+            keys.append({"startBar": 0, "key": ann["key"]})
+        for ln, v, at in key_changes:
+            if at >= len(bars):
+                raise I.IntakeError(f"{ln}行目: 途中のキーの後ろに小節がありません")
+            if keys and keys[-1]["startBar"] == at:
+                keys.pop()
+            keys.append({"startBar": at, "key": v})
+    ann["bars"] = bars
+    ann.pop("keys", None)
+    if keys:
+        ann["keys"] = keys
+    return ann, "lyrics", warns + fix
 
 
 def _load_ids(d):
@@ -124,6 +369,17 @@ def n_simplified(ann):
     return sum(1 for bar in ann["bars"] for t, _ in bar if t.strip().upper() not in ("N.C.", "N") and simplify_chord(t) != t)
 
 
+def _log_warns(warns, log, limit=8):
+    """Warnings are content-free; identical ones are folded (`x N 回`), at most `limit` distinct lines are shown."""
+    counts = {}
+    for w in warns:
+        counts[w] = counts.get(w, 0) + 1
+    for w, n in list(counts.items())[:limit]:
+        log("  " + w + (f" (x{n})" if n > 1 else ""))
+    if len(counts) > limit:
+        log(f"  ... ほか {len(counts) - limit} 種類")
+
+
 def process(charts_dir, out, dry_run=False, log=print):
     """Returns the number of charts that failed."""
     os.makedirs(charts_dir, exist_ok=True)
@@ -136,25 +392,35 @@ def process(charts_dir, out, dry_run=False, log=print):
     fails = 0
     for i, fn in enumerate(names, 1):
         try:
-            ann = I.parse_txt(open(os.path.join(charts_dir, fn), encoding="utf-8").read(), require_style=False)
-            song = to_song(ann)
+            ann, fmt, warns = parse_chart(open(os.path.join(charts_dir, fn), encoding="utf-8").read())
+            song = None if fmt is None else to_song(ann)
         except (I.IntakeError, ValueError, UnicodeDecodeError) as e:
             fails += 1
             log(f"[{i}番目のファイル] 読めませんでした: {e}")
             continue
         if dry_run:
-            log(f"[{i}番目のファイル] OK ({len(song['bars'])} 小節)")
+            log(f"[{i}番目のファイル] OK ({'複合拍子のためスキップ' if song is None else str(len(song['bars'])) + ' 小節'}、警告 {len(warns)} 件)")
+            _log_warns(warns, log)
             continue
         cid, new = register(charts_dir, os.path.splitext(fn)[0])
         held = is_held_out(cid)
         if new:
             _log_register(out, cid, held)
+        if song is None:
+            song = {"version": 1, "skipped": ann["skipped"]}
+        else:
+            song["format"] = fmt
         song.update(id=cid, heldOut=held)
         with open(os.path.join(charts_dir, cid + ".song.json"), "w") as f:
             json.dump(song, f, indent=1)
-        simp = n_simplified(ann)
-        log(f"{cid}: {len(song['bars'])} 小節、{'ホールドアウト' if held else '開発用'}"
-            + (f"、{simp} 個のコードを簡略化" if simp else "") + (" (新規)" if new else " (更新)"))
+        if "skipped" in song:
+            log(f"{cid}: 複合拍子のため描画しません(skipped)、{'ホールドアウト' if held else '開発用'}、警告 {len(warns)} 件")
+        else:
+            simp = n_simplified(ann)
+            log(f"{cid}: 形式={'歌詞' if fmt == 'lyrics' else '小節'}、{len(song['bars'])} 小節、"
+                f"コード {sum(len(b) for b in song['bars'])} 個、キー {len(song['keys'])} 個、{'ホールドアウト' if held else '開発用'}"
+                + (f"、{simp} 個のコードを簡略化" if simp else "") + f"、警告 {len(warns)} 件" + (" (新規)" if new else " (更新)"))
+        _log_warns(warns, log)
     return fails
 
 
