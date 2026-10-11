@@ -246,6 +246,34 @@ class TestIntake(unittest.TestCase):
         self.assertEqual((ids["rec-01-a"]["song"], ids["rec-01-a"]["heldOut"]), ("rec-01", False))
         self.assertEqual((ids["rec-02-a"]["song"], ids["rec-02-a"]["heldOut"]), ("rec-02", True))
 
+    def test_legacy_recording_registered_with_fixed_id(self):
+        click_wav(os.path.join(self.rec, "Old Name.wav"), 0.5)
+        ann = {"wav": "Old Name.wav", "tempo": 120, "timeSignature": [4, 4], "click": True, "firstSoundSec": 0.5,
+               "eighthsPerBar": 8, "sections": [], "bars": [[["C", 8]], [["F", 8]]]}
+        json.dump(ann, open(os.path.join(self.rec, "Old Name.chords.json"), "w"))
+        os.makedirs(os.path.join(self.out, "rec"))
+        json.dump({"variants": [{"name": "rec-Old Name", "wav": "../recordings/Old Name.wav", "truth": "rec/Old Name.truth.json"}]},
+                  open(os.path.join(self.out, "rec", "manifest.rec.json"), "w"))
+        open(os.path.join(self.out, "rec", "Old Name.truth.json"), "w").write("{}")
+        rid = I.register_legacy(self.rec, self.out, "Old Name", "rec-00", "a", held_out=False, log=lambda *_: None, fit=False)
+        self.assertEqual(rid, "rec-00-a")
+        e = self.ids()["rec-00-a"]
+        self.assertEqual((e["song"], e["heldOut"], e["original"]), ("rec-00", False, "Old Name.wav"))
+        self.assertTrue(os.path.exists(os.path.join(self.rec, "rec-00-a.wav")))
+        self.assertTrue(os.path.exists(os.path.join(self.rec, "originals", "rec-00-a.wav")))
+        self.assertFalse(os.path.exists(os.path.join(self.rec, "Old Name.wav")))
+        self.assertEqual(json.load(open(os.path.join(self.rec, "rec-00-a.chords.json")))["wav"], "rec-00-a.wav")
+        man = json.load(open(os.path.join(self.out, "rec", "manifest.rec.json")))["variants"]
+        self.assertEqual([(v["name"], v["level"], v["heldOut"]) for v in man], [("rec-00-a", "REC", False)])
+        self.assertFalse(os.path.exists(os.path.join(self.out, "rec", "Old Name.truth.json")))
+        self.assertNotIn("Old Name", json.dumps(man))
+        with self.assertRaises(I.IntakeError):  # final
+            I.register_legacy(self.rec, self.out, "Old Name", "rec-00", "a")
+        # numbering continues after the fixed id
+        self.drop("fresh")
+        self.run_all_takes()
+        self.assertEqual(self.ids()["rec-01-a"]["heldOut"], False)
+
     def test_main_runs_privacy_check(self):
         self.drop("Zebra Quokka Song")
         rc = I.main(["--inbox", self.inbox, "--out", self.out, "--privacy-root", self.out])

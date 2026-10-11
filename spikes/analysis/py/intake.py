@@ -499,8 +499,71 @@ def process_take(base, t, rec_dir, out, log=print, fit=True):
     return written
 
 
+def register_legacy(rec_dir, out, original, song, style, held_out=False, log=print, fit=True):
+    """Register a recording that was stored under its original name BEFORE intake existed, under a FIXED anonymous id
+    (song e.g. rec-00 -> take rec-00-<style>). `original` = the stem of recordings/<stem>.<audio> + <stem>.chords.json.
+    heldOut is given (no parity rule). The audio is copied to recordings/<take>.<ext> (as WAV name kept), the original
+    moves to recordings/originals/<take>.<ext>, the annotation is stored as <take>.chords.json (originals/ keeps the old
+    one), the truth + manifest entry are regenerated under the new name and the old truth / manifest entry are dropped.
+    The original name is recorded ONLY in ids.local.json. Returns the take id."""
+    audio = next((os.path.join(rec_dir, original + e) for e in sorted(AUDIO_EXT) if os.path.isfile(os.path.join(rec_dir, original + e))), None)
+    ann_p = os.path.join(rec_dir, original + ".chords.json")
+    if audio is None or not os.path.isfile(ann_p):
+        raise IntakeError("登録する録音(音声と .chords.json)が recordings/ に見つかりません")
+    if not re.fullmatch(r"rec-\d+", song) or style not in list("abcde"):
+        raise IntakeError("曲の id は rec-NN、弾き方は a〜e で指定してください")
+    ids = RT._load_ids(rec_dir)
+    recs = ids["recordings"]
+    rid = f"{song}-{style}"
+    if rid in recs or any(e.get("original") == os.path.basename(audio) or e.get("songKey") == original for e in recs.values()):
+        raise IntakeError("すでに登録済みです(やり直せません)")
+    import datetime
+    ext = os.path.splitext(audio)[1].lower()
+    odir = os.path.join(rec_dir, "originals")
+    os.makedirs(odir, exist_ok=True)
+    ann = json.load(open(ann_p, encoding="utf-8"))
+    stamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    recs[rid] = {"original": os.path.basename(audio), "songKey": song_key(original), "song": song, "heldOut": bool(held_out),
+                 "style": style, "file": rid + ext, "registeredAt": stamp, "legacy": True}
+    RT._save_ids(rec_dir, ids)
+    _log_register(out, rid, bool(held_out), style, [rid], song)
+    wav = os.path.join(rec_dir, rid + ext)
+    shutil.copy2(audio, wav)
+    shutil.move(audio, os.path.join(odir, rid + ext))
+    shutil.move(ann_p, os.path.join(odir, rid + ".chords.json"))
+    ann["wav"] = rid + ext
+    with open(os.path.join(rec_dir, rid + ".chords.json"), "w", encoding="utf-8") as fh:
+        json.dump(ann, fh, indent=1, ensure_ascii=False)
+    # drop the old truth / manifest entry (named after the original file)
+    old_truth = os.path.join(out, "rec", f"{original}.truth.json")
+    if os.path.exists(old_truth):
+        os.remove(old_truth)
+    mpath = os.path.join(out, "rec", "manifest.rec.json")
+    if os.path.exists(mpath):
+        man = json.load(open(mpath))
+        man["variants"] = [v for v in man["variants"] if original not in (v.get("name"), v.get("truth"), v.get("wav"))
+                           and original not in (os.path.splitext(os.path.basename(v.get("wav", "")))[0],
+                                                os.path.basename(v.get("truth", "")).replace(".truth.json", ""))]
+        json.dump(man, open(mpath, "w"), indent=1)
+    f = RT.fit_grid(wav, ann) if fit else {"t0": ann["firstSoundSec"], "tempo": ann["tempo"], "residualMedianMs": 0.0, "nOnsets": 0}
+    if not fit:
+        import soundfile as sf
+        f["audioSec"] = sf.info(wav).duration
+    RT.emit(ann, wav, rid, out, f, bool(held_out), take=rid)
+    ids = RT._load_ids(rec_dir)
+    ids["recordings"][rid]["files"] = [rid]
+    RT._save_ids(rec_dir, ids)
+    log(f"{rid}: 登録しました [{'ホールドアウト' if held_out else '開発用'}]")
+    return rid
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
+    ap.add_argument("--register-legacy", metavar="STEM", help="register recordings/<STEM>.* (stored under its original name) "
+                    "as --song/--style, --held-out or --dev; then run privacy_check")
+    ap.add_argument("--song", default=None)
+    ap.add_argument("--style", default=None)
+    ap.add_argument("--held-out", action="store_true")
     ap.add_argument("--inbox", default="recordings/inbox")
     ap.add_argument("--out", default="out")
     ap.add_argument("--recordings", default=None, help="default: parent of --inbox")
@@ -508,6 +571,16 @@ def main(argv=None):
     ap.add_argument("--no-privacy-check", action="store_true")
     a = ap.parse_args(argv)
     rec_dir = a.recordings or os.path.dirname(os.path.abspath(a.inbox))
+    if a.register_legacy:
+        try:
+            register_legacy(rec_dir, a.out, a.register_legacy, a.song, a.style, a.held_out)
+        except IntakeError as e:
+            print(f"登録できませんでした: {e}")
+            return 1
+        if not a.no_privacy_check:
+            import privacy_check
+            return privacy_check.main(["--recordings", rec_dir] + (["--root", a.privacy_root, "--no-log"] if a.privacy_root else []))
+        return 0
     if not os.path.isdir(a.inbox):
         os.makedirs(a.inbox, exist_ok=True)
     takes = scan_inbox(a.inbox)
