@@ -24,13 +24,12 @@ from py.tests.hooks_synth import SR, synth
 
 GOLDEN = os.path.join(os.path.dirname(__file__), 'fixtures', 't0_default_result.json')
 
-# Every spike 2 switch on (one at a time and all together). With the T0 stubs none changes the result.
+# Every spike 2 switch on (one at a time and all together). With the T0 stubs none changes the result.  (T9: 'confidence' left out, it is real now)
 SWITCHES = [
     {'beats': {'tempo_octave': 'rule'}},
     {'beats': {'tempo_hint': 120.0}},
     {'chroma': {'top_voice_discount': 0.5}},
     {'chords': {'resolution': 'eighth'}},
-    {'chords': {'confidence': 'posterior'}},
     {'chords': {'harmonics': 'fixed'}},
     {'chords': {'harmonics': 'profile'}},
     {'chords': {'bass_root': 'lowest', 'bass_root_weight': 0.3}},
@@ -208,8 +207,7 @@ class StubShapesTest(unittest.TestCase):
         self.assertEqual(ev.shape, (12, 3))
         self.assertFalse(ev.any())
         self.assertEqual(bassroot.bass_notes(self.feat, self.bounds, self.cfg), [None] * 3)
-        self.assertIsNone(posterior.chord_posterior(np.zeros((60, 3)), 0.6))
-        segs = [object()]
+        segs = []
         self.assertIs(seventh.decide_segments(segs, np.zeros((12, 3)), self.cfg), segs)
         self.assertEqual(keytrack.estimate([], np.zeros(0, int), [0], self.cfg), [])
         tr = harmony.transition(vocab.states(self.cfg), [], np.array([-1, 0, 0, 1]), self.cfg)
