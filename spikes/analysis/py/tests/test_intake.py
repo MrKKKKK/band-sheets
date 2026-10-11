@@ -131,24 +131,23 @@ class TestIntake(unittest.TestCase):
             for f in fns:
                 self.assertNotIn("Secret", open(os.path.join(d, f), errors="ignore").read())
 
-    def test_given_start_far_from_first_onset_is_refit_with_warning(self):
+    def test_given_start_far_keeps_given_with_warning_by_default(self):
         self.drop("x", TXT + "開始: 0秒\n", t0=1.0)
         msgs = []
         I.process_take("x", I.scan_inbox(self.inbox)["x"], self.rec, self.out, log=msgs.append)
         self.assertTrue(any("警告" in m and "拍" in m for m in msgs), msgs)
         truth = json.load(open(os.path.join(self.out, "rec", "rec-01-a.truth.json")))
+        self.assertEqual(truth["beats"][0]["t"], 0.0)
+        a = json.load(open(os.path.join(self.rec, "rec-01-a.chords.json")))
+        self.assertEqual((a["startSource"], a["startGiven"]), ("given", 0.0))
+
+    def test_given_start_far_fit_opt_in(self):
+        self.drop("x", TXT + "開始: 0秒\n", t0=1.0)
+        I.process_take("x", I.scan_inbox(self.inbox)["x"], self.rec, self.out, log=lambda m: None, fit_start=True)
+        truth = json.load(open(os.path.join(self.out, "rec", "rec-01-a.truth.json")))
         self.assertAlmostEqual(truth["beats"][0]["t"], 1.0, delta=0.03)
         a = json.load(open(os.path.join(self.rec, "rec-01-a.chords.json")))
         self.assertEqual((a["startSource"], a["startGiven"]), ("fitted", 0.0))
-
-    def test_given_start_far_forced(self):
-        self.drop("x", TXT + "開始: 0秒\n", t0=1.0)
-        msgs = []
-        I.process_take("x", I.scan_inbox(self.inbox)["x"], self.rec, self.out, log=msgs.append, force_start=True)
-        truth = json.load(open(os.path.join(self.out, "rec", "rec-01-a.truth.json")))
-        self.assertEqual(truth["beats"][0]["t"], 0.0)
-        a = json.load(open(os.path.join(self.rec, "rec-01-a.chords.json")))
-        self.assertEqual(a["startSource"], "given")
 
     def test_given_start_aligned_no_warning(self):
         self.drop("x", TXT + "開始: 1.0秒\n", t0=1.0)

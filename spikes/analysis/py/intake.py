@@ -352,11 +352,11 @@ def first_onset(y, sr=TARGET_SR):
 RESIDUAL_WARN_MS = 40.0
 
 
-def resolve_start(wav, y, ann, given, beat, force_given=False):
+def resolve_start(wav, y, ann, given, beat, fit_start=False):
     """`開始:` was given (given = first-sound seconds = start - pickup). Measure the first musical onset (same detector as
     the auto path, not the chord analyzer) and the click-grid residual against detected onsets. Returns
-    (firstSoundSec, fit_or_None, info). Uses the fitted start (first onset) when the given one is > 1/4 beat off or the grid
-    residual is large, unless force_given. info: source given|fitted, given, detected, offsetSec, offsetBeats, residualMs, warning."""
+    (firstSoundSec, fit_or_None, info). Keeps the given start; only warns when it is > 1/4 beat off the first onset or the grid
+    residual is large. Uses the fitted start (first onset) only if fit_start. info: source given|fitted, given, detected, offsetSec, offsetBeats, residualMs, warning."""
     try:
         detected = first_onset(y)
     except IntakeError:
@@ -376,8 +376,9 @@ def resolve_start(wav, y, ann, given, beat, force_given=False):
         if bad:
             parts.append(f"クリックの拍と音の立ち上がりのずれが大きいです（中央値 {fg['residualMedianMs']:.0f}ms）")
         info["warning"] = "警告: " + "。".join(parts) + "。" + (
-            "指定どおりに進めます。" if force_given else "最初の音から合わせ直しました。")
-    if info["warning"] and not force_given:
+            "最初の音から合わせ直しました。" if fit_start else
+            "指定どおりに進めます（1小節目より前に音があるならこのままでOK。最初の音に合わせたいときは --fit-start）。")
+    if info["warning"] and fit_start:
         a2 = dict(ann, firstSoundSec=round(detected, 4))
         f = None if seq else RT.fit_grid(wav, a2)
         info.update(source="fitted", chosen=(f["t0"] if f else detected), residualMs=(f["residualMedianMs"] if f else None))
@@ -480,7 +481,7 @@ def _log_register(out, rid, held_out, style, variants, song=None):
                             "style": style, "variants": variants}) + "\n")
 
 
-def process_take(base, t, rec_dir, out, log=print, fit=True, force_start=False):
+def process_take(base, t, rec_dir, out, log=print, fit=True, fit_start=False):
     """Returns the list of variant names written. Raises IntakeError before anything is registered."""
     if not t["audio"]:
         raise IntakeError("音声ファイルがありません")
@@ -518,7 +519,7 @@ def process_take(base, t, rec_dir, out, log=print, fit=True, force_start=False):
             how = "指定"
             f = {"t0": a["firstSoundSec"], "tempo": ann["tempo"], "residualMedianMs": 0.0, "nOnsets": 0}
             if fit:
-                a["firstSoundSec"], f2, info = resolve_start(wav, y, ann, a["firstSoundSec"], beat, force_start)
+                a["firstSoundSec"], f2, info = resolve_start(wav, y, ann, a["firstSoundSec"], beat, fit_start)
                 a["startGiven"] = ann["start"]
                 a["startSource"] = info["source"]
                 if info["warning"]:
@@ -628,7 +629,7 @@ def _log_reparse(out, rid, held_out, song, style, variants, timing, infos=None):
                                       for i in (infos or []) if i]}) + "\n")
 
 
-def reparse_take(rec_dir, out, rid, log=print, fit=True, force_start=False):
+def reparse_take(rec_dir, out, rid, log=print, fit=True, fit_start=False):
     """Re-read recordings/originals/<rid>.txt with the current parser and rewrite the take's annotation(s), truth and
     manifest entry like a fresh intake. Id, song id and heldOut stay as registered (never re-decided); the audio is not
     touched. Raises IntakeError (nothing is written) when the txt is missing or does not parse. Returns the names written."""
@@ -669,7 +670,7 @@ def reparse_take(rec_dir, out, rid, log=print, fit=True, force_start=False):
         f = {"t0": a["firstSoundSec"], "tempo": ann["tempo"], "residualMedianMs": 0.0, "nOnsets": 0}
         info = None
         if ann["start"] is not None and fit:
-            a["firstSoundSec"], f2, info = resolve_start(wav, decode_audio(wav), a, a["firstSoundSec"], beat, force_start)
+            a["firstSoundSec"], f2, info = resolve_start(wav, decode_audio(wav), a, a["firstSoundSec"], beat, fit_start)
             a["startGiven"] = ann["start"]
             a["startSource"] = info["source"]
             f = f2 if f2 is not None else dict(f, t0=a["firstSoundSec"])
@@ -698,7 +699,7 @@ def main(argv=None):
     ap.add_argument("--reparse", metavar="TAKE", nargs="+", help="re-read recordings/originals/<TAKE>.txt after it was "
                     "corrected and rewrite that take's annotation / truth (id, song and held-out stay; audio untouched)")
     ap.add_argument("--reparse-all", action="store_true", help="--reparse for every registered take that has an original .txt")
-    ap.add_argument("--use-given-start", action="store_true", help="trust `開始:` even when the first onset / click grid disagree")
+    ap.add_argument("--fit-start", action="store_true", help="when `開始:` disagrees with the first onset / click grid, use the fitted start instead of the given one")
     ap.add_argument("--song", default=None)
     ap.add_argument("--style", default=None)
     ap.add_argument("--held-out", action="store_true")
@@ -717,7 +718,7 @@ def main(argv=None):
         fails = 0
         for rid in todo:
             try:
-                reparse_take(rec_dir, a.out, rid, force_start=a.use_given_start)
+                reparse_take(rec_dir, a.out, rid, fit_start=a.fit_start)
             except IntakeError as e:
                 fails += 1
                 print(f"{rid}: 再解析できませんでした: {e}  (今までの内容のままです)")
@@ -746,7 +747,7 @@ def main(argv=None):
     fails = 0
     for i, (base, t) in enumerate(takes.items(), 1):
         try:
-            process_take(base, t, rec_dir, a.out, force_start=a.use_given_start)
+            process_take(base, t, rec_dir, a.out, fit_start=a.fit_start)
         except IntakeError as e:
             fails += 1
             print(f"[{i}番目のファイルの組] 取り込めませんでした: {e}  (inbox に残してあります)")
