@@ -5,7 +5,8 @@ CLI: python py/analyze.py <wav> [--config x.json] [--tempo BPM] [-o out.json]   
 
 Flow (docs/audio-spike2-plan.md §5): beats -> chroma -> chords (1st pass) -> downbeat -> merge ->
 sections -> key -> [key.track == 'sections': keytrack per bar] -> [chords.theory_prior > 0: 2nd chord
-pass with harmony.transition, then merge again]. Downbeat and sections always use the 1st pass.
+pass with harmony.transition, then merge again; with chords.power, harmony.resolve_power names the quality of
+'5' segments from the key (T26)]. Downbeat and sections always use the 1st pass.
 With every spike 2 switch off the output is the spike 1 output (tests/test_dsp_hooks.py).
 """
 import argparse
@@ -83,6 +84,8 @@ def analyze(wav_path: str, cfg: Config, timings: dict | None = None) -> dict:
         prior = harmony.transition(vocab.states(cfg), prior_keys, bar_of_col, cfg)
         beat_chords = stage('chords2', lambda: estimate_chords(chroma, cfg, feat, bounds, prior))
         segments = stage('merge2', lambda: _merge(beat_chords, chroma, cfg))
+        if cfg.chords.power:
+            segments = harmony.resolve_power(segments, prior_keys, bar_of_col, cfg)
     tm['total'] = sum(v for k, v in tm.items() if k != 'total')
     return build_result(feat, grid, segments, downbeats, sections, key, cfg, tm, bar_keys)
 
