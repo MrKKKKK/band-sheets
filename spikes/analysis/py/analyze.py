@@ -4,7 +4,8 @@ CLI: python py/analyze.py <wav> [--config x.json] [--tempo BPM] [-o out.json]   
 `--tempo` is the click tempo the user knows (beats.tempo_hint); never taken from a truth file.
 
 Flow (docs/audio-spike2-plan.md §5): beats -> chroma -> chords (1st pass; chords.resolution 'eighth': two
-chord columns per beat, T13; downbeat / keytrack / the prior stay per beat) -> downbeat -> merge ->
+chord columns per beat, T13; downbeat / keytrack / the prior stay per beat) -> downbeat (beat-level margin
+chords whatever resolution / confidence / candidates say: downbeat.downbeat_chords, R2 fix) -> merge ->
 sections -> key -> [key.track == 'sections': keytrack per bar] -> [chords.theory_prior > 0: 2nd chord
 pass with harmony.transition, then merge again; with chords.power, harmony.resolve_power names the quality of
 '5' segments from the key (T26)]. Downbeat and sections always use the 1st pass.
@@ -26,7 +27,7 @@ from dsp import harmony, keytrack, posterior, seventh, vocab  # noqa: E402
 from dsp.chords import NOTE_NAMES, beat_level, estimate_chords, merge_chords  # noqa: E402
 from dsp.chroma import chord_columns  # noqa: E402
 from dsp.config import Config, apply_overrides, load_config  # noqa: E402
-from dsp.downbeat import choose_downbeats  # noqa: E402
+from dsp.downbeat import choose_downbeats, downbeat_chords  # noqa: E402
 from dsp.keyest import estimate_key  # noqa: E402
 from dsp.result import build_result  # noqa: E402
 from dsp.sections import find_sections  # noqa: E402
@@ -69,10 +70,11 @@ def analyze(wav_path: str, cfg: Config, timings: dict | None = None) -> dict:
         raise ValueError(f'unknown key.track: {cfg.key.track!r}')
     feat = stage('load', lambda: load_features(wav_path, cfg))
     grid = stage('beats', lambda: track_beats(feat, cfg))
-    chroma, bass, _, cc, cb, pb = stage('chroma', lambda: chord_columns(feat, grid, cfg))
+    chroma, bass, bounds, cc, cb, pb = stage('chroma', lambda: chord_columns(feat, grid, cfg))
     col_chords = stage('chords', lambda: estimate_chords(cc, cfg, feat, cb, per_beat=pb))
-    beat_chords = beat_level(col_chords, pb)  # downbeat / keytrack stay per beat (T13)
-    downbeats = stage('downbeat', lambda: choose_downbeats(feat, grid, beat_chords, bass, cfg))
+    beat_chords = beat_level(col_chords, pb)  # keytrack stays per beat (T13)
+    downbeats = stage('downbeat', lambda: choose_downbeats(
+        feat, grid, downbeat_chords(col_chords, chroma, cfg, pb, feat, bounds), bass, cfg))
     segments = stage('merge', lambda: _merge(col_chords, cc, cfg, pb))
     sections = stage('sections', lambda: find_sections(chroma, grid, downbeats, feat, cfg, bass))
     key = stage('key', lambda: estimate_key(chroma, cfg)) if cfg.key.enabled else None

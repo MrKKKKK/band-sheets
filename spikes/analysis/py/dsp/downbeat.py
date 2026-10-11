@@ -21,6 +21,13 @@ lowest tied phase.
 
 All scoring takes plain arrays (`estimate_downbeats`) so it is testable with
 synthetic inputs; `choose_downbeats` is the adapter for the pipeline.
+
+Chord evidence comes from `downbeat_chords`: beat-level chords with margin
+confidence, whatever chords.resolution / confidence / candidates say (R2 fix).
+Posterior confidences sit near 1 almost everywhere, so they stop discounting
+unsure (spurious) changes; together with the half-beat HMM that flipped a
+near-tie half-bar phase on an LR-hard synthetic and a real take. Default
+config (beat, margin): the 1st-pass chords as they are (bit-identical).
 """
 
 from __future__ import annotations
@@ -29,7 +36,8 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from .config import Config, DownbeatConfig
+from .chords import estimate_chords
+from .config import Config, DownbeatConfig, apply_overrides
 from .types import BeatChord, BeatGrid, Downbeats, Features
 
 _EPS = 1e-12
@@ -199,6 +207,25 @@ def _pick(scores: np.ndarray, tie_phase: int) -> tuple[int, float]:
     phase = tied[0]
     second = max((float(s) for p, s in enumerate(scores) if p != phase), default=best)
     return phase, float(np.clip(best - second, 0.0, 1.0))
+
+
+def downbeat_chords(
+    col_chords: list[BeatChord],
+    beat_chroma: np.ndarray,
+    cfg: Config,
+    per_beat: int = 1,
+    feat: Features | None = None,
+    beat_bounds: np.ndarray | None = None,
+) -> list[BeatChord]:
+    """One chord per beat for the downbeat rule, independent of chords.resolution / confidence / candidates:
+    the 1st-pass chords when they already are beat-level with margin confidence, otherwise a beat-level margin
+    pass over `beat_chroma` (the per-beat chroma, `beat_bounds` its frame bounds) with the other chord
+    settings unchanged."""
+    cc = cfg.chords
+    if per_beat == 1 and cc.confidence == 'margin':
+        return col_chords  # candidates only add a posterior field; labels and margins are the same
+    bcfg = apply_overrides(cfg, {'chords': {'resolution': 'beat', 'confidence': 'margin', 'candidates': False}})
+    return estimate_chords(np.asarray(beat_chroma, float), bcfg, feat, beat_bounds)
 
 
 def choose_downbeats(
