@@ -16,8 +16,13 @@ where the events are onset peaks of the percussive envelope plus changes of the 
 (chord changes) and of the low-band chroma (bass); recall = share of events within a tolerance
 of a grid beat, precision = share of grid beats with an event nearby. A denser grid keeps recall
 but loses precision, a sparser one the reverse, so only the true pulse scores high on both.
-The prior is flat over PREF_LO..PREF_HI BPM and decays by PRIOR_K per octave outside. Fixed
-formulas and values; no learning.
+The prior is flat over PREF_LO..PREF_HI BPM and decays by PRIOR_K per octave outside.
+
+Never break a correct grid: when the tracked tempo T is itself inside the preferred range, an
+alternative must beat T's score by MARGIN_IN (hysteresis). Dense material (8th-note hats on an 80
+BPM grid) and sparse material (whole-note chords: few events, so precision is uninformative)
+both make a wrong octave look better by 10-20 %, never by 50 %. When T is outside the range the
+prior alone decides (margin 1). Fixed formulas and values; no learning.
 """
 
 from __future__ import annotations
@@ -32,6 +37,7 @@ PREF_LO, PREF_HI = 70.0, 150.0
 PRIOR_K = 2.0  # exp(-PRIOR_K * octaves outside the preferred range)
 TOL = 0.06  # seconds; capped at 0.25 * the candidate's beat interval
 BASS_FMAX = 250.0
+MARGIN_IN = 1.5  # score ratio an alternative needs over T when T is within PREF_LO..PREF_HI
 
 
 def _peaks(x: np.ndarray, rel: float) -> np.ndarray:
@@ -150,6 +156,9 @@ def choose_octave(feat: Features, grid: BeatGrid, cfg: Config) -> BeatGrid:
         s = score(c[1])
         if s > best_s + 1e-12:
             best, best_s = c, s
+    if hint <= 0 and best[0] != 'T' and PREF_LO <= _bpm(times) <= PREF_HI:
+        if best_s <= MARGIN_IN * score(times):  # hysteresis: keep a plausible tracked tempo
+            return grid
     if best[0] == 'T':
         return grid
     return BeatGrid(times=best[1], tempo=_bpm(best[1]), method=grid.method)
