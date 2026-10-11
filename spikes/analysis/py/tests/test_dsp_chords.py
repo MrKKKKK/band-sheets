@@ -3,8 +3,8 @@ from dataclasses import replace
 
 import numpy as np
 
-from py.dsp.chords import chord_name, chord_text, estimate_chords, merge_chords
-from py.dsp.chroma import beat_chroma
+from py.dsp.chords import beat_level, chord_name, chord_text, estimate_chords, merge_chords
+from py.dsp.chroma import beat_chroma, chord_columns, column_times
 from py.dsp.config import ChordsConfig, Config
 from py.dsp.types import BeatChord, BeatGrid, Features
 
@@ -205,6 +205,134 @@ class MergeTest(unittest.TestCase):
     def test_low_confidence_flag(self):
         segs = merge_chords([self.bc(0, conf=0.01)] * 2, Config())
         self.assertTrue(segs[0].low_confidence)
+
+
+def make_halves(seq, tail=0.0):
+    """seq: list of (name, half beats); beats every BEAT seconds (a change may sit on an "and")."""
+    y = np.concatenate([tone(CHORDS[name], nh * BEAT / 2) for name, nh in seq] + [np.zeros(int(tail * SR))])
+    y = y.astype(np.float32)
+    n_beats = sum(nh for _, nh in seq) // 2
+    feat = Features(sr=SR, hop=HOP, duration=len(y) / SR, y=y, y_harm=y, y_perc=np.zeros_like(y),
+                    onset_env=np.zeros(1 + len(y) // HOP))
+    return feat, BeatGrid(times=np.arange(n_beats) * BEAT, tempo=120.0, method='test')
+
+
+EIGHTH = cfg_with(resolution='eighth')
+
+
+def est8(feat, grid, cfg=EIGHTH, prior=None):
+    _, _, _, cc, cb, pb = chord_columns(feat, grid, cfg)
+    return estimate_chords(cc, cfg, feat, cb, prior, per_beat=pb), pb
+
+
+class EighthTest(unittest.TestCase):
+    """T13: half-beat chord columns (chords.resolution 'eighth')."""
+
+    def test_columns_twice_the_beats_on_beat_bounds_shared(self):
+        feat, grid = make(SEQ)
+        ch, bass, bounds, cc, cb, pb = chord_columns(feat, grid, EIGHTH)
+        self.assertEqual(pb, 2)
+        self.assertEqual(cc.shape, (12, 2 * len(grid.times)))
+        self.assertEqual(len(cb), 2 * len(grid.times) + 1)
+        np.testing.assert_array_equal(cb[::2], bounds)
+        self.assertTrue(np.all(np.diff(cb) > 0))
+        b_ch, b_bass = beat_chroma(feat, grid, EIGHTH)  # beat columns unchanged by the switch
+        np.testing.assert_array_equal(ch, b_ch)
+        np.testing.assert_array_equal(bass, b_bass)
+
+    def test_beat_resolution_returns_beat_columns(self):
+        feat, grid = make(SEQ)
+        ch, _, bounds, cc, cb, pb = chord_columns(feat, grid, Config())
+        self.assertEqual(pb, 1)
+        self.assertIs(cc, ch)
+        self.assertIs(cb, bounds)
+
+    def test_unknown_resolution(self):
+        feat, grid = make(SEQ)
+        with self.assertRaises(ValueError):
+            chord_columns(feat, grid, cfg_with(resolution='x'))
+
+    def test_column_times(self):
+        np.testing.assert_allclose(column_times([0.0, 0.5, 1.0], 10.0, 2), [0, .25, .5, .75, 1.0, 1.25])
+        np.testing.assert_allclose(column_times([0.0, 0.5, 1.0], 10.0, 1), [0, .5, 1.0])
+
+    def test_change_on_the_and_of_beat_two(self):
+        # C for 1.5 beats... C on beats 1-2 and the first half of 2 -> F from the and-of-2 (anticipation)
+        feat, grid = make_halves([('C', 3), ('F', 5), ('Am', 3), ('G', 5)])
+        got, pb = est8(feat, grid)
+        self.assertEqual(len(got), 16)
+        n = names(got)
+        change = [i for i in range(1, len(n)) if n[i] != n[i - 1]]
+        self.assertEqual(len(change), 3, n)
+        for c, want in zip(change, (3, 8, 11)):
+            self.assertLessEqual(abs(c - want), 1, n)
+        segs = merge_chords(got, EIGHTH, per_beat=pb)
+        self.assertTrue(all(s.per_beat == 2 for s in segs))
+        # beat-level view: the on-beat column of each beat
+        self.assertEqual(names(beat_level(got, pb)), [n[i] for i in range(0, 16, 2)])
+
+    def test_beat_only_song_same_as_beat(self):
+        feat, grid = make(SEQ)
+        beat = est(feat, grid, Config())
+        got, pb = est8(feat, grid)
+        self.assertEqual(names(beat_level(got, pb)), names(beat))
+        segs_b = merge_chords(beat, Config())
+        segs_e = merge_chords(got, EIGHTH, per_beat=pb)
+        self.assertEqual([(s.start_beat * 2, s.end_beat * 2, s.root, s.quality) for s in segs_b],
+                         [(s.start_beat, s.end_beat, s.root, s.quality) for s in segs_e])
+
+    def test_switches_at_eighth(self):
+        feat, grid = make_halves([('C', 3), ('F', 5), ('Am', 3), ('G', 5)])
+        base = names(est8(feat, grid)[0])
+        for kw in (dict(confidence='posterior'), dict(candidates=True), dict(vocab='v2'), dict(power=True),
+                   dict(slash=True), dict(bass_root='lowest', bass_root_weight=0.3)):
+            with self.subTest(kw=kw):
+                cfg = cfg_with(resolution='eighth', **kw)
+                got, _ = est8(feat, grid, cfg)
+                self.assertEqual(len(got), 16)
+                self.assertEqual([chord_name(c.root, c.quality) for c in got], base)
+                self.assertTrue(all(0.0 <= c.confidence <= 1.0 for c in got))
+                if kw.get('candidates'):
+                    self.assertTrue(all(c.posterior is not None and len(c.posterior) == 60 for c in got))
+
+    def test_beat_level_prior_is_repeated(self):
+        feat, grid = make_halves([('C', 3), ('F', 5), ('Am', 3), ('G', 5)])
+        k = 60
+        zero = np.zeros((len(grid.times), k, k))
+        self.assertEqual(names(est8(feat, grid, prior=zero)[0]), names(est8(feat, grid)[0]))
+        bonus = np.zeros((len(grid.times), k, k))
+        bonus[:, :, 0] = 50.0  # every move into C is hugely favoured
+        self.assertEqual(set(names(est8(feat, grid, prior=bonus)[0])), {'C'})
+
+    def test_result_times_at_half_beats(self):
+        from py.dsp.chords import ChordSegment
+        from py.dsp.result import build_result
+        from py.dsp.types import Downbeats
+        feat, grid = make_halves([('C', 3), ('F', 5)])  # 4 beats, 2 s audio
+        db = Downbeats(phase=0, beats_per_bar=4, confidence=1.0, scores=[0, 0, 0, 0])
+        segs = [ChordSegment(0, 3, 0, 'maj', 0.5, False, per_beat=2), ChordSegment(3, 8, 5, 'maj', 0.5, False, per_beat=2)]
+        r = build_result(feat, grid, segs, db, [], None, EIGHTH)
+        self.assertEqual([(c['text'], c['start'], c['end']) for c in r['chords']],
+                         [('C', 0.0, 0.75), ('F', 0.75, feat.duration)])
+        beat_segs = [ChordSegment(0, 2, 0, 'maj', 0.5, False), ChordSegment(2, 4, 5, 'maj', 0.5, False)]
+        r = build_result(feat, grid, beat_segs, db, [], None, EIGHTH)  # per_beat 1: beat times as before
+        self.assertEqual([(c['start'], c['end']) for c in r['chords']], [(0.0, 1.0), (1.0, feat.duration)])
+
+    def test_segment_sevenths_keep_half_beat_columns(self):
+        from py.dsp import seventh
+        feat, grid = make_halves([('C', 3), ('G7', 5)])
+        cfg = cfg_with(resolution='eighth', seventh_mode='segment')
+        got, pb = est8(feat, grid, cfg)
+        _, _, _, cc, _, _ = chord_columns(feat, grid, cfg)
+        segs = seventh.decide_segments(merge_chords(got, cfg, per_beat=pb), cc, cfg)
+        self.assertTrue(segs and all(s.per_beat == 2 for s in segs))
+        self.assertEqual(segs[-1].end_beat, 8)
+
+    def test_bad_per_beat(self):
+        with self.assertRaises(ValueError):
+            estimate_chords(np.ones((12, 3)), EIGHTH, per_beat=2)
+        with self.assertRaises(ValueError):
+            beat_level([BeatChord(0, 'maj', 1.0)] * 3, 2)
 
 
 if __name__ == '__main__':

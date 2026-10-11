@@ -22,6 +22,8 @@ Tuned on the tuning variants (L0 / L2 / L3 / LR / V, 7th precision / recall): se
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from . import vocab
@@ -85,16 +87,15 @@ def decide_segments(segments: list, chroma: np.ndarray, cfg: Config) -> list:
             decided.append(s)
             continue
         q = _decide(s, chroma, qualities)
-        decided.append(s if q == s.quality else ChordSegment(
-            s.start_beat, s.end_beat, s.root, q, s.confidence, s.low_confidence, s.bass))
+        decided.append(s if q == s.quality else replace(s, quality=q))  # replace keeps per_beat (T13)
     out: list[ChordSegment] = []
     for s in decided:
         p = out[-1] if out else None
         if p is not None and p.root is not None and p.root == s.root and p.quality == s.quality and p.bass == s.bass:
             na, nb = p.end_beat - p.start_beat, s.end_beat - s.start_beat
             conf = (p.confidence * na + s.confidence * nb) / (na + nb)
-            out[-1] = ChordSegment(p.start_beat, s.end_beat, p.root, p.quality, conf,
-                                   conf < cfg.chords.low_confidence, p.bass)
+            out[-1] = replace(p, end_beat=s.end_beat, confidence=conf,
+                              low_confidence=conf < cfg.chords.low_confidence)
         else:
             out.append(s)
     return out

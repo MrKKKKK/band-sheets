@@ -2,10 +2,11 @@
 
 Classical templates + hand-set HMM/Viterbi only (no learned models).
 
-    estimate_chords(chroma, cfg, feat=None, bounds=None, prior=None) -> list[BeatChord]   one per column
+    estimate_chords(chroma, cfg, feat=None, bounds=None, prior=None, per_beat=1) -> list[BeatChord]   one per column
+    beat_level(chords, per_beat) -> list[BeatChord]      the on-beat column of each beat (T13)
     chord_name(root, quality, bass=None) -> 'C', 'Am', 'G7', 'Cmaj7', 'Dm7', 'C/E', 'N'
     chord_text(bc, cfg) -> name, plus '?' when confidence < cfg.chords.low_confidence
-    merge_chords(chords, cfg) -> list[ChordSegment]       consecutive beats merged
+    merge_chords(chords, cfg, per_beat=1) -> list[ChordSegment]       consecutive columns merged
 
 Rules:
   * score = cosine(beat chroma, binary template). 24 triads; with use_seventh also
@@ -32,6 +33,14 @@ Spike 2 hooks (docs/audio-spike2-plan.md §5; every default = spike 1 behaviour,
     posterior.attach_candidates turns them into segment candidates.
   * prior (n_cols, n_states, n_states), log bonus per move (harmony.transition, 2nd pass): Viterbi
     with full per-column transition matrices; an all-zero prior takes the spike 1 fast path.
+  * per_beat (T13, chords.resolution 'eighth' -> 2; chroma.chord_columns): columns are half beats, so a
+    chord may change on the beat or on its "and". The HMM is matched to the half beat: stay probability
+    sqrt(self_transition) per column (same chance to keep the chord over a whole beat) and emissions
+    x _EIGHTH_EMIS (0.5 would weigh a beat like one beat column; that let a short 2-beat chord be
+    swallowed, 1.0 let half-beat arpeggio fragments win; T13 sweep). A beat-level prior
+    (n_beats rows) is repeated per column. merge_chords(per_beat=2) gives segments in half-beat
+    columns (ChordSegment.per_beat; result.py turns them into times); beat_level() picks the on-beat
+    half for the beat-level consumers (downbeat, keytrack). per_beat 1 = the spike 1 code path.
 """
 
 from __future__ import annotations
@@ -46,6 +55,7 @@ from .types import BeatChord, Features
 
 NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 _BETA = 20.0  # emission sharpness for Viterbi (hand-set)
+_EIGHTH_EMIS = 0.75  # T13: emission weight per half-beat column (sweep 0.5 / 0.75 / 1 on L0-L3, LR, M: 0.75 best, no level drops)
 
 _CHOICES = {
     'resolution': ('beat', 'eighth'),
@@ -183,6 +193,7 @@ def estimate_chords(
     feat: Features | None = None,
     bounds: np.ndarray | None = None,
     prior: np.ndarray | None = None,
+    per_beat: int = 1,
 ) -> list[BeatChord]:
     """One BeatChord per chroma column. `feat` / `bounds` (column frame boundaries, length n + 1)
     feed the spike 2 hooks (harmonics, bassroot); `prior` is the 2nd-pass theory prior (Viterbi only)."""
@@ -195,6 +206,12 @@ def estimate_chords(
         return []
     if bounds is None:
         bounds = np.arange(n + 1)
+    if per_beat < 1 or n % per_beat:
+        raise ValueError(f'{n} columns is not a multiple of per_beat {per_beat}')
+    stay = cc.self_transition if per_beat == 1 else cc.self_transition ** (1.0 / per_beat)
+    emis_w = 1.0 if per_beat == 1 else _EIGHTH_EMIS
+    if prior is not None and per_beat > 1 and prior.shape[0] * per_beat == n:
+        prior = np.repeat(prior, per_beat, axis=0)  # beat-level prior: the bar's bonus on every column
     states = vocab.states(cfg)
     s, masked = _scores(np.asarray(chroma, dtype=float), states, cfg, feat)
     roots = np.array([r for r, _ in states])
@@ -207,13 +224,14 @@ def estimate_chords(
     silent = energy < cc.no_chord_energy
     s[:, silent] = 0.0
     if cc.smoothing == 'viterbi':
-        path = _viterbi(s, cc.self_transition, prior, vocab.move_states(cfg))
+        path = _viterbi(s * emis_w if per_beat > 1 else s, stay, prior, vocab.move_states(cfg))
     elif cc.smoothing == 'median':
         path = np.argmax(_median_filter(s, cc.median_width), axis=0)
     else:
         path = np.argmax(s, axis=0)
     want_post = cc.confidence == 'posterior' or cc.candidates
-    post = posterior.chord_posterior(_BETA * s, cc.self_transition, n_move=vocab.move_states(cfg)) if want_post else None
+    post = posterior.chord_posterior(_BETA * emis_w * s if per_beat > 1 else _BETA * s, stay,
+                                     n_move=vocab.move_states(cfg)) if want_post else None
     basses = bassroot.bass_notes(feat, bounds, cfg) if cc.slash else [None] * n
     out: list[BeatChord] = []
     for t in range(n):
@@ -244,9 +262,19 @@ class ChordSegment:
     low_confidence: bool
     bass: int | None = None  # slash-chord bass (only with chords.slash)
     candidates: tuple = ()  # T27: ((root, quality, prob), ...) top-k of the posterior (chords.candidates)
+    per_beat: int = 1  # T13: columns per beat of start_beat / end_beat (2 = half-beat columns, chords.resolution 'eighth')
 
 
-def merge_chords(chords: list[BeatChord], cfg: Config) -> list[ChordSegment]:
+def beat_level(chords: list[BeatChord], per_beat: int = 1) -> list[BeatChord]:
+    """One chord per beat from per-column chords: the on-beat column of each beat (T13). per_beat 1 -> as is."""
+    if per_beat == 1:
+        return chords
+    if len(chords) % per_beat:
+        raise ValueError(f'{len(chords)} columns is not a multiple of per_beat {per_beat}')
+    return list(chords[::per_beat])
+
+
+def merge_chords(chords: list[BeatChord], cfg: Config, per_beat: int = 1) -> list[ChordSegment]:
     """Merge consecutive equal chords; runs shorter than merge_min_beats are absorbed
     into the longer neighbour (previous on a tie), then equal neighbours re-merged.
     With chords.slash the bass is part of the chord identity (C and C/E are different runs)."""
@@ -285,5 +313,6 @@ def merge_chords(chords: list[BeatChord], cfg: Config) -> list[ChordSegment]:
         root, q = key[0], key[1]
         bass = key[2] if len(key) > 2 else None
         conf = float(np.mean([chords[i].confidence for i in range(a, b)]))
-        out.append(ChordSegment(a, b, root, q, conf, root is not None and conf < cfg.chords.low_confidence, bass))
+        out.append(ChordSegment(a, b, root, q, conf, root is not None and conf < cfg.chords.low_confidence, bass,
+                                per_beat=per_beat))
     return out

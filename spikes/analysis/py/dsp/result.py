@@ -6,6 +6,9 @@ text is 'C/E'); with chords.candidates each chord carries `candidates` [{name, r
 top-k of the posterior over the segment, prob descending); chord text carries '?' for low confidence; beats carry bar/beat only from the first
 downbeat on. `keys` (per-bar key runs: startBar, tonic, mode, confidence) is written only when
 `bar_keys` is given (key.track == 'sections'), so the spike 1 output is unchanged.
+Chord times: segment bounds are columns of `seg.per_beat` per beat (T13: 2 = half beats, the off-beat
+column starts at the midpoint of the beat span, chroma.column_times); a bound past the last column is the
+audio end (as for beats).
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from __future__ import annotations
 import numpy as np
 
 from .chords import ChordSegment, chord_name, chord_text
+from .chroma import column_times
 from .config import Config, config_hash, config_summary
 from .types import BarKey, BeatChord, BeatGrid, Downbeats, Features, Section
 
@@ -59,14 +63,22 @@ def build_result(
             b['beat'] = (i - phase) % bpb
         beats.append(b)
 
+    col_times: dict[int, np.ndarray] = {}
+
+    def col_time(c: int, pb: int) -> float:
+        if pb not in col_times:
+            col_times[pb] = column_times(times, dur, pb)
+        ct = col_times[pb]
+        return float(ct[c]) if 0 <= c < len(ct) else dur
+
     chords = []
     for s in segments:
         if s.root is None:
             continue
         bc = BeatChord(root=s.root, quality=s.quality, confidence=s.confidence, bass=s.bass)
         entry = {
-            'start': beat_time(s.start_beat),
-            'end': beat_time(s.end_beat),
+            'start': beat_time(s.start_beat) if s.per_beat == 1 else col_time(s.start_beat, s.per_beat),
+            'end': beat_time(s.end_beat) if s.per_beat == 1 else col_time(s.end_beat, s.per_beat),
             'root': NOTE_NAMES[s.root % 12],
             'quality': s.quality,
             'bass': NOTE_NAMES[s.bass % 12] if s.bass is not None else None,
