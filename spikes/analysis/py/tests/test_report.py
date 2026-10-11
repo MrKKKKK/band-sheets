@@ -181,6 +181,40 @@ class Q6R17Test(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(d, "results", "plots", "REC-1.dsp-v1.png")))
             self.assertFalse(os.path.exists(os.path.join(d, "results", "plots", "secretfile.dsp-v1.png")))
 
+    def test_private_chart_variants_are_anonymised_like_rec(self):
+        good = {"beats": beats(16), "chords": [ch(0, 2, "C"), ch(2, 4, "G"), ch(4, 6, "A", "min"), ch(6, 8, "F")]}
+        bad = {"beats": beats(16), "chords": [ch(0, 8, "D")]}
+        vs = [{"name": "base1", "song": "s", "truth": "t.truth.json", "level": 0},
+              {"name": "chart-07-rec", "song": "chart", "truth": "t.truth.json", "level": "CH", "private": True},
+              {"name": "chart-08-block", "song": "chart", "truth": "t.truth.json", "level": "CH", "private": True,
+               "heldOut": True}]
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, vs, self.truth, {"base1": good, "chart-07-rec": bad, "chart-08-block": bad})
+            # the CH entries live in their own manifest, as written by render/chartsCli.ts
+            os.makedirs(os.path.join(d, "charts"))
+            with open(os.path.join(d, "charts", "manifest.charts.json"), "w") as f:
+                json.dump({"variants": [dict(vs[1], level="CH"), dict(vs[2], private=True)]}, f)
+            with open(os.path.join(d, "manifest.json"), "w") as f:
+                json.dump({"variants": vs[:1]}, f)
+            md = R.build_report(d, "dsp-v1", log=lambda *_: None)
+            self.assertNotIn("chart-07", md)
+            self.assertNotIn("chart-08", md)
+            self.assertIn("| CH |", md)
+            self.assertIn("| CH-1 |", md)
+            # the wrong chord D appears in no pair table for CH (only the L0 variant would, and it is right)
+            self.assertNotIn("→ D", md)
+            self.assertNotIn("C → ", md)
+            self.assertTrue(os.path.exists(os.path.join(d, "results", "plots", "CH-1.dsp-v1.png")))
+            self.assertFalse(os.path.exists(os.path.join(d, "results", "plots", "chart-07-rec.dsp-v1.png")))
+
+    def test_private_flag_alone_anonymises(self):
+        entries = R.load_manifests  # noqa: F841  (existence check)
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "charts"))
+            with open(os.path.join(d, "charts", "manifest.charts.json"), "w") as f:
+                json.dump({"variants": [{"name": "x", "truth": "t.truth.json", "level": 0, "private": True}]}, f)
+            self.assertEqual(R.load_manifests(d)["x"]["level"], "CH")
+
 
 class T20ReportTest(unittest.TestCase):
     def test_vocab_and_key_tables(self):

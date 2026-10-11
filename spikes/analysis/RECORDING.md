@@ -72,3 +72,46 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -e NUMBA_CACHE_DIR=/work/out/.numba-ca
 - 元のファイルは `recordings/originals/` に移り、`inbox` は空になります（エラーのものだけ残る）。
 - 最後に `privacy_check`（曲名・コード進行が git に入っていないか）が自動で走ります。ホスト側でも `python3 spikes/analysis/py/privacy_check.py` で全体を確かめられます。
 - 解析（`run_all`）はこの取り込みでは走りません。
+
+## 6. コード進行だけを渡す（録音なし）
+
+録音が無くても、よく知っている曲の **コード進行だけ** を書いてもらえれば、それをピアノで鳴らした合成音（調つき・転調つき）を作って、キー追跡やコード理論の評価に使います。
+
+**置き場所**: WSL `/home/mrk5/projects/band-sheets/spikes/analysis/recordings/charts/`
+Windows のエクスプローラー: `\\wsl.localhost\Ubuntu\home\mrk5\projects\band-sheets\spikes\analysis\recordings\charts`（`wslpath -w /home/mrk5/projects/band-sheets/spikes/analysis/recordings/charts` でも出ます）
+
+1 曲 1 ファイルで `名前.txt`（名前は何でも可）を置きます。書き方は 4 章の .txt と同じです。違いは次のとおり。
+
+```
+bpm: 124
+拍子: 4/4
+キー: C          （任意。書くと調の評価ができる）
+弱起: 1拍        （任意。4/4 だけ）
+| C | Am7 | F | G7 |
+| C . Em . | F G |
+キー: D          （小節の行と行の間に書くと、次の小節から D に転調）
+| D | Bm7 | Em7 A7 | D |
+```
+
+- `弾き方:` と `開始:` は要りません。録音も要りません。
+- 曲の途中の `キー:` は「その次の小節から」その調、という意味です（何回でも可）。
+- 1 小節に書いたコードは小節を等分します（`.` は前のコードのまま）。`N.C.` の小節は、鳴らす側では前のコードが続きます（正解も同じ）。
+- 9th・13th・add9・6 などは鳴らせないので自動で簡単な形にします（`Dm9`→`Dm7`、`G7(#9)`→`G7`、`C6`→`C`。正解もその形）。簡略化した個数は実行時に表示されます。
+- メロディは要りません（コードだけ）。曲名やアーティスト名も書かなくて大丈夫です。メモを書くときは `#` の行に。
+
+**取り込みと作成**（`spikes/analysis` で。2 段階です）:
+
+```
+# 1) 読み込み・匿名の名前 chart-01 … を付ける・ホールドアウトの判定（Python 側）
+docker run --rm -u 1000:1000 -e HOME=/tmp -e NUMBA_CACHE_DIR=/work/out/.numba-cache \
+  -v /home/mrk5/projects/band-sheets/spikes/analysis:/work -w /work band-sheets-analysis python py/charts.py
+# 2) 音の作成（devcontainer 側）→ out/charts/ に chart-NN-{block,rec,rechard}.wav と正解
+docker exec -u node -w /workspaces/band-sheets/spikes/analysis band-sheets npx tsx render/chartsCli.ts
+```
+
+- 1 曲から 3 種類を作ります: `block`（毎拍の和音、L0 相当）、`rec`（録音に近い弾き方）、`rechard`（録音に近い難しい弾き方）。拍子が 4/4 以外のときは `block` だけです。
+- ホールドアウトは **id の番号で自動** に決まります（chart-04, chart-08 … が最後の確認用）。解析の前に `out/results/heldout-log.jsonl` に記録されます。書き直して再実行しても同じ曲は同じ id のままです。
+- 評価では、レポートに「CH」として出ます。コード名も曲名も出ません（図もコード名なし）。
+- ファイルを直したら、1) と 2) をもう一度実行してください。
+
+**プライバシー**: **手元だけ** で使います。`recordings/` も `out/` も git に入らない設定で、**git にも Google Drive にも上げません**。実行のたびに `privacy_check` が走り、曲名（ファイル名・`#` のメモ）やコード進行が git で管理されるファイルやコミットメッセージに紛れていないか確かめます（ホストでも `python3 spikes/analysis/py/privacy_check.py`）。

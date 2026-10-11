@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -70,6 +71,67 @@ class TestPrivacy(unittest.TestCase):
         terms, _ = P.collect_terms(self.rec)
         self.assertNotIn("rec 01", terms)
         self.assertIn("quartz lemonade parade", terms)
+
+
+class TestCharts(unittest.TestCase):
+    """T28: recordings/charts/*.txt feed the checker (file name, comments, 6-chord runs)."""
+    RUN = ["Gmaj7", "Em7", "Bm7", "A7", "Dmaj7", "F#m7"]
+
+    def setUp(self):
+        self.t = tempfile.TemporaryDirectory()
+        self.root = self.t.name
+        self.rec = os.path.join(self.root, "recordings")
+        write(os.path.join(self.rec, "charts", "Violet Harbor Lights.txt"),
+              "# Velvet Orchard Song\nbpm: 100\nキー: G\n| " + " | ".join(self.RUN) + " |\nキー: A\n| A | D |\n")
+        write(os.path.join(self.rec, "charts", "ids.local.json"),
+              json.dumps({"charts": {"chart-01": {"original": "Old Original Name"}}}))
+        write(os.path.join(self.rec, "charts", "chart-01.song.json"), "{}")
+        write(os.path.join(self.root, "src", "ok.md"), "chart-01 chart-01-rec fine\n")
+
+    def tearDown(self):
+        self.t.cleanup()
+
+    def check(self):
+        return P.check(self.root, self.rec, check_log=False)
+
+    def test_clean_and_anonymous_ids_ignored(self):
+        self.assertEqual(self.check(), [])
+        terms, runs = P.collect_terms(self.rec)
+        self.assertIn("violet harbor lights", terms)
+        self.assertIn("velvet orchard song", terms)
+        self.assertIn("old original name", terms)
+        self.assertNotIn("chart 01", terms)
+        self.assertNotIn("chart 01 song", terms)
+        self.assertIn(tuple(self.RUN), runs)
+
+    def test_name_comment_and_chords_found_without_echo(self):
+        write(os.path.join(self.root, "docs", "a.md"), "x\nviolet-harbor-lights\n")
+        write(os.path.join(self.root, "docs", "b.md"), "VELVET ORCHARD SONG\n")
+        write(os.path.join(self.root, "docs", "c.md"), "| " + " | ".join(self.RUN) + " |\n")
+        write(os.path.join(self.root, "docs", "d.md"), "Old_Original_Name\n")
+        bad = self.check()
+        self.assertEqual(len(bad), 4, bad)
+        for b in bad:
+            for secret in ("iolet", "elvet", "Gmaj7", "riginal"):
+                self.assertNotIn(secret, b)
+
+    def test_file_name_term_and_broken_chart_still_covered(self):
+        write(os.path.join(self.rec, "charts", "broken.txt"), "bpm: ??\n| " + " | ".join(self.RUN[::-1]) + " |\n| H |\n")
+        write(os.path.join(self.root, "docs", "violet-harbor-lights.md"), "x\n")
+        write(os.path.join(self.root, "docs", "e.md"), " ".join(self.RUN[::-1]) + "\n")
+        bad = self.check()
+        self.assertEqual(len(bad), 2, bad)
+
+    @unittest.skipUnless(shutil.which("git"), "git is not in the analysis image (runs on the host)")
+    def test_commit_messages_are_checked(self):
+        import subprocess
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        subprocess.run(["git", "init", "-q", self.root], check=True)
+        subprocess.run(["git", "-C", self.root, "add", "src/ok.md"], check=True)
+        subprocess.run(["git", "-C", self.root, "commit", "-q", "-m", "work on Velvet Orchard Song"], check=True, env=env)
+        bad = P.check(self.root, self.rec, check_log=True)
+        self.assertEqual(len(bad), 1)
+        self.assertTrue(bad[0].startswith("commit "))
 
 
 if __name__ == "__main__":

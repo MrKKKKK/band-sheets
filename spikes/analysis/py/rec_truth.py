@@ -144,6 +144,11 @@ def build_truth(ann, audio_sec, t0, tempo, name="rec"):
         "sections": sections,
         "chords": chords,
     }
+    if not keys and ann.get("keys"):  # key changes written in the .txt body (T28)
+        for k in sorted(ann["keys"], key=lambda x: x["startBar"]):
+            if _key_text(k["key"]) is None:
+                raise ValueError(f"bad key: {k['key']!r}")
+            keys.append({"startBar": int(k["startBar"]), "key": k["key"]})
     if not keys and ann.get("key"):
         if _key_text(ann["key"]) is None:
             raise ValueError(f"bad key: {ann['key']!r}")

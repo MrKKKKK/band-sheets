@@ -59,17 +59,23 @@ def _norm(line):
     return line.replace("♯", "#").replace("♭", "b")
 
 
-def parse_txt(text):
+def parse_txt(text, require_style=True):
     """-> annotation dict for rec_truth.build_truth (without wav / firstSoundSec) plus meta keys:
-    style, start (sec or None), maximizer (bool or None). Raises IntakeError (Japanese, line-numbered)."""
+    style, start (sec or None), maximizer (bool or None). Raises IntakeError (Japanese, line-numbered).
+    A `キー:` line AFTER the first bar line marks a modulation from the next bar (T28): the dict then also has
+    "keys" = [{startBar, key}, ...] (the header key first, at bar 0). `require_style=False` (chart-only
+    songs, py/charts.py) lets `弾き方:` be missing (style None)."""
     head = {}
     bar_lines = []
+    nbars = 0
+    key_changes = []  # (line, text, bar index of the first bar it applies to)
     for ln, raw in enumerate(text.lstrip("﻿").splitlines(), 1):
         line = _norm(raw).strip()
         if not line or line.startswith("#"):  # blank / whole-line comment ('#' elsewhere is a sharp)
             continue
         if line.startswith("|"):
             bar_lines.append((ln, line))
+            nbars += sum(1 for seg in line.split("|") if seg.split())
             continue
         m = re.fullmatch(r"([^:]+?)\s*:\s*(.*)", line)
         if not m:
@@ -78,9 +84,12 @@ def parse_txt(text):
         if k is None:
             raise IntakeError(f"{ln}行目: 知らない項目「{m.group(1)}」(使えるのは bpm / 拍子 / キー / 弾き方 / 弱起 / 開始 / "
                               "クリック / マキシマイザー)")
+        if k == "key" and nbars > 0:
+            key_changes.append((ln, m.group(2).strip(), nbars))
+            continue
         head[k] = (ln, m.group(2).strip())
     for need, label in (("bpm", "bpm"), ("style", "弾き方")):
-        if need not in head:
+        if need not in head and (need == "bpm" or require_style):
             raise IntakeError(f"「{label}:」がありません")
     ln, v = head["bpm"]
     try:
@@ -95,10 +104,12 @@ def parse_txt(text):
         raise IntakeError(f"{ln}行目: 拍子は 4/4・3/4 のような「n/4」だけ使えます")
     num = int(m.group(1))
     eps = num * 2
-    ln, v = head["style"]
-    st = v.strip().strip("()").lower()
-    if st not in list("abcde"):
-        raise IntakeError(f"{ln}行目: 弾き方は a〜e のどれかです")
+    st = None
+    if "style" in head:
+        ln, v = head["style"]
+        st = v.strip().strip("()").lower()
+        if st not in list("abcde"):
+            raise IntakeError(f"{ln}行目: 弾き方は a〜e のどれかです")
     pickup = 0
     if "pickup" in head:
         ln, v = head["pickup"]
@@ -157,12 +168,26 @@ def parse_txt(text):
             bars.append(entries)
     if not bars:
         raise IntakeError("コードの小節(| F | Dm7 | のような行)がありません")
+    keys = []
+    if key_changes:
+        if key:
+            keys.append({"startBar": 0, "key": key})
+        for ln, v, at in key_changes:
+            if RT._key_text(v) is None:
+                raise IntakeError(f"{ln}行目: キーは C・F#・Bb・Am のように書きます")
+            if at >= len(bars):
+                raise IntakeError(f"{ln}行目: 途中のキーの後ろに小節がありません")
+            if keys and keys[-1]["startBar"] == at:
+                keys.pop()
+            keys.append({"startBar": at, "key": v})
     ann = {"tempo": bpm, "timeSignature": [num, 4], "click": click, "eighthsPerBar": eps, "sections": [],
            "bars": bars, "style": st, "start": start, "maximizer": maximizer}
     if pickup:
         ann["pickupBeats"] = pickup
     if key:
         ann["key"] = key
+    if keys:
+        ann["keys"] = keys
     if click:
         ann["tempoHint"] = bpm
     return ann

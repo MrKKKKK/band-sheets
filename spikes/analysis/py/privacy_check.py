@@ -7,6 +7,8 @@ Private terms are read at RUNTIME from the gitignored recordings folder (nothing
   * the stems of every file in recordings/ and the original file names in ids.local.json,
   * every non-empty line of recordings/private-terms.local.txt (song titles, artists; one per line),
   * annotation "title" / "artist" fields,
+  * T28 chord-chart-only songs, recordings/charts/: the stems of the chart *.txt files, the original names in
+    charts/ids.local.json, the comment lines (# ...) of the charts and every run of 6 chords of their bar lines,
   * every run of 6 consecutive chords (>= 3 distinct) from the *.chords.json annotations (chord progressions).
 Matching ignores case and treats space / _ / - / . as the same. Anonymous names (rec, rec-01 ...) and very short
 terms (< 4 characters) are ignored. Scanned: git-tracked files under --root (or, without git, every text file
@@ -19,6 +21,7 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 
 CHORD_RUN = 6
 SKIP_DIRS = {"out", "recordings", "node_modules", ".git", "soundfonts", "__pycache__"}
@@ -27,6 +30,30 @@ SEP = r"[\s_\-.]+"
 
 def _norm(t):
     return re.sub(SEP, " ", t.strip().lower())
+
+
+def chart_texts(text):
+    """(comment lines, chord sequence) of a chart .txt, read leniently (no validation, so a broken chart is still
+    covered): comments = lines starting with '#'; chords = the tokens of the '|' lines without '.' and N.C."""
+    comments, seq = [], []
+    for raw in text.lstrip("\ufeff").splitlines():
+        line = unicodedata.normalize("NFKC", raw).replace("\u266f", "#").replace("\u266d", "b").strip()
+        if line.startswith("#"):
+            comments.append(line.lstrip("#").strip())
+        elif line.startswith("|"):
+            for tok in line.replace("|", " ").split():
+                if tok != "." and tok.upper() not in ("N.C.", "N") and (not seq or seq[-1] != tok):
+                    seq.append(tok)
+    return comments, seq
+
+
+def _runs(seq):
+    out = set()
+    for i in range(len(seq) - CHORD_RUN + 1):
+        w = seq[i:i + CHORD_RUN]
+        if len(set(w)) >= 3:
+            out.add(tuple(w))
+    return out
 
 
 def collect_terms(rec_dir):
@@ -43,6 +70,27 @@ def collect_terms(rec_dir):
                     or not os.path.isfile(os.path.join(d, fn)):
                 continue
             terms.add(fn.split(".")[0] if fn.endswith(".chords.json") else os.path.splitext(fn)[0])
+    chart_runs = set()
+    cdir = os.path.join(rec_dir, "charts")
+    if os.path.isdir(cdir):
+        for fn in os.listdir(cdir):
+            p = os.path.join(cdir, fn)
+            if fn.startswith(".") or not os.path.isfile(p) or not fn.lower().endswith(".txt"):
+                continue
+            terms.add(os.path.splitext(fn)[0])
+            try:
+                comments, seq = chart_texts(open(p, encoding="utf-8", errors="replace").read())
+            except OSError:
+                continue
+            terms.update(comments)
+            chart_runs |= _runs(seq)
+        cids = os.path.join(cdir, "ids.local.json")
+        if os.path.exists(cids):
+            try:
+                for e in json.load(open(cids, encoding="utf-8")).get("charts", {}).values():
+                    terms.add(os.path.splitext(e.get("original", ""))[0])
+            except ValueError:
+                pass
     ids_p = os.path.join(rec_dir, "ids.local.json")
     if os.path.exists(ids_p):
         for e in json.load(open(ids_p)).get("recordings", {}).values():
@@ -50,7 +98,7 @@ def collect_terms(rec_dir):
     tp = os.path.join(rec_dir, "private-terms.local.txt")
     if os.path.exists(tp):
         terms.update(l.strip() for l in open(tp, encoding="utf-8") if l.strip())
-    runs = set()
+    runs = set(chart_runs)
     for fn in os.listdir(rec_dir):
         if not fn.endswith(".chords.json"):
             continue
@@ -69,7 +117,8 @@ def collect_terms(rec_dir):
             w = seq[i:i + CHORD_RUN]
             if len(set(w)) >= 3:
                 runs.add(tuple(w))
-    good = sorted({_norm(t) for t in terms if len(_norm(t)) >= 4 and not re.fullmatch(r"rec( \d+)?( max)?", _norm(t))})
+    anon = r"(rec|chart)( \d+)?( max)?( (block|rec|rechard))?"
+    good = sorted({_norm(t) for t in terms if len(_norm(t)) >= 4 and not re.fullmatch(anon, _norm(t))})
     return good, sorted(runs)
 
 

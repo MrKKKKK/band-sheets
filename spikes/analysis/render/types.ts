@@ -46,7 +46,7 @@ export interface ChordTimeline {
 export type Mix = 'piano' | 'piano+drums' | 'full';
 
 export interface Variant {
-  song: 'saints' | 'etude';
+  song: 'saints' | 'etude' | 'chart';
   mix: Mix;
   tempo: number;
   swing: 'none' | 'asWritten';
@@ -104,8 +104,8 @@ export interface TruthKey {
   key: string;
 }
 
-/** Difficulty level (also written to manifest.json entries as `level`). */
-export type Level = 0 | 1 | 2 | 3 | 'LR' | 'V';
+/** Difficulty level (also written to manifest.json entries as `level`); 'CH' = private chart-based songs (T28). */
+export type Level = 0 | 1 | 2 | 3 | 'LR' | 'V' | 'CH';
 
 /** One entry of manifest.derived.json (wavs made by py/degrade.py). Paths are relative to out/. */
 export interface DerivedManifestEntry {

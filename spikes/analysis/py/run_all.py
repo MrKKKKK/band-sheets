@@ -12,6 +12,7 @@ Three manifests are read (only manifest.json is required; paths relative to DIR)
   derived/manifest.derived.json bare list of {name, song, base, level, heldOut, degrade, wav, truth}
   derived/manifest.trim.json    bare list, mid-bar-start variants from py/midbar.py (level "M")
   rec/manifest.rec.json         {"variants": [{name, song:"rec", level:"REC", heldOut, wav, truth}]}
+  charts/manifest.charts.json   {"variants": [{name, song:"chart", level:"CH", private:true, heldOut, wav, truth}]} (T28)
 
 Assumed manifest shape (T6 should match; paths are relative to DIR):
   {"variants": [{"name": "full-t116-shuffle", "song": "saints", "mix": "full",
@@ -80,7 +81,7 @@ def _fmt(v):
 
 
 MANIFESTS = [("manifest.json", 0), ("derived/manifest.derived.json", None), ("derived/manifest.trim.json", None),
-             ("rec/manifest.rec.json", None)]
+             ("rec/manifest.rec.json", None), ("charts/manifest.charts.json", None)]
 PHASE0 = "dsp-phase0"  # baseline: dsp-v1's beats with the downbeat phase assumed 0 (R2)
 DEFAULT_ANALYZERS = ["constant", "oracle", "mode-chord", "dsp-v1", PHASE0]
 DEFAULT_LEVEL = 0
@@ -181,7 +182,8 @@ def _read_log(path):
 def _log_looked_at(results_dir, scored, dsp_config, dsp_name, git, include_held_out, log):
     """Q1: one jsonl line per kind ("heldOut" / "rec") that this run scored; warn on a repeated config hash."""
     kinds = {"heldOut": [v["name"] for v in scored if v["heldOut"]],
-             "rec": [v["name"] for v in scored if v["level"] == "REC"]}
+             "rec": [v["name"] for v in scored if v["level"] == "REC"],
+             "chart": [v["name"] for v in scored if v["level"] == "CH"]}
     kinds = {k: v for k, v in kinds.items() if v}
     if not kinds:
         return

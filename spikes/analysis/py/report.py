@@ -41,10 +41,10 @@ CAT_JA = {
 }
 N_BINS = 5
 EXCLUDED_FROM_TOTALS = ("M",)  # Q6: shown by level only
-ANON_LEVELS = ("REC",)  # R17: no chord names / recording names
+ANON_LEVELS = ("REC", "CH")  # R17 / T28: no chord names / recording names (CH = private chart-based songs)
 SAMPLE_FRACTIONS = (0.25, 0.75)  # as score.py (R6); each sample weighs 1/2
 DEFAULT_PLOTS = ["full-t116-straight", "full-t116-straight__l2-rev06", "etude2-full-t90-straight"]
-ALWAYS_PLOT_LEVELS = ("LR", "REC")
+ALWAYS_PLOT_LEVELS = ("LR", "REC", "CH")
 KIND_JA = {
     "fifth_up": "5度上と取り違え",
     "fifth_down": "4度上(5度下)と取り違え",
@@ -277,7 +277,8 @@ def aggregate(items):
 def load_manifests(out_dir):
     """{name: {truth, song, level}} from the three manifests (missing ones are skipped)."""
     res = {}
-    for rel in ("manifest.json", "derived/manifest.derived.json", "derived/manifest.trim.json", "rec/manifest.rec.json"):
+    for rel in ("manifest.json", "derived/manifest.derived.json", "derived/manifest.trim.json", "rec/manifest.rec.json",
+                "charts/manifest.charts.json"):
         p = os.path.join(out_dir, rel)
         if not os.path.exists(p):
             continue
@@ -287,8 +288,10 @@ def load_manifests(out_dir):
             truth = v.get("truth") or (os.path.splitext(v["wav"])[0] + ".truth.json" if v.get("wav") else None)
             name = v.get("name") or (os.path.basename(truth).replace(".truth.json", "") if truth else None)
             if name:
-                res[name] = {"truth": truth, "song": v.get("song", ""),
-                             "level": str(v.get("level", 0 if rel == "manifest.json" else "?")),
+                level = str(v.get("level", 0 if rel == "manifest.json" else "?"))
+                if v.get("private") and level not in ANON_LEVELS:
+                    level = "CH"  # T28: any private variant is anonymised like REC
+                res[name] = {"truth": truth, "song": v.get("song", ""), "level": level,
                              "heldOut": bool(v.get("heldOut", False))}
     return res
 
@@ -312,7 +315,7 @@ def _level_key(l):
 
 # ---------------- timeline PNG ----------------
 
-def plot_timeline(truth, result, path, title="", dpi=80):
+def plot_timeline(truth, result, path, title="", dpi=80, anon=False):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -332,7 +335,7 @@ def plot_timeline(truth, result, path, title="", dpi=80):
             alpha = 0.45 if cls == "min" else 0.9
             ax.add_patch(Rectangle((c["start"], 0), c["end"] - c["start"], 1, facecolor=col, alpha=alpha,
                                    edgecolor="white", linewidth=0.5))
-            if c["end"] - c["start"] > 0.8:
+            if c["end"] - c["start"] > 0.8 and not anon:  # anon: colours only, no chord names (private songs)
                 ax.text((c["start"] + c["end"]) / 2, 0.5, str(c.get("text") or chord_label(pc, cls or "maj")),
                         ha="center", va="center", fontsize=7)
         ax.set_ylim(0, 1)
@@ -382,7 +385,7 @@ def _level_label(l):
 
 def _display_name(level, name, idx):
     """R17: private recordings are shown as REC-<n>, never by their variant name."""
-    return f"REC-{idx}" if level in ANON_LEVELS else name
+    return f"{level}-{idx}" if level in ANON_LEVELS else name
 
 
 def _cat_table(rows):
@@ -464,7 +467,7 @@ def build_report(out_dir, analyzer, only=None, plots=None, log=print):
         song = meta["song"]
         if meta["level"] in ANON_LEVELS:
             a["pairs"] = Counter()  # R17: no chord names for private recordings
-            song = "REC"
+            song = meta["level"]
         e = (name, meta["level"], song, truth, result, a)
         (held_entries if meta["heldOut"] else entries).append(e)  # held-out never enters the main tables (R10)
     levels = sorted({e[1] for e in entries}, key=_level_key)
@@ -547,7 +550,7 @@ def build_report(out_dir, analyzer, only=None, plots=None, log=print):
         shown = disp.get(name, name)
         fn = f"{shown}.{analyzer}.png"
         try:
-            plot_timeline(truth, result, os.path.join(plot_dir, fn), title=f"{shown} ({analyzer})")
+            plot_timeline(truth, result, os.path.join(plot_dir, fn), title=f"{shown} ({analyzer})", anon=lv in ANON_LEVELS)
             plot_files.append((lv, shown, fn))
         except Exception as ex:  # a plot failure must not lose the report
             log(f"plot failed for {shown}: {ex}")

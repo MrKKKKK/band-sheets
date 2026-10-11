@@ -53,6 +53,26 @@ class TestParseTxt(unittest.TestCase):
         self.assertEqual((a["start"], a["maximizer"], a["click"]), (1.5, True, False))
         self.assertNotIn("tempoHint", a)
 
+    def test_key_change_lines_in_the_body(self):
+        a = I.parse_txt("bpm: 100\nキー: C\n| C | F |\nキー: D\n| D | G |\n| A |\nkey: Bb\n| Bb |\n", require_style=False)
+        self.assertIsNone(a["style"])
+        self.assertEqual(a["key"], "C")
+        self.assertEqual(a["keys"], [{"startBar": 0, "key": "C"}, {"startBar": 2, "key": "D"}, {"startBar": 5, "key": "Bb"}])
+        # without a header key the first run starts at its own bar; a plain header key adds no "keys"
+        b = I.parse_txt("bpm: 100\n| C | F |\nキー: G\n| G |\n", require_style=False)
+        self.assertEqual(b["keys"], [{"startBar": 2, "key": "G"}])
+        self.assertNotIn("keys", I.parse_txt("bpm: 100\nキー: C\n| C |\n", require_style=False))
+
+    def test_key_change_errors_and_style_still_required_by_default(self):
+        with self.assertRaises(I.IntakeError) as cm:
+            I.parse_txt("bpm: 100\n| C |\nキー: H\n| G |\n", require_style=False)
+        self.assertIn("3行目", str(cm.exception))
+        with self.assertRaises(I.IntakeError) as cm:
+            I.parse_txt("bpm: 100\n| C |\nキー: G\n", require_style=False)
+        self.assertIn("後ろに小節", str(cm.exception))
+        with self.assertRaises(I.IntakeError):
+            I.parse_txt("bpm: 100\n| C |\n")  # 弾き方 missing
+
     def test_errors_are_japanese_with_line_numbers(self):
         cases = [("bpm: 100\n弾き方: a\n| C | Hm7 |\n", "3行目"),
                  ("bpm: 100\n弾き方: a\n| C G Em |\n", "等分できません"),

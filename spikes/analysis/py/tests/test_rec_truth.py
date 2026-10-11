@@ -15,6 +15,13 @@ ANN = {"tempo": 120, "timeSignature": [4, 4], "click": True, "firstSoundSec": 0.
 
 
 class TestBuild(unittest.TestCase):
+    def test_keys_from_the_txt_body(self):
+        ann = dict(ANN, keys=[{"startBar": 0, "key": "C"}, {"startBar": 1, "key": "D"}])
+        t = R.build_truth(ann, 10.0, 1.0, 120)
+        self.assertEqual(t["keys"], [{"startBar": 0, "key": "C"}, {"startBar": 1, "key": "D"}])
+        with self.assertRaises(ValueError):
+            R.build_truth(dict(ANN, keys=[{"startBar": 0, "key": "H"}]), 10.0, 1.0, 120)
+
     def test_times(self):
         t = R.build_truth(ANN, 10.0, 1.0, 120)
         self.assertEqual([b["t"] for b in t["beats"]], [1.0 + 0.5 * i for i in range(8)])
