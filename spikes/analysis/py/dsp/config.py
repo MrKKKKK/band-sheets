@@ -67,6 +67,9 @@ class ChordsConfig:
     slash: bool = False  # output slash chords (T10: bassroot.bass_notes)
     seventh_mode: str = 'beat'  # 'beat' | 'segment' (T8: seventh.decide_segments)
     vocab: str = 'v1'  # 'v1' (maj/min/7/maj7/min7) | 'v2' (design decision 8, T21: vocab.states)
+    vocab_weight: float = 1.0  # 'v2': score weight of dim/aug/sus4/m7b5/dim7 (T21; T14 tunes)
+    vocab_margin: float = 0.02  # 'v2': those only if they beat the best v1 chord by this (T21; T14 tunes)
+    vocab_sus4_margin: float = 0.1  # 'v2': the same margin for sus4 alone (passing 4ths on chord changes; T21 sweep, T14 tunes)
     theory_prior: float = 0.0  # 0 = off; strength of the theory prior (T26: harmony.transition, 2nd pass)
 
 
@@ -190,6 +193,9 @@ SPIKE1_OFF_VALUES: dict[str, dict[str, Any]] = {
         'slash': False,
         'seventh_mode': 'beat',
         'vocab': 'v1',
+        'vocab_weight': 1.0,
+        'vocab_margin': 0.02,
+        'vocab_sus4_margin': 0.1,
         'theory_prior': 0.0,
     },
     'sections': {'percussive_weight': 0.0},

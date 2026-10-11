@@ -21,7 +21,7 @@ Rules:
 
 Spike 2 hooks (docs/audio-spike2-plan.md §5; every default = spike 1 behaviour, bit-identical):
   * states from vocab.states(cfg), templates from harmonics.templates(states, feat, cfg); a quality
-    with 4 tones counts as a seventh.
+    with 4 tones counts as a seventh. vocab.gate_scores weights / gates the 'v2'-only qualities first.
   * bass_root != 'none': scores += bass_root_weight x bassroot.root_evidence (masked sevenths stay 0).
   * slash: BeatChord.bass from bassroot.bass_notes (None when equal to the root).
   * confidence == 'posterior': posterior.chord_posterior(_BETA * scores, stay); None keeps 'margin'.
@@ -87,7 +87,7 @@ def _scores(chroma: np.ndarray, states, cfg: Config, feat: Features | None = Non
     norm = np.linalg.norm(chroma, axis=0)
     unit = chroma / np.where(norm > 0, norm, 1.0)
     s = tpl @ unit
-    masked = np.zeros(s.shape, dtype=bool)
+    s, masked = vocab.gate_scores(s, unit, states, cfg)  # 'v1': s untouched, nothing masked
     is_seventh = np.array([_is_seventh(q) for _, q in states])
     if is_seventh.any():
         best_triad = s[~is_seventh].max(axis=0)
@@ -98,14 +98,17 @@ def _scores(chroma: np.ndarray, states, cfg: Config, feat: Features | None = Non
     return s, masked
 
 
-def _viterbi(emis: np.ndarray, stay: float, prior: np.ndarray | None = None) -> np.ndarray:
-    """Best path. `prior` (n, k, k): log bonus per move; None / all zero -> spike 1 fast path."""
+def _viterbi(emis: np.ndarray, stay: float, prior: np.ndarray | None = None, n_move: int | None = None) -> np.ndarray:
+    """Best path. `prior` (n, k, k): log bonus per move; None / all zero -> spike 1 fast path.
+    `n_move`: the state count the move probability is split over (None = k; vocab.move_states keeps
+    the v1 count for 'v2', so extra states do not make every chord change dearer)."""
     if prior is not None and np.any(prior):
-        return _viterbi_full(emis, stay, prior)
+        return _viterbi_full(emis, stay, prior, n_move)
     k, n = emis.shape
-    stay = min(max(stay, 1.0 / k + 1e-9), 1 - 1e-9)
+    m = k if n_move is None else n_move
+    stay = min(max(stay, 1.0 / m + 1e-9), 1 - 1e-9)
     l_stay = np.log(stay)
-    l_move = np.log((1 - stay) / (k - 1))
+    l_move = np.log((1 - stay) / (m - 1))
     logp = _BETA * emis
     delta = logp[:, 0].copy()
     back = np.zeros((k, n), dtype=int)
@@ -123,7 +126,7 @@ def _viterbi(emis: np.ndarray, stay: float, prior: np.ndarray | None = None) -> 
     return path
 
 
-def _viterbi_full(emis: np.ndarray, stay: float, prior: np.ndarray) -> np.ndarray:
+def _viterbi_full(emis: np.ndarray, stay: float, prior: np.ndarray, n_move: int | None = None) -> np.ndarray:
     """Viterbi with a full transition matrix per column (uniform move + prior[t]).
 
     Ties are broken like the fast path (stay first, then the lowest previous state), so a zero
@@ -132,8 +135,9 @@ def _viterbi_full(emis: np.ndarray, stay: float, prior: np.ndarray) -> np.ndarra
     k, n = emis.shape
     if prior.shape != (n, k, k):
         raise ValueError(f'prior shape {prior.shape} != {(n, k, k)}')
-    stay = min(max(stay, 1.0 / k + 1e-9), 1 - 1e-9)
-    trans = np.full((k, k), np.log((1 - stay) / (k - 1)))
+    m = k if n_move is None else n_move
+    stay = min(max(stay, 1.0 / m + 1e-9), 1 - 1e-9)
+    trans = np.full((k, k), np.log((1 - stay) / (m - 1)))
     np.fill_diagonal(trans, np.log(stay))
     logp = _BETA * emis
     delta = logp[:, 0].copy()
@@ -189,7 +193,7 @@ def estimate_chords(
     silent = energy < cc.no_chord_energy
     s[:, silent] = 0.0
     if cc.smoothing == 'viterbi':
-        path = _viterbi(s, cc.self_transition, prior)
+        path = _viterbi(s, cc.self_transition, prior, vocab.move_states(cfg))
     elif cc.smoothing == 'median':
         path = np.argmax(_median_filter(s, cc.median_width), axis=0)
     else:
