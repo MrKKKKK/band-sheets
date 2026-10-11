@@ -14,7 +14,7 @@ TXT = """# comment
 bpm: 120
 拍子: 4/4
 キー: F#m
-弾き方: b
+弾き方: a
 | C | Am7 D7 | F . Em . | N.C. G7(#9) |
 """
 
@@ -34,7 +34,7 @@ class TestParseTxt(unittest.TestCase):
         a = I.parse_txt(TXT)
         self.assertEqual(a["tempo"], 120.0)
         self.assertEqual(a["key"], "F#m")
-        self.assertEqual(a["style"], "b")
+        self.assertEqual(a["style"], "a")
         self.assertEqual(a["bars"][0], [["C", 8]])
         self.assertEqual(a["bars"][1], [["Am7", 4], ["D7", 4]])
         self.assertEqual(a["bars"][2], [["F", 4], ["Em", 4]])  # 4 tokens = per beat, '.' continues
@@ -109,54 +109,55 @@ class TestIntake(unittest.TestCase):
         self.drop("Secret Title")
         take = I.scan_inbox(self.inbox)["Secret Title"]
         names = I.process_take("Secret Title", take, self.rec, self.out, log=lambda m: None)
-        self.assertEqual(names, ["rec-01"])
+        self.assertEqual(names, ["rec-01-a"])
         self.assertEqual(os.listdir(self.inbox), [])
-        self.assertTrue(os.path.exists(os.path.join(self.rec, "originals", "rec-01.wav")))
-        data, sr = sf.read(os.path.join(self.rec, "rec-01.wav"))
+        self.assertTrue(os.path.exists(os.path.join(self.rec, "originals", "rec-01-a.wav")))
+        data, sr = sf.read(os.path.join(self.rec, "rec-01-a.wav"))
         self.assertEqual((sr, data.ndim), (44100, 1))
         man = json.load(open(os.path.join(self.out, "rec", "manifest.rec.json")))["variants"]
         self.assertEqual(len(man), 1)
-        self.assertTrue(man[0]["heldOut"])  # style b
+        self.assertFalse(man[0]["heldOut"])  # song 01 = odd = dev
         self.assertEqual(man[0]["tempoHint"], 120.0)
-        truth = json.load(open(os.path.join(self.out, "rec", "rec-01.truth.json")))
+        truth = json.load(open(os.path.join(self.out, "rec", "rec-01-a.truth.json")))
         self.assertAlmostEqual(truth["beats"][0]["t"], 0.5, delta=0.03)
         self.assertEqual(truth["keys"], [{"startBar": 0, "key": "F#m"}])
-        ids = json.load(open(os.path.join(self.rec, "ids.local.json")))["recordings"]["rec-01"]
-        self.assertTrue(ids["heldOut"])
+        ids = json.load(open(os.path.join(self.rec, "ids.local.json")))["recordings"]["rec-01-a"]
+        self.assertFalse(ids["heldOut"])
+        self.assertEqual(ids["song"], "rec-01")
         log = [json.loads(l) for l in open(os.path.join(self.out, "results", "heldout-log.jsonl"))]
-        self.assertEqual((log[0]["kind"], log[0]["take"], log[0]["heldOut"]), ("register", "rec-01", True))
+        self.assertEqual((log[0]["kind"], log[0]["take"], log[0]["heldOut"]), ("register", "rec-01-a", False))
         # no original name in anything under out/
         for d, _, fns in os.walk(self.out):
             for f in fns:
                 self.assertNotIn("Secret", open(os.path.join(d, f), errors="ignore").read())
 
     def test_start_override_and_pickup(self):
-        txt = TXT.replace("弾き方: b", "弾き方: a") + "弱起: 1拍\n開始: 1.0秒\n"
+        txt = TXT + "弱起: 1拍\n開始: 1.0秒\n"
         self.drop("x", txt, t0=0.5)
         I.process_take("x", I.scan_inbox(self.inbox)["x"], self.rec, self.out, log=lambda m: None)
-        truth = json.load(open(os.path.join(self.out, "rec", "rec-01.truth.json")))
+        truth = json.load(open(os.path.join(self.out, "rec", "rec-01-a.truth.json")))
         b = truth["beats"]
         self.assertEqual((b[0]["t"], b[0]["bar"]), (0.5, -1))
         self.assertEqual((b[1]["t"], b[1]["bar"], b[1]["downbeat"]), (1.0, 0, True))
         man = json.load(open(os.path.join(self.out, "rec", "manifest.rec.json")))["variants"]
-        self.assertFalse(man[0]["heldOut"])  # style a = dev
+        self.assertFalse(man[0]["heldOut"])
 
     def test_two_variants_share_decision(self):
         self.drop("take", audio=("plain", "max"))
         names = I.process_take("take", I.scan_inbox(self.inbox)["take"], self.rec, self.out, log=lambda m: None)
-        self.assertEqual(sorted(names), ["rec-01", "rec-01-max"])
+        self.assertEqual(sorted(names), ["rec-01-a", "rec-01-a-max"])
         man = {v["name"]: v for v in json.load(open(os.path.join(self.out, "rec", "manifest.rec.json")))["variants"]}
-        self.assertEqual({v["heldOut"] for v in man.values()}, {True})
-        self.assertEqual((man["rec-01"]["maximizer"], man["rec-01-max"]["maximizer"]), (False, True))
-        self.assertEqual({v["take"] for v in man.values()}, {"rec-01"})
+        self.assertEqual({v["heldOut"] for v in man.values()}, {False})
+        self.assertEqual((man["rec-01-a"]["maximizer"], man["rec-01-a-max"]["maximizer"]), (False, True))
+        self.assertEqual({v["take"] for v in man.values()}, {"rec-01-a"})
 
     def test_midi_stored_and_validated(self):
         self.drop("m")
         mid = b"MThd\0\0\0\6\0\0\0\1\1\xe0MTrk\0\0\0\4\0\xff\x2f\0"
         open(os.path.join(self.inbox, "m.mid"), "wb").write(mid)
         I.process_take("m", I.scan_inbox(self.inbox)["m"], self.rec, self.out, log=lambda m: None)
-        self.assertTrue(os.path.exists(os.path.join(self.rec, "rec-01.mid")))
-        truth = json.load(open(os.path.join(self.out, "rec", "rec-01.truth.json")))
+        self.assertTrue(os.path.exists(os.path.join(self.rec, "rec-01-a.mid")))
+        truth = json.load(open(os.path.join(self.out, "rec", "rec-01-a.truth.json")))
         self.assertTrue(truth["source"]["hasMidi"])
         with self.assertRaises(I.IntakeError):
             p = os.path.join(self.t.name, "bad.mid")
@@ -179,8 +180,71 @@ class TestIntake(unittest.TestCase):
         click_wav(os.path.join(self.inbox, "f.wav"), 0.5, sr=96000, channels=1, subtype="FLOAT")
         open(os.path.join(self.inbox, "f.txt"), "w").write(TXT)
         I.process_take("f", I.scan_inbox(self.inbox)["f"], self.rec, self.out, log=lambda m: None)
-        _, sr = sf.read(os.path.join(self.rec, "rec-01.wav"))
+        _, sr = sf.read(os.path.join(self.rec, "rec-01-a.wav"))
         self.assertEqual(sr, 44100)
+
+    def run_all_takes(self):
+        res = {}
+        for base, t in I.scan_inbox(self.inbox).items():
+            res[base] = I.process_take(base, t, self.rec, self.out, log=lambda m: None)
+        return res
+
+    def ids(self):
+        return json.load(open(os.path.join(self.rec, "ids.local.json")))["recordings"]
+
+    def test_takes_with_same_prefix_share_song_and_decision(self):
+        # song 01 (odd, dev): a/b pair; song 02 (even, held-out): single; song 03: no underscore
+        self.drop("曲A_いつも", TXT)
+        self.drop("曲A_3度あり", TXT.replace("弾き方: a", "弾き方: b"))
+        res = self.run_all_takes()
+        self.assertEqual(res, {"曲A_いつも": ["rec-01-a"], "曲A_3度あり": ["rec-01-b"]})
+        ids = self.ids()
+        self.assertEqual({ids["rec-01-a"]["song"], ids["rec-01-b"]["song"]}, {"rec-01"})
+        self.assertEqual({ids["rec-01-a"]["heldOut"], ids["rec-01-b"]["heldOut"]}, {False})
+        self.drop("曲B_x", TXT.replace("弾き方: a", "弾き方: c"))
+        self.drop("曲B_y", TXT)
+        self.drop("曲C", TXT)
+        self.run_all_takes()
+        ids = self.ids()
+        self.assertEqual((ids["rec-02-c"]["heldOut"], ids["rec-02-a"]["heldOut"]), (True, True))
+        self.assertEqual((ids["rec-03-a"]["song"], ids["rec-03-a"]["heldOut"]), ("rec-03", False))
+        log = [json.loads(l) for l in open(os.path.join(self.out, "results", "heldout-log.jsonl"))]
+        self.assertEqual({(l["take"], l["song"]) for l in log if l["song"] == "rec-02"},
+                         {("rec-02-c", "rec-02"), ("rec-02-a", "rec-02")})
+        for d, _, fns in os.walk(self.out):
+            for f in fns:
+                self.assertNotIn("曲", open(os.path.join(d, f), errors="ignore").read())
+
+    def test_later_batch_joins_existing_song_and_same_style_gets_index(self):
+        self.drop("S_one", TXT)
+        self.run_all_takes()
+        self.drop("T_one", TXT)  # song 02 -> held-out
+        self.drop("S_two", TXT)  # joins song 01 later, same style letter
+        self.run_all_takes()
+        ids = self.ids()
+        self.assertEqual((ids["rec-01-a2"]["song"], ids["rec-01-a2"]["heldOut"]), ("rec-01", False))
+        self.assertTrue(ids["rec-02-a"]["heldOut"])
+
+    def test_max_pairing_with_grouping(self):
+        self.drop("K_a", audio=("plain", "max"))
+        res = self.run_all_takes()
+        self.assertEqual(sorted(res["K_a"]), ["rec-01-a", "rec-01-a-max"])
+
+    def test_held_out_rule_is_deterministic_by_song_number(self):
+        self.assertEqual([I.song_held_out(n) for n in range(1, 7)], [False, True, False, True, False, True])
+        self.assertEqual(I.song_key("曲A_いつも"), "曲A")
+        self.assertEqual(I.song_key("plain"), "plain")
+
+    def test_legacy_registration_keeps_status_and_numbering(self):
+        os.makedirs(self.rec, exist_ok=True)
+        json.dump({"version": 1, "recordings": {"rec-01": {"original": "old", "heldOut": False, "style": None}}},
+                  open(os.path.join(self.rec, "ids.local.json"), "w"))
+        self.drop("old_extra")  # same key as the legacy "old"? no: key "old" == "old" -> joins rec-01
+        self.drop("new")
+        self.run_all_takes()
+        ids = self.ids()
+        self.assertEqual((ids["rec-01-a"]["song"], ids["rec-01-a"]["heldOut"]), ("rec-01", False))
+        self.assertEqual((ids["rec-02-a"]["song"], ids["rec-02-a"]["heldOut"]), ("rec-02", True))
 
     def test_main_runs_privacy_check(self):
         self.drop("Zebra Quokka Song")

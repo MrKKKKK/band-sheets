@@ -7,9 +7,10 @@ The user drops   <anyname>.<audio>  (+ optional <anyname>.max.<audio>, the post-
                  <anyname>.mid      (optional: what was played)
 into recordings/inbox/. For every take this script
   1. parses + validates the .txt and decodes the audio (all errors are Japanese, line-numbered),
-  2. gives the take an anonymous id rec-NN and records heldOut (decided by the style: b, d = held-out) in
-     recordings/ids.local.json and out/results/heldout-log.jsonl BEFORE any analysis,
-  3. stores mono 44.1 kHz 24-bit WAV as recordings/rec-NN[-max].wav, moves the originals (and the txt / mid) to
+  2. gives the SONG an anonymous id rec-NN (takes of one song share it: file stem up to the first `_`, or the whole
+     stem) and the take rec-NN-<style letter>; heldOut is decided per song when it is first registered (even NN =
+     held-out) and recorded in recordings/ids.local.json and out/results/heldout-log.jsonl BEFORE any analysis,
+  3. stores mono 44.1 kHz 24-bit WAV as recordings/rec-NN-<take>[-max].wav, moves the originals (and the txt / mid) to
      recordings/originals/ (all gitignored),
   4. finds the start (bar 1 beat 1; first onset unless `開始:` is given), writes recordings/rec-NN.chords.json,
      out/rec/<id>.truth.json and merges out/rec/manifest.rec.json,
@@ -32,7 +33,6 @@ import rec_truth as RT  # noqa: E402
 AUDIO_EXT = {".wav", ".flac", ".ogg", ".mp3", ".aif", ".aiff", ".m4a", ".aac", ".wma"}
 MIDI_EXT = {".mid", ".midi"}
 TARGET_SR = 44100
-HELD_OUT_STYLES = {"b", "d"}  # plan section 3.3: development = REC, a, c, e; held-out = b, d
 
 KEYS = {"bpm": "bpm", "テンポ": "bpm", "拍子": "time", "time": "time", "キー": "key", "key": "key",
         "弾き方": "style", "style": "style", "弱起": "pickup", "pickup": "pickup", "開始": "start", "start": "start",
@@ -260,14 +260,58 @@ def scan_inbox(inbox):
     return takes
 
 
-def _log_register(out, rid, held_out, style, variants):
+def song_key(base):
+    """Takes of one song: file stem up to the first '_' (the whole stem when there is none)."""
+    return base.split("_", 1)[0]
+
+
+def song_held_out(song_no):
+    """Per-song rule, fixed when the song is first registered: even song number = held-out."""
+    return song_no % 2 == 0
+
+
+def register_take(rec_dir, base, style, now=None):
+    """-> (take id rec-NN-<take>, song id rec-NN, heldOut). The song is found by its key among the registered
+    takes (legacy entries without "song" are their own song rec-NN) or registered new with the next number.
+    The decision is final and shared by all takes of the song."""
+    import datetime
+    os.makedirs(rec_dir, exist_ok=True)
+    ids = RT._load_ids(rec_dir)
+    recs = ids["recordings"]
+    key = song_key(base)
+    song = held = None
+    nums = [0]
+    for rid, e in recs.items():
+        m = re.match(r"rec-(\d+)", rid)
+        if m:
+            nums.append(int(m.group(1)))
+        if song is None and song_key(e.get("songKey", e["original"])) == key:
+            song = e.get("song") or rid
+            held = bool(e["heldOut"])
+    if song is None:
+        no = max(nums) + 1
+        song = f"rec-{no:02d}"
+        held = song_held_out(no)
+    tag, i = style, 1
+    while f"{song}-{tag}" in recs:
+        i += 1
+        tag = f"{style}{i}"
+    rid = f"{song}-{tag}"
+    stamp = now or datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    recs[rid] = {"original": base, "songKey": key, "song": song, "heldOut": held, "style": style, "file": None,
+                 "registeredAt": stamp}
+    RT._save_ids(rec_dir, ids)
+    return rid, song, held
+
+
+def _log_register(out, rid, held_out, style, variants, song=None):
     import datetime
     d = os.path.join(out, "results")
     os.makedirs(d, exist_ok=True)
     with open(os.path.join(d, "heldout-log.jsonl"), "a") as f:
         f.write(json.dumps({"time": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
-                            "kind": "register", "take": rid, "heldOut": held_out, "style": style,
-                            "variants": variants}) + "\n")
+                            "kind": "register", "take": rid, "song": song or rid, "heldOut": held_out,
+                            "style": style, "variants": variants}) + "\n")
 
 
 def process_take(base, t, rec_dir, out, log=print, fit=True):
@@ -280,14 +324,13 @@ def process_take(base, t, rec_dir, out, log=print, fit=True):
     if t["midi"]:
         validate_midi(t["midi"])
     audio = {k: decode_audio(p) for k, p in t["audio"].items()}
-    held_out = ann["style"] in HELD_OUT_STYLES
     originals = sorted(os.path.basename(p) for p in list(t["audio"].values()) + [t["txt"]])
-    rid = RT.allocate_id(rec_dir, base, held_out, ann["style"])
+    rid, song, held_out = register_take(rec_dir, base, ann["style"])
     names = {}
     both = len(audio) == 2
     for kind in audio:
         names[kind] = rid + ("-max" if both and kind == "max" else "")
-    _log_register(out, rid, held_out, ann["style"], list(names.values()))
+    _log_register(out, rid, held_out, ann["style"], list(names.values()), song)
     odir = os.path.join(rec_dir, "originals")
     os.makedirs(odir, exist_ok=True)
     import soundfile as sf

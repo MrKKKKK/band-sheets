@@ -117,7 +117,7 @@ def collect_terms(rec_dir):
             w = seq[i:i + CHORD_RUN]
             if len(set(w)) >= 3:
                 runs.add(tuple(w))
-    anon = r"(rec|chart)( \d+)?( max)?( (block|rec|rechard))?"
+    anon = r"(rec|chart)( \d+)?( [a-e]\d*)?( max)?( (block|rec|rechard))?"
     good = sorted({_norm(t) for t in terms if len(_norm(t)) >= 4 and not re.fullmatch(anon, _norm(t))})
     return good, sorted(runs)
 
