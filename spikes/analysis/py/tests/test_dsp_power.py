@@ -113,6 +113,25 @@ class PowerChordTest(unittest.TestCase):
         self.assertEqual([(x.root, x.quality) for x in a], [(x.root, x.quality) for x in b])
 
 
+class MarginConfidenceTest(unittest.TestCase):
+    """Margin confidence with power on (integration fix): another root's '5' (two tones of the column)
+    is not root ambiguity, so a triad keeps the power-off margin. The downbeat rule weights chord
+    changes by this confidence; the extra '5' competitors flipped a near-tie downbeat (an arpeggio L1 variant)."""
+
+    def test_non_power_choice_keeps_power_off_margin(self):
+        rng = np.random.default_rng(7)
+        chroma = rng.random((12, 400)) ** 3
+        # triads only: with sevenths the '5' states also enter the seventh gate's best-triad score (T27, unchanged)
+        for sm in ('none', 'viterbi'):
+            c_off, c_on = cfg(smoothing=sm, use_seventh=False), cfg(smoothing=sm, use_seventh=False, power=True)
+            off, on = estimate_chords(chroma, c_off), estimate_chords(chroma, c_on)
+            same = [(a, b) for a, b in zip(off, on) if b.quality != '5' and (a.root, a.quality) == (b.root, b.quality)]
+            self.assertGreater(len(same), 100)
+            for a, b in same:
+                self.assertEqual(a.confidence, b.confidence)
+            self.assertTrue(any(b.quality == '5' for b in on))  # the case is exercised with '5' states live
+
+
 class InvertedFifthTest(unittest.TestCase):
     """Rule C: G2 + C3 + G3 (4th at the bottom, no 3rd) is C5: the upper note of the 4th is the root."""
 

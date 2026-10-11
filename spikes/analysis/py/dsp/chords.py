@@ -29,6 +29,8 @@ Spike 2 hooks (docs/audio-spike2-plan.md §5; every default = spike 1 behaviour,
     None keeps 'margin'.
   * power (T27): '5' states gated by vocab.gate_power (after gate_scores); on columns read as a power chord
     (vocab.power_columns) the bass root evidence is ignored (a 4th with no 3rd: the upper note is the root).
+  * margin confidence ignores other roots' '5' states (power on): two tones of the column are not root
+    ambiguity; otherwise power on lowers triad confidences, which the downbeat rule weights (integration fix).
   * candidates (T27): the posterior is computed and each BeatChord carries its column (BeatChord.posterior);
     posterior.attach_candidates turns them into segment candidates.
   * prior (n_cols, n_states, n_states), log bonus per move (harmony.transition, 2nd pass): Viterbi
@@ -215,6 +217,7 @@ def estimate_chords(
     states = vocab.states(cfg)
     s, masked = _scores(np.asarray(chroma, dtype=float), states, cfg, feat)
     roots = np.array([r for r, _ in states])
+    rival = np.array([q != vocab.POWER for _, q in states], dtype=bool)  # margin competitors (no '5', see doc)
     if cc.bass_root != 'none':
         ev = bassroot.root_evidence(feat, bounds, cfg)
         if cc.power:  # rule C: no 3rd -> the bass does not name the root (G under C is C5's 5th)
@@ -243,7 +246,7 @@ def estimate_chords(
         if post is not None and cc.confidence == 'posterior':
             conf = float(post[int(path[t]), t])
         else:
-            others = s[roots != r, t]
+            others = s[(roots != r) & rival, t]
             conf = float(s[int(path[t]), t] - (others.max() if others.size else 0.0))
         b = basses[t]
         bass = None if b is None or b % 12 == r else int(b) % 12
