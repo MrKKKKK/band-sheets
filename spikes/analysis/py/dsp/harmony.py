@@ -256,7 +256,7 @@ def resolve_power(segments: list, bar_keys: list[BarKey], bar_of_col: np.ndarray
         if seg.root is None or seg.quality != POWER:
             out.append(seg)
             continue
-        a = min(max(seg.start_beat, 0), n - 1)
+        a = min(max(seg.start_beat // getattr(seg, 'per_beat', 1), 0), n - 1)  # column -> beat (T13)
         key = keys[a]
         if key.confidence <= 0:
             out.append(seg)

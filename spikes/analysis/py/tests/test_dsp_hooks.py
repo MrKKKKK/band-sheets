@@ -20,7 +20,7 @@ from py.dsp.chords import _viterbi, _viterbi_full, chord_name, estimate_chords, 
 from py.dsp.config import Config, apply_overrides
 from py.dsp.result import key_runs
 from py.dsp.types import BarKey, BeatChord, BeatGrid, Features
-from py.tests.hooks_synth import SR, synth
+from py.tests.hooks_synth import BI, PROG, SR, TRIADS, _tone, synth
 
 GOLDEN = os.path.join(os.path.dirname(__file__), 'fixtures', 't0_default_result.json')
 
@@ -29,7 +29,6 @@ SWITCHES = [
     {'beats': {'tempo_octave': 'rule'}},
     {'beats': {'tempo_hint': 120.0}},
     {'chroma': {'top_voice_discount': 0.5}},
-    {'chords': {'resolution': 'eighth'}},
     {'chords': {'harmonics': 'fixed'}},
     {'chords': {'harmonics': 'profile'}},
     {'chords': {'bass_root': 'lowest', 'bass_root_weight': 0.3}},
@@ -41,6 +40,8 @@ SWITCHES = [
     {'sections': {'percussive_weight': 0.5}},
     {'key': {'track': 'sections', 'change_cost_mid': 2.0, 'change_cost_boundary': 0.5}},
 ]
+# T13 'eighth' is real now (chord columns per half beat): its own tests below (EighthAnalyzeTest).
+EIGHTH = {'chords': {'resolution': 'eighth'}}
 ALL_ON: dict = {}
 for sw in SWITCHES:
     for group, vals in sw.items():
@@ -176,6 +177,87 @@ class AnalyzeHooksTest(unittest.TestCase):
                    {'chords': {'harmonics': 'all'}}, {'beats': {'tempo_hint': -1.0}}):
             with self.subTest(sw=sw), self.assertRaises(ValueError):
                 self._analyze(apply_overrides(Config(), sw))
+
+
+def synth_anticipated() -> np.ndarray:
+    """hooks_synth with every chord change pushed half a beat early (on the 'and' of beat 4), bass too;
+    clicks stay on the beats. Bar 0 starts on the beat."""
+    y = np.zeros(int(len(PROG) * 4 * BI * SR) + SR)
+    kn = int(0.03 * SR)
+    kt = np.arange(kn) / SR
+    click = np.sin(2 * np.pi * 1500 * kt) * np.exp(-kt * 150)
+    starts = [0.0] + [bar * 4 * BI - BI / 2 for bar in range(1, len(PROG))] + [len(PROG) * 4 * BI]
+    for bar, (pc, q) in enumerate(PROG):
+        t0, t1 = starts[bar], starts[bar + 1]
+        for k in range(4):
+            s = int((bar * 4 * BI + k * BI) * SR)
+            y[s:s + kn] += click * (1.0 if k == 0 else 0.5)
+        bass_on = [t0] + [bar * 4 * BI + k * BI for k in range(1, 4)]
+        bass_on.append(t1)
+        for a, b in zip(bass_on[:-1], bass_on[1:]):
+            n = _tone(36 + pc, b - a, 0.15)
+            y[int(a * SR):int(a * SR) + len(n)] += n
+        for iv in TRIADS[q]:
+            c = _tone(55 + (pc + iv - 7) % 12, t1 - t0, 0.4)
+            y[int(t0 * SR):int(t0 * SR) + len(c)] += c
+    return (y / np.abs(y).max() * 0.8).astype(np.float32)
+
+
+class EighthAnalyzeTest(unittest.TestCase):
+    """chords.resolution 'eighth' through analyze (T13): chord times move to the half beat, the beat grid,
+    downbeats and sections do not."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.wav = os.path.join(cls.tmp.name, 'push.wav')
+        sf.write(cls.wav, synth_anticipated(), SR)
+        cls.feat = A.load_features(cls.wav, Config())
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def _analyze(self, sw):
+        with mock.patch.object(A, 'load_features', return_value=self.feat):
+            return A.analyze(self.wav, apply_overrides(Config(), sw))
+
+    def _changes(self, r):
+        return [(c['start'], c['text']) for c in r['chords']]
+
+    def test_pushed_changes_land_on_the_off_beat(self):
+        beat, eighth = self._analyze({}), self._analyze(EIGHTH)
+        self.assertNotEqual(self._changes(eighth), self._changes(beat))
+        self.assertEqual(beat['beats'], eighth['beats'])
+        self.assertEqual(beat['timeSignature']['num'], eighth['timeSignature']['num'])
+        self.assertEqual([s['start'] for s in beat['sections']], [s['start'] for s in eighth['sections']])
+        texts = [t for _, t in self._changes(eighth)]
+        self.assertEqual(texts, ['C', 'Am', 'F', 'G'] * 2)
+        pushed = [bar * 4 * BI - BI / 2 for bar in range(1, len(PROG))]
+        starts = [t for t, _ in self._changes(eighth)][1:]
+        for want, got in zip(pushed, starts):
+            self.assertAlmostEqual(got, want, delta=0.06)  # half-beat column start, not the beat
+        beat_starts = [t for t, _ in self._changes(beat)][1:]
+        self.assertTrue(all(min(abs(t - b * BI) for b in range(40)) < 0.03 for t in beat_starts))
+
+    def test_with_every_switch_on(self):
+        on = json.loads(json.dumps(ALL_ON))
+        on['chords']['resolution'] = 'eighth'
+        on['chords']['candidates'] = True
+        r = self._analyze(on)
+        self.assertEqual(r['beats'], self._analyze({})['beats'])
+        self.assertTrue(r['chords'])
+        for c in r['chords']:
+            self.assertTrue(c['candidates'])
+            self.assertLess(c['start'], c['end'])
+
+    def test_second_pass_keeps_columns(self):
+        sw = {'chords': {'resolution': 'eighth', 'theory_prior': 1.0}}
+        with mock.patch.object(A, 'estimate_chords', wraps=A.estimate_chords) as est:
+            r = self._analyze(sw)
+        self.assertEqual(est.call_count, 2)
+        self.assertEqual([c.kwargs.get('per_beat') for c in est.call_args_list], [2, 2])
+        self.assertEqual([t for _, t in self._changes(r)], ['C', 'Am', 'F', 'G'] * 2)
 
 
 class CliTest(unittest.TestCase):

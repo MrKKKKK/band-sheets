@@ -1,6 +1,7 @@
 """Spike 2 T26: theory transition prior (py/dsp/harmony.py) and its table py/dsp/tables/harmony.toml."""
 
 import unittest
+from dataclasses import replace
 
 import numpy as np
 
@@ -282,6 +283,16 @@ class ResolvePowerTest(unittest.TestCase):
         out = H.resolve_power(segs, keys(3), self.BOC[:12], PRIOR)
         self.assertEqual([(s.start_beat, s.end_beat, s.root, s.quality) for s in out],
                          [(0, 8, C, 'maj'), (8, 12, F, 'maj')])
+
+    def test_eighth_columns_use_the_beat_bar(self):
+        """per_beat 2 (T13): segment bounds are half-beat columns; the key is looked up at start_beat // 2."""
+        boc = self.BOC  # 16 beats, 4 bars
+        ks = keys(2) + [BarKey(2, C, 'major', 0.0), BarKey(3, C, 'major', 0.0)]  # no key confidence in bars 2-3
+        segs = [replace(seg(0, 8, G, '7'), per_beat=2), replace(seg(8, 16, C, '5'), per_beat=2),
+                replace(seg(16, 32, F, 'maj'), per_beat=2)]
+        out = H.resolve_power(segs, ks, boc, PRIOR)  # column 8 = beat 4 = bar 1 (C major), not bar 2
+        self.assertEqual([(s.root, s.quality) for s in out], [(G, '7'), (C, 'maj'), (F, 'maj')])
+        self.assertEqual([s.per_beat for s in out], [2, 2, 2])
 
 
 if __name__ == '__main__':
