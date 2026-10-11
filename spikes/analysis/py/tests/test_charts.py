@@ -246,5 +246,71 @@ class TestLyricCharts(unittest.TestCase):
         d.cleanup()
 
 
+class TestChordProDirectives(unittest.TestCase):
+    def test_initial_key_and_ignored_title(self):
+        ann, fmt, w = C.parse_chart("{title: Wobble Gantry}\n{artist: Plinth Z}\n{key: C}\n{tempo: 90}\n{time: 3/4}\n[C]あいうえ[G]おかきく\n")
+        self.assertEqual((ann["key"], ann["tempo"], ann["timeSignature"][0]), ("C", 90, 3))
+        self.assertNotIn("Wobble", json.dumps(ann, ensure_ascii=False) + "".join(w))
+        self.assertNotIn("Plinth", json.dumps(ann, ensure_ascii=False) + "".join(w))
+        self.assertNotIn("keys", ann)
+
+    def test_midsong_key_lyrics(self):
+        ann, fmt, _ = C.parse_chart("{key:C}\nbpm: 100\n[C]あいうえ[G]おかきく\n{k: D}\n[D]あいうえ[A]おかきく\n")
+        self.assertEqual(fmt, "lyrics")
+        self.assertEqual(ann["keys"], [{"startBar": 0, "key": "C"}, {"startBar": 2, "key": "D"}])
+
+    def test_midsong_key_bars(self):
+        ann, fmt, _ = C.parse_chart("bpm: 100\n{key: C}\n| C | F |\n{key: Eb}\n| Eb | Ab |\n")
+        self.assertEqual(fmt, "bars")
+        self.assertEqual(ann["keys"], [{"startBar": 0, "key": "C"}, {"startBar": 2, "key": "Eb"}])
+
+    def test_normalization(self):
+        ann, _, _ = C.parse_chart("bpm: 100\n{key: Ａ♭m}\n| Abm | Db |\n{key: F♯}\n| F# | B |\n")
+        self.assertEqual([k["key"] for k in ann["keys"]], ["Abm", "F#"])
+
+    def test_invalid_key_warns_and_is_ignored(self):
+        ann, _, w = C.parse_chart("bpm: 100\n{key: Q}\n| C | F |\n")
+        self.assertIsNone(ann.get("key"))
+        self.assertTrue(any("key" in x for x in w))
+
+    def test_line_key_preferred_over_directive(self):
+        ann, _, w = C.parse_chart("bpm: 100\nキー: G\n{key: C}\n| G | C |\nキー: A\n{key: D}\n| A | D |\n")
+        self.assertEqual(ann["keys"], [{"startBar": 0, "key": "G"}, {"startBar": 2, "key": "A"}])
+        self.assertGreaterEqual(len(w), 2)
+
+    def test_trailing_directive_ignored(self):
+        ann, _, w = C.parse_chart("bpm: 100\n[C]あいうえ[G]おかきく\n{key: D}\n")
+        self.assertNotIn("keys", ann)
+
+
+class TestRemovedCharts(unittest.TestCase):
+    def test_removed_source_is_pruned_and_id_not_reused(self):
+        t = tempfile.TemporaryDirectory()
+        cd, out = os.path.join(t.name, "charts"), os.path.join(t.name, "out")
+        os.makedirs(cd)
+        os.makedirs(os.path.join(out, "charts"))
+        write(cd, "a.txt", OTHER)
+        write(cd, "b.txt", OTHER)
+        C.process(cd, out, log=lambda m: None)
+        for fn in ("chart-02-block.wav", "chart-02-rec.truth.json", "chart-01-block.wav"):
+            write(os.path.join(out, "charts"), fn, "x")
+        mf = os.path.join(out, "charts", "manifest.charts.json")
+        json.dump({"variants": [{"name": "chart-01-block", "take": "chart-01"}, {"name": "chart-02-block", "take": "chart-02"}]}, open(mf, "w"))
+        os.remove(os.path.join(cd, "b.txt"))
+        write(cd, "c.txt", OTHER)
+        msgs = []
+        C.process(cd, out, log=msgs.append)
+        ids = json.load(open(os.path.join(cd, "ids.local.json")))["charts"]
+        self.assertTrue(ids["chart-02"]["removed"])
+        self.assertNotIn("removed", ids["chart-01"])
+        self.assertIn("chart-03", ids)  # new file gets a new id, chart-02 is not reused
+        self.assertFalse(os.path.exists(os.path.join(cd, "chart-02.song.json")))
+        self.assertTrue(os.path.exists(os.path.join(cd, "chart-03.song.json")))
+        self.assertEqual(sorted(os.listdir(os.path.join(out, "charts"))), ["chart-01-block.wav", "manifest.charts.json"])
+        self.assertEqual([v["take"] for v in json.load(open(mf))["variants"]], ["chart-01"])
+        self.assertTrue(any("chart-02" in m for m in msgs))
+        t.cleanup()
+
+
 if __name__ == "__main__":
     unittest.main()

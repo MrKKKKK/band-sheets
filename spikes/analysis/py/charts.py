@@ -184,6 +184,51 @@ def _clean_bar_line(line):
     return "|".join(segs), dropped
 
 
+_DIRECTIVE = re.compile(r"\{\s*([A-Za-z_]+)\s*(?::\s*|\s+)?(.*?)\s*\}")
+
+
+def _add_key_row(rows, key_src, ln, value, src, warns):
+    """Mid-song key row. A `キー:` line and a `{key}` directive at the same position (no chord between): `キー:` wins."""
+    if rows and rows[-1][1] == "key" and key_src.get(rows[-1][0]) != src:
+        warns.append(f"{ln}行目: キー: の行と {{key}} 指定が同じ位置にあるので キー: を使います")
+        if src == "directive":
+            return
+        rows.pop()
+    rows.append((ln, "key", value))
+    key_src[ln] = src
+
+
+def _directive(line, ln, head, rows, head_src, key_src, seen_chord, warns):
+    """ChordPro `{name: value}`: key / k / tempo / bpm / time are read, everything else (title, artist, comment ...)
+    is ignored and never stored. Invalid values -> Japanese warning, ignored."""
+    m = _DIRECTIVE.fullmatch(line)
+    if not m:
+        return
+    name, val = m.group(1).lower(), m.group(2).strip()
+    if name in ("key", "k"):
+        if RT._key_text(val) is None:
+            warns.append(f"{ln}行目: {{key}} の値が読めないので無視しました")
+        elif seen_chord:
+            _add_key_row(rows, key_src, ln, val, "directive", warns)
+        elif head_src.get("key") == "line":
+            warns.append(f"{ln}行目: キー: の行と {{key}} 指定が重なったので キー: を使います")
+        else:
+            head["key"] = (ln, val)
+            head_src["key"] = "directive"
+    elif name in ("tempo", "bpm"):
+        if not re.fullmatch(r"\d+(\.\d+)?", val) or float(val) <= 0:
+            warns.append(f"{ln}行目: {{{name}}} の値が読めないので無視しました")
+        elif "bpm" not in head:
+            head["bpm"] = (ln, val)
+            head_src["bpm"] = "directive"
+    elif name == "time":
+        if not re.fullmatch(r"\d+\s*/\s*\d+", val):
+            warns.append(f"{ln}行目: {{time}} の値が読めないので無視しました")
+        elif "time" not in head:
+            head["time"] = (ln, val)
+            head_src["time"] = "directive"
+
+
 def parse_chart(text):
     """Chart text -> (ann, fmt, warns). ann = parse_txt's annotation (bars, tempo, keys ...), fmt = 'bars' or 'lyrics',
     warns = content-free Japanese notes (line numbers / counts only). A compound meter (6/8, 9/8, 12/8) returns
@@ -197,11 +242,15 @@ def parse_chart(text):
     keep their own timing). Missing bpm = 120 (warned). Lyrics are never kept."""
     warns = []
     head, rows = {}, []  # head: key -> (ln, text); rows: (ln, kind, payload)
+    head_src, key_src = {}, {}  # origin ("line" = `key: value`, "directive" = `{key: value}`) of header values / key rows (by line)
     seen_chord = False
     ignored_kv = 0
     for ln, raw in enumerate(text.lstrip("﻿").splitlines(), 1):
         line = I._norm(raw).strip()
-        if not line or line.startswith("#") or (line.startswith("{") and line.endswith("}")):
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("{") and line.endswith("}"):
+            _directive(line, ln, head, rows, head_src, key_src, seen_chord, warns)
             continue
         line = re.sub(r"\[\s*\|\s*\]", " ", line)
         if re.fullmatch(r"[—–―－-]+[^|\[\]]*[—–―－-]+|[—–―－-]+", line) or not line.strip():
@@ -210,9 +259,12 @@ def parse_chart(text):
             m = re.fullmatch(r"([^:]+?)\s*:\s*(.*)", line)
             k = I.KEYS.get(m.group(1).strip().lower()) if m else None
             if k == "key" and seen_chord:
-                rows.append((ln, "key", m.group(2).strip()))
+                _add_key_row(rows, key_src, ln, m.group(2).strip(), "line", warns)
             elif k in ("bpm", "time", "key", "pickup"):
+                if k == "key" and head_src.get("key") == "directive":
+                    warns.append(f"{ln}行目: キー: の行と {{key}} 指定が重なったので キー: を使います")
                 head[k] = (ln, m.group(2).strip())
+                head_src[k] = "line"
             elif m:
                 ignored_kv += 1
             continue  # otherwise a section name / lyric-only line
@@ -229,6 +281,9 @@ def parse_chart(text):
             kind = "lyric"
         seen_chord = True
         rows.append((ln, kind, line))
+    while rows and rows[-1][1] == "key" and key_src.get(rows[-1][0]) == "directive":
+        warns.append(f"{rows[-1][0]}行目: 最後のコードの後ろの {{key}} は使いません")
+        rows.pop()
     if ignored_kv:
         warns.append(f"タイトルなど使わない項目の行 {ignored_kv} 行を読み飛ばしました")
     if not any(r[1] in ("bar", "lyric") for r in rows):
@@ -330,7 +385,7 @@ def register(d, original, now=None):
     """-> (id, is_new). The same original file name keeps its id (and so its heldOut) for good."""
     ids = _load_ids(d)
     for cid, e in ids["charts"].items():
-        if e["original"] == original:
+        if e["original"] == original and not e.get("removed"):
             return cid, False
     n = 1
     while f"chart-{n:02d}" in ids["charts"]:
@@ -340,6 +395,35 @@ def register(d, original, now=None):
                           "registeredAt": now or datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")}
     _save_ids(d, ids)
     return cid, True
+
+
+def prune_removed(charts_dir, out, originals, log=print):
+    """Charts whose source .txt is gone: mark the id `removed` in ids.local.json (the id stays reserved, never reused, so
+    the held-out assignment of the others does not shift), delete chart-NN.song.json, its out/charts/chart-NN-* files
+    and its manifest.charts.json entries. Returns the removed ids."""
+    ids = _load_ids(charts_dir)
+    gone = [cid for cid, e in ids["charts"].items() if not e.get("removed") and e["original"] not in originals]
+    if not gone:
+        return []
+    mf = os.path.join(out, "charts", "manifest.charts.json")
+    for cid in gone:
+        ids["charts"][cid]["removed"] = True
+        p = os.path.join(charts_dir, cid + ".song.json")
+        if os.path.exists(p):
+            os.remove(p)
+        cdir = os.path.join(out, "charts")
+        if os.path.isdir(cdir):
+            for fn in os.listdir(cdir):
+                if fn.startswith(cid + "-"):
+                    os.remove(os.path.join(cdir, fn))
+        log(f"{cid}: 元のファイルが無くなったので removed にしました(id は欠番のまま、出力も削除)")
+    if os.path.exists(mf):
+        m = json.load(open(mf, encoding="utf-8"))
+        m["variants"] = [v for v in m.get("variants", []) if v.get("take") not in gone]
+        with open(mf, "w", encoding="utf-8") as f:
+            json.dump(m, f, indent=1)
+    _save_ids(charts_dir, ids)
+    return gone
 
 
 def _log_register(out, cid, held_out):
@@ -386,6 +470,8 @@ def process(charts_dir, out, dry_run=False, log=print):
     names = sorted(fn for fn in os.listdir(charts_dir)
                    if fn.lower().endswith(".txt") and not fn.startswith(".")
                    and os.path.isfile(os.path.join(charts_dir, fn)))
+    if not dry_run:
+        prune_removed(charts_dir, out, {os.path.splitext(fn)[0] for fn in names}, log)
     if not names:
         log("charts フォルダが空です。コード進行の .txt を入れてください。")
         return 0
