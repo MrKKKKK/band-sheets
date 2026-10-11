@@ -36,7 +36,7 @@ TARGET_SR = 44100
 
 KEYS = {"bpm": "bpm", "テンポ": "bpm", "拍子": "time", "time": "time", "キー": "key", "key": "key",
         "弾き方": "style", "style": "style", "弱起": "pickup", "pickup": "pickup", "開始": "start", "start": "start",
-        "クリック": "click", "click": "click", "マキシマイザー": "maximizer", "maximizer": "maximizer"}
+        "カウント": "count", "count": "count", "クリック": "click", "click": "click", "マキシマイザー": "maximizer", "maximizer": "maximizer"}
 TRUE = {"あり", "有", "yes", "y", "true", "1", "on", "はい"}
 FALSE = {"なし", "無", "no", "n", "false", "0", "off", "いいえ"}
 
@@ -201,7 +201,7 @@ def parse_txt(text, require_style=True, allow_sequence=False):
             raise IntakeError(f"{ln}行目: 「キー: 値」の形でも「| コード |」の形でも「[コード]歌詞」の形でもありません")
         k = KEYS.get(m.group(1).strip().lower())
         if k is None:
-            raise IntakeError(f"{ln}行目: 知らない項目「{m.group(1)}」(使えるのは bpm / 拍子 / キー / 弾き方 / 弱起 / 開始 / "
+            raise IntakeError(f"{ln}行目: 知らない項目「{m.group(1)}」(使えるのは bpm / 拍子 / キー / 弾き方 / 弱起 / 開始 / カウント / "
                               "クリック / マキシマイザー)")
         if k == "key" and items:
             key_changes.append((ln, m.group(2).strip(), nbars))
@@ -254,6 +254,13 @@ def parse_txt(text, require_style=True, allow_sequence=False):
         if pickup * 60.0 / bpm > start + 1e-9:
             raise IntakeError(f"{ln}行目: 開始({start}秒)が小さすぎます。弱起{pickup}拍ぶん({pickup * 60.0 / bpm:.3f}秒)"
                               "より前の位置には置けません")
+    count = 0
+    if "count" in head:
+        ln, v = head["count"]
+        m = re.fullmatch(r"(\d+)\s*(小節|bars?)?", v.strip().lower())
+        if not m:
+            raise IntakeError(f"{ln}行目: カウントは「2小節」のように書きます")
+        count = int(m.group(1))
     key = None
     if "key" in head:
         ln, v = head["key"]
@@ -305,7 +312,7 @@ def parse_txt(text, require_style=True, allow_sequence=False):
                 keys.pop()
             keys.append({"startBar": at, "key": v})
     ann = {"tempo": bpm, "timeSignature": [num, 4], "click": click, "eighthsPerBar": eps, "sections": [],
-           "bars": bars, "style": st, "styles": styles, "start": start, "maximizer": maximizer}
+           "bars": bars, "style": st, "styles": styles, "start": start, "maximizer": maximizer, "count": count}
     if sequence is not None:
         ann["timing"] = "sequence"
         ann["sequence"] = sequence
@@ -337,16 +344,72 @@ def decode_audio(path):
     return np.clip(y, -1.0, 1.0).astype(np.float32)
 
 
-def first_onset(y, sr=TARGET_SR):
+def onset_times(y, sr=TARGET_SR):
+    """Onset times (s) of the audio, same detector and strength gate as first_onset."""
     import librosa
     y = librosa.resample(y, orig_sr=sr, target_sr=22050)
     hop = 128
     env = librosa.onset.onset_strength(y=librosa.effects.percussive(y), sr=22050, hop_length=hop)
     frames = librosa.onset.onset_detect(onset_envelope=env, sr=22050, hop_length=hop, backtrack=False)
     frames = [f for f in frames if env[f] >= 0.2 * env.max()]
-    if not frames:
+    return [float(t) for t in librosa.frames_to_time(frames, sr=22050, hop_length=hop)]
+
+
+def first_onset(y, sr=TARGET_SR):
+    ts = onset_times(y, sr)
+    if not ts:
         raise IntakeError("音の始まりが見つかりません。「開始:」で秒数を指定してください")
-    return float(librosa.frames_to_time(frames[0], sr=22050, hop_length=hop))
+    return ts[0]
+
+
+def detect_count_in(y, bpm, n_beats):
+    """The recording starts with a metronome count-in of n_beats clicks. Returns {firstClickSec, spacingSec, nClicks}
+    (a least-squares line through the clicks found at the bpm spacing from the first onset). Raises IntakeError (Japanese)
+    when the clicks are missing or their spacing does not match the bpm."""
+    beat = 60.0 / bpm
+    ts = np.array(onset_times(y))
+    if ts.size == 0:
+        raise IntakeError("カウントのクリックが見つかりません")
+    t0 = ts[0]
+    ks, got = [], []
+    for k in range(n_beats):
+        d = np.abs(ts - (t0 + k * beat))
+        i = int(d.argmin())
+        if d[i] <= 0.15 * beat:
+            ks.append(k)
+            got.append(ts[i])
+    if len(ks) < max(3, int(0.75 * n_beats)):
+        raise IntakeError(f"カウントのクリックが bpm({bpm:g})の間隔で並んでいません（{n_beats}個のうち{len(ks)}個しか見つかりません）。"
+                          "bpm かカウントの小節数を確かめてください")
+    slope, icpt = np.polyfit(ks, got, 1)
+    if abs(slope / beat - 1) > 0.03:
+        raise IntakeError(f"カウントのクリック間隔 {slope:.4f}秒 が bpm({bpm:g})の {beat:.4f}秒 と合いません")
+    return {"firstClickSec": float(icpt), "spacingSec": float(slope), "nClicks": len(ks)}
+
+
+def resolve_count(wav, y, ann, beat):
+    """`カウント: N小節`: bar 1 = first click + N bars. Returns (firstSoundSec, fit_or_None, info) like resolve_start."""
+    num = ann["timeSignature"][0]
+    pickup = ann.get("pickupBeats", 0)
+    c = detect_count_in(y, ann["tempo"], ann["count"] * num)
+    first_click = c["firstClickSec"]
+    bar1 = first_click + ann["count"] * num * beat
+    fs = round(bar1 - pickup * beat, 4)
+    info = {"source": "count", "countBars": ann["count"], "firstClickSec": first_click, "spacingSec": c["spacingSec"],
+            "spacingVsBpm": c["spacingSec"] / beat, "nClicks": c["nClicks"], "chosen": fs, "given": None, "warning": None}
+    if ann["start"] is not None:
+        g = ann["start"] - pickup * beat
+        info["given"] = g
+        info["offsetBeats"] = (fs - g) / beat
+        if abs(fs - g) > beat / 4:
+            info["warning"] = (f"警告: 指定の開始({ann['start']}秒)とカウントから求めた1小節目の頭({bar1:.3f}秒)が "
+                               f"{bar1 - ann['start']:+.3f}秒（{(bar1 - ann['start']) / beat:+.2f}拍）ずれています。カウントを優先します。")
+    f = None
+    if ann.get("timing") != "sequence":
+        f = RT.fit_grid(wav, dict(ann, firstSoundSec=fs))
+        f = dict(f, t0=fs, tempo=ann["tempo"])
+        info["residualMs"] = f["residualMedianMs"]
+    return fs, f, info
 
 
 RESIDUAL_WARN_MS = 40.0
@@ -509,12 +572,23 @@ def process_take(base, t, rec_dir, out, log=print, fit=True, fit_start=False):
         name = names[kind]
         wav = os.path.join(rec_dir, name + ".wav")
         sf.write(wav, y, TARGET_SR, subtype="PCM_24")
-        a = {k: v for k, v in ann.items() if k not in ("style", "styles", "start", "maximizer")}
+        a = {k: v for k, v in ann.items() if k not in ("style", "styles", "start", "maximizer", "count")}
         a["wav"] = name + ".wav"
         a["maximizer"] = (kind == "max") if both else ann["maximizer"]
         if has_midi:
             a["hasMidi"] = True
-        if ann["start"] is not None:
+        if ann.get("count") and fit:
+            a["firstSoundSec"], f2, info = resolve_count(wav, y, ann, beat)
+            a["startSource"] = "count"
+            a["countIn"] = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in info.items() if k in
+                            ("countBars", "firstClickSec", "spacingSec", "nClicks")}
+            if ann["start"] is not None:
+                a["startGiven"] = ann["start"]
+            if info["warning"]:
+                log(f"{name}: {info['warning']}")
+            f = f2 if f2 is not None else {"t0": a["firstSoundSec"], "tempo": ann["tempo"], "residualMedianMs": 0.0, "nOnsets": 0}
+            how = f"カウント{ann['count']}小節のクリックから"
+        elif ann["start"] is not None:
             a["firstSoundSec"] = round(ann["start"] - pickup * beat, 4)
             how = "指定"
             f = {"t0": a["firstSoundSec"], "tempo": ann["tempo"], "residualMedianMs": 0.0, "nOnsets": 0}
@@ -656,7 +730,7 @@ def reparse_take(rec_dir, out, rid, log=print, fit=True, fit_start=False):
     for name in names:
         wav = os.path.join(rec_dir, name + ".wav")
         old = olds[name]
-        a = {k: v for k, v in ann.items() if k not in ("style", "styles", "start", "maximizer")}
+        a = {k: v for k, v in ann.items() if k not in ("style", "styles", "start", "maximizer", "count")}
         a["wav"] = name + ".wav"
         a["maximizer"] = name.endswith("-max") if len(names) == 2 else ann["maximizer"]
         if old.get("hasMidi"):
@@ -669,7 +743,17 @@ def reparse_take(rec_dir, out, rid, log=print, fit=True, fit_start=False):
             a["firstSoundSec"] = round(first_onset(decode_audio(wav)), 4)
         f = {"t0": a["firstSoundSec"], "tempo": ann["tempo"], "residualMedianMs": 0.0, "nOnsets": 0}
         info = None
-        if ann["start"] is not None and fit:
+        if ann.get("count") and fit:
+            a["firstSoundSec"], f2, info = resolve_count(wav, decode_audio(wav), ann, beat)
+            a["startSource"] = "count"
+            a["countIn"] = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in info.items() if k in
+                            ("countBars", "firstClickSec", "spacingSec", "nClicks")}
+            if ann["start"] is not None:
+                a["startGiven"] = ann["start"]
+            f = f2 if f2 is not None else dict(f, t0=a["firstSoundSec"])
+            if info["warning"]:
+                log(f"{rid}: {info['warning']}")
+        elif ann["start"] is not None and fit:
             a["firstSoundSec"], f2, info = resolve_start(wav, decode_audio(wav), a, a["firstSoundSec"], beat, fit_start)
             a["startGiven"] = ann["start"]
             a["startSource"] = info["source"]
