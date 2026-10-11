@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chartBlockBody, chartKeys, chartSongFor, chartTimeline, chartVariants, validateChartSong } from './charts';
+import { chartBlockBody, chartKeys, chartSkipReason, chartSongFor, chartTimeline, chartVariants, validateChartSong } from './charts';
 import type { ChartSong } from './charts';
 import { chordsPerBeat } from './chordTimeline';
 import { REC_HARD, recComp } from './pianoPart';
@@ -21,6 +21,14 @@ const fixture = (over: Partial<ChartSong> = {}): ChartSong => ({
     { startBar: 4, key: 'D' },
   ],
   ...over,
+});
+
+describe('chartSkipReason', () => {
+  it('returns the reason of a skipped chart (no bars needed) and null otherwise', () => {
+    expect(chartSkipReason({ id: 'chart-02', skipped: 'compound meter', bars: [] })).toBe('compound meter');
+    expect(chartSkipReason({ id: 'chart-01', bars: [[['C', 8]]] })).toBeNull();
+    expect(chartSkipReason(null)).toBeNull();
+  });
 });
 
 describe('validateChartSong', () => {

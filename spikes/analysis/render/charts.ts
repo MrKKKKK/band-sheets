@@ -23,6 +23,12 @@ export interface ChartSong {
   keys: TruthKey[];
 }
 
+/** The `skipped` reason of a raw song.json (e.g. 'compound meter': registered but not rendered), or null. */
+export function chartSkipReason(x: unknown): string | null {
+  const r = (x as { skipped?: unknown } | null)?.skipped;
+  return typeof r === 'string' && r.length > 0 ? r : null;
+}
+
 const KEY_RE = /^[A-G][#b]?m?$/;
 
 /** Checks a parsed song.json; throws a Japanese Error naming the problem (never a chord or file name). */

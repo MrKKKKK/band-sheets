@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chartBlockBody, chartKeys, chartSongFor, chartTimeline, chartVariants, validateChartSong } from './charts';
+import { chartBlockBody, chartSkipReason, chartKeys, chartSongFor, chartTimeline, chartVariants, validateChartSong } from './charts';
 import { peakStats, variantExtras } from './manifest';
 import { REC_HARD, recComp } from './pianoPart';
 import { renderAudio, SOUND_FONT_FILES } from './renderAudio';
@@ -37,8 +37,17 @@ const manifestPath = join(OUT, 'charts', 'manifest.charts.json');
 const previous: Record<string, unknown>[] = existsSync(manifestPath) ? (JSON.parse(readFileSync(manifestPath, 'utf8')).variants ?? []) : [];
 const fresh: Record<string, unknown>[] = [];
 
+const skippedIds = new Set<string>();
 for (const f of files) {
-  const cs = validateChartSong(JSON.parse(readFileSync(join(CHARTS, f), 'utf8')));
+  const raw = JSON.parse(readFileSync(join(CHARTS, f), 'utf8'));
+  const skip = chartSkipReason(raw);
+  if (skip !== null) {
+    const id = f.replace(/\.song\.json$/, '');
+    skippedIds.add(id);
+    console.log(`${id}: スキップしました（${skip === 'compound meter' ? '複合拍子' : skip}）`);
+    continue;
+  }
+  const cs = validateChartSong(raw);
   const written = chartTimeline(cs);
   const song = chartSongFor(cs);
   for (const v of chartVariants(cs)) {
@@ -98,8 +107,8 @@ for (const f of files) {
   }
 }
 const freshNames = new Set(fresh.map((e) => e.name));
-const variants = [...previous.filter((e) => !freshNames.has(e.name as string)), ...fresh].sort((a, b) =>
+const variants = [...previous.filter((e) => !freshNames.has(e.name as string) && !skippedIds.has(e.take as string)), ...fresh].sort((a, b) =>
   (a.name as string).localeCompare(b.name as string),
 );
 writeFileSync(manifestPath, JSON.stringify({ variants }, null, 1));
-console.log(`done: ${fresh.length} variants rendered, ${variants.length} in manifest.charts.json`);
+console.log(`done: ${fresh.length} variants rendered, ${skippedIds.size} charts skipped, ${variants.length} in manifest.charts.json`);
