@@ -59,32 +59,139 @@ def _norm(line):
     return line.replace("♯", "#").replace("♭", "b")
 
 
-def parse_txt(text, require_style=True):
+_BRACKET = re.compile(r"\[([^\]]*)\]")
+_BAR_TOKEN = re.compile(r"\[([^\]]*)\]|(-+)|(\s+)|(.)")
+
+
+def _line_kind(line):
+    """'bar' (has a bar line `|`, or only bracket chords / dashes), 'lyric' (bracket chords + other text, no `|`)
+    or None (neither: key-value or garbage)."""
+    if "|" in line:
+        return "bar"
+    if _BRACKET.search(line):
+        rest = _BRACKET.sub("", line)
+        return "bar" if not re.sub(r"[-.\s]", "", rest) else "lyric"
+    return None
+
+
+def _check_chord(t, ln):
+    if t.upper() in ("N.C.", "N"):
+        return "N.C."
+    try:
+        RT.parse_chord(t)
+    except ValueError:
+        raise IntakeError(f"{ln}行目: コード「{t}」が読めません")
+    return t
+
+
+def _parse_bar(seg, ln, num, eps, prev=None):
+    """One bar segment -> [[chord, eighths], ...] or None when empty. Bracket form `[Dm]---[Am7]- --`: each `-` after a
+    chord is one eighth of that chord, spaces are ignored; no dashes at all = split equally (a lone chord = whole bar).
+    Old form `C . Em .`: tokens split the bar equally, `.` continues the previous chord."""
+    if seg.strip() == "[":  # stray bracket at the end of a line: no bar
+        return None
+    if "[" in seg:
+        cur = []  # [chord, dashes]
+        lead = 0  # dashes before the first chord: the previous bar's last chord still sounds
+        for m in _BAR_TOKEN.finditer(seg):
+            if m.group(1) is not None:
+                cur.append([_check_chord(m.group(1).strip(), ln), 0])
+            elif m.group(2):
+                if not cur:
+                    lead += len(m.group(2))
+                else:
+                    cur[-1][1] += len(m.group(2))
+            elif m.group(4):
+                raise IntakeError(f"{ln}行目: 小節「{seg.strip()}」に読めない文字「{m.group(4)}」があります")
+        if not cur:
+            if not seg.strip():
+                return None
+            raise IntakeError(f"{ln}行目: 小節「{seg.strip()}」にコードがありません")
+        if lead:
+            if prev is None:
+                raise IntakeError(f"{ln}行目: 小節「{seg.strip()}」の最初の「-」は前のコードの続きですが、前の小節がありません")
+        tot = lead + sum(d for _, d in cur)
+        if tot == 0:
+            n = len(cur)
+            if eps % n:
+                raise IntakeError(f"{ln}行目: 小節「{seg.strip()}」は {n} 個に分かれますが、1小節({num}拍)を等分できません")
+            return [[c, eps // n] for c, _ in cur]
+        if any(d == 0 for _, d in cur):
+            raise IntakeError(f"{ln}行目: 小節「{seg.strip()}」は「-」のあるコードとないコードが混ざっています(長さが決まりません)")
+        if tot != eps:
+            raise IntakeError(f"{ln}行目: 小節「{seg.strip()}」の長さが「-」{tot}個(八分音符{tot}個)で、"
+                              f"1小節({num}拍 = 八分音符{eps}個)と合いません")
+        return ([[prev, lead]] if lead else []) + [[c, d] for c, d in cur]
+    toks = seg.split()
+    if not toks:
+        return None
+    n = len(toks)
+    if eps % n:
+        raise IntakeError(f"{ln}行目: 小節「{seg.strip()}」は {n} 個に分かれますが、1小節({num}拍)を等分できません")
+    if toks[0] == ".":
+        raise IntakeError(f"{ln}行目: 小節の最初に「.」は置けません")
+    each = eps // n
+    entries = []
+    for t in toks:
+        if t == ".":
+            entries[-1][1] += each
+            continue
+        entries.append([_check_chord(t, ln), each])
+    return entries
+
+
+def _sequence_of(kind, ln, line):
+    """Chord texts of a bar line / lyric line in order (lyrics are dropped on the spot; N.C. is no chord)."""
+    out = []
+    if kind == "bar" and "[" not in line:
+        for seg in line.split("|"):
+            out += [_check_chord(t, ln) for t in seg.split() if t != "."]
+    else:
+        out = [_check_chord(m.group(1).strip(), ln) for m in _BRACKET.finditer(line)]
+    return [c for c in out if c != "N.C."]
+
+
+def parse_txt(text, require_style=True, allow_sequence=False):
     """-> annotation dict for rec_truth.build_truth (without wav / firstSoundSec) plus meta keys:
-    style, start (sec or None), maximizer (bool or None). Raises IntakeError (Japanese, line-numbered).
+    style (primary = first of `styles`), styles (list), start (sec or None), maximizer (bool or None).
+    Raises IntakeError (Japanese, line-numbered). CRLF and trailing spaces are fine; `キー: ?` = no key.
     A `キー:` line AFTER the first bar line marks a modulation from the next bar (T28): the dict then also has
     "keys" = [{startBar, key}, ...] (the header key first, at bar 0). `require_style=False` (chart-only
-    songs, py/charts.py) lets `弾き方:` be missing (style None)."""
+    songs, py/charts.py) lets `弾き方:` be missing (style None).
+    Chord lines: `| C . Em . |` (old) or `|[Dm]---[Am7]- --[Abm7]--|` (each `-` = one eighth). Lines with chords
+    among lyrics and no bar line (`[CM7]words[D]words`) have no timing: with allow_sequence=True the result is
+    sequence-only ("timing": "sequence", "sequence": [chord texts], "bars": []); lyrics are never kept."""
     head = {}
-    bar_lines = []
+    items = []  # (kind, ln, line) in file order
     nbars = 0
     key_changes = []  # (line, text, bar index of the first bar it applies to)
-    for ln, raw in enumerate(text.lstrip("﻿").splitlines(), 1):
+    for ln, raw in enumerate(text.lstrip("\ufeff").splitlines(), 1):
         line = _norm(raw).strip()
         if not line or line.startswith("#"):  # blank / whole-line comment ('#' elsewhere is a sharp)
             continue
-        if line.startswith("|"):
-            bar_lines.append((ln, line))
-            nbars += sum(1 for seg in line.split("|") if seg.split())
+        line = re.sub(r"\[\s*\|\s*\]", " ", line)  # `[|]` = a bar mark inside a lyric line: no timing, just drop it
+        if not line.strip():
+            continue
+        if re.fullmatch(r"[—–―－-]+[^|\[\]]*[—–―－-]+|[—–―－-]+", line):  # divider / section label like "-- name --"
+            continue
+        if "|" in line and "[" in line:  # text after the last bar line is a comment
+            body, _, tail = line.rpartition("|")
+            if "[" not in tail and re.sub(r"[-.\s]", "", tail):
+                line = body + "|"
+        kind = _line_kind(line)
+        if kind:
+            items.append((kind, ln, line))
+            if kind == "bar":
+                nbars += sum(1 for seg in line.split("|") if seg.split()) if "|" in line else 1
             continue
         m = re.fullmatch(r"([^:]+?)\s*:\s*(.*)", line)
         if not m:
-            raise IntakeError(f"{ln}行目: 「キー: 値」の形でも「| コード |」の形でもありません")
+            raise IntakeError(f"{ln}行目: 「キー: 値」の形でも「| コード |」の形でも「[コード]歌詞」の形でもありません")
         k = KEYS.get(m.group(1).strip().lower())
         if k is None:
             raise IntakeError(f"{ln}行目: 知らない項目「{m.group(1)}」(使えるのは bpm / 拍子 / キー / 弾き方 / 弱起 / 開始 / "
                               "クリック / マキシマイザー)")
-        if k == "key" and nbars > 0:
+        if k == "key" and items:
             key_changes.append((ln, m.group(2).strip(), nbars))
             continue
         head[k] = (ln, m.group(2).strip())
@@ -105,15 +212,23 @@ def parse_txt(text, require_style=True):
     num = int(m.group(1))
     eps = num * 2
     st = None
+    styles = []
     if "style" in head:
         ln, v = head["style"]
-        st = v.strip().strip("()").lower()
-        if st not in list("abcde"):
+        for t in re.split(r"[,、\s]+", v.strip().strip("()").lower()):
+            if not t:
+                continue
+            if t not in list("abcde"):
+                raise IntakeError(f"{ln}行目: 弾き方は a〜e のどれか(複数なら b,e のように区切る)です")
+            if t not in styles:
+                styles.append(t)
+        if not styles:
             raise IntakeError(f"{ln}行目: 弾き方は a〜e のどれかです")
+        st = styles[0]
     pickup = 0
     if "pickup" in head:
         ln, v = head["pickup"]
-        m = re.fullmatch(r"(\d+)\s*(拍|beats?)?", v.strip().lower())
+        m = re.fullmatch(r"(\d+)\s*(拍|beats?)?", "0" if v.strip().lower() in ("なし", "無", "none", "no") else v.strip().lower())
         if not m or not 0 <= int(m.group(1)) < num:
             raise IntakeError(f"{ln}行目: 弱起は 0〜{num - 1} 拍で「1拍」のように書きます")
         pickup = int(m.group(1))
@@ -131,9 +246,12 @@ def parse_txt(text, require_style=True):
     if "key" in head:
         ln, v = head["key"]
         v = v.strip()
-        if RT._key_text(v) is None:
-            raise IntakeError(f"{ln}行目: キーは C・F#・Bb・Am のように書きます")
-        key = v
+        if v in ("?", "不明", ""):
+            key = None  # unknown key: key scoring is skipped
+        elif RT._key_text(v) is None:
+            raise IntakeError(f"{ln}行目: キーは C・F#・Bb・Am のように書きます(不明なら ?)")
+        else:
+            key = v
     click = True
     if "click" in head:
         click = _bool(head["click"][1], head["click"][0], "クリック")
@@ -141,33 +259,25 @@ def parse_txt(text, require_style=True):
     if "maximizer" in head:
         maximizer = _bool(head["maximizer"][1], head["maximizer"][0], "マキシマイザー")
     bars = []
-    for ln, line in bar_lines:
-        for seg in line.split("|"):
-            toks = seg.split()
-            if not toks:
-                continue
-            n = len(toks)
-            if eps % n:
-                raise IntakeError(f"{ln}行目: 小節「{seg.strip()}」は {n} 個に分かれますが、1小節({num}拍)を等分できません")
-            if toks[0] == ".":
-                raise IntakeError(f"{ln}行目: 小節の最初に「.」は置けません")
-            each = eps // n
-            entries = []
-            for t in toks:
-                if t == ".":
-                    entries[-1][1] += each
-                    continue
-                if t.upper() in ("N.C.", "N"):
-                    entries.append(["N.C.", each])
-                    continue
-                try:
-                    RT.parse_chord(t)
-                except ValueError:
-                    raise IntakeError(f"{ln}行目: コード「{t}」が読めません")
-                entries.append([t, each])
-            bars.append(entries)
-    if not bars:
-        raise IntakeError("コードの小節(| F | Dm7 | のような行)がありません")
+    sequence = None
+    if any(k == "lyric" for k, _, _ in items):  # no timing for (some of) the chord lines: order only
+        if not allow_sequence:
+            ln = next(ln for k, ln, _ in items if k == "lyric")
+            raise IntakeError(f"{ln}行目: 歌詞つきのコード行(小節線なし)はここでは使えません")
+        sequence = []
+        for kind, ln, line in items:
+            sequence += _sequence_of(kind, ln, line)
+        if not sequence:
+            raise IntakeError("コードがありません")
+        key_changes = []
+    else:
+        for kind, ln, line in items:
+            for seg in line.split("|"):
+                entries = _parse_bar(seg, ln, num, eps, bars[-1][-1][0] if bars else None)
+                if entries:
+                    bars.append(entries)
+        if not bars:
+            raise IntakeError("コードの小節(| F | Dm7 | のような行)がありません")
     keys = []
     if key_changes:
         if key:
@@ -181,7 +291,10 @@ def parse_txt(text, require_style=True):
                 keys.pop()
             keys.append({"startBar": at, "key": v})
     ann = {"tempo": bpm, "timeSignature": [num, 4], "click": click, "eighthsPerBar": eps, "sections": [],
-           "bars": bars, "style": st, "start": start, "maximizer": maximizer}
+           "bars": bars, "style": st, "styles": styles, "start": start, "maximizer": maximizer}
+    if sequence is not None:
+        ann["timing"] = "sequence"
+        ann["sequence"] = sequence
     if pickup:
         ann["pickupBeats"] = pickup
     if key:
@@ -270,7 +383,7 @@ def song_held_out(song_no):
     return song_no % 2 == 0
 
 
-def register_take(rec_dir, base, style, now=None):
+def register_take(rec_dir, base, style, now=None, styles=None):
     """-> (take id rec-NN-<take>, song id rec-NN, heldOut). The song is found by its key among the registered
     takes (legacy entries without "song" are their own song rec-NN) or registered new with the next number.
     The decision is final and shared by all takes of the song."""
@@ -300,6 +413,8 @@ def register_take(rec_dir, base, style, now=None):
     stamp = now or datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
     recs[rid] = {"original": base, "songKey": key, "song": song, "heldOut": held, "style": style, "file": None,
                  "registeredAt": stamp}
+    if styles and len(styles) > 1:
+        recs[rid]["styles"] = styles
     RT._save_ids(rec_dir, ids)
     return rid, song, held
 
@@ -320,12 +435,12 @@ def process_take(base, t, rec_dir, out, log=print, fit=True):
         raise IntakeError("音声ファイルがありません")
     if not t["txt"]:
         raise IntakeError("コードの .txt がありません")
-    ann = parse_txt(open(t["txt"], encoding="utf-8").read())
+    ann = parse_txt(open(t["txt"], encoding="utf-8").read(), allow_sequence=True)
     if t["midi"]:
         validate_midi(t["midi"])
     audio = {k: decode_audio(p) for k, p in t["audio"].items()}
     originals = sorted(os.path.basename(p) for p in list(t["audio"].values()) + [t["txt"]])
-    rid, song, held_out = register_take(rec_dir, base, ann["style"])
+    rid, song, held_out = register_take(rec_dir, base, ann["style"], styles=ann["styles"])
     names = {}
     both = len(audio) == 2
     for kind in audio:
@@ -342,7 +457,7 @@ def process_take(base, t, rec_dir, out, log=print, fit=True):
         name = names[kind]
         wav = os.path.join(rec_dir, name + ".wav")
         sf.write(wav, y, TARGET_SR, subtype="PCM_24")
-        a = {k: v for k, v in ann.items() if k not in ("style", "start", "maximizer")}
+        a = {k: v for k, v in ann.items() if k not in ("style", "styles", "start", "maximizer")}
         a["wav"] = name + ".wav"
         a["maximizer"] = (kind == "max") if both else ann["maximizer"]
         if has_midi:
@@ -355,6 +470,9 @@ def process_take(base, t, rec_dir, out, log=print, fit=True):
             a["firstSoundSec"] = round(first_onset(y), 4)
             how = "最初の音から自動検出"
             f = None
+        if f is None and ann.get("timing") == "sequence":
+            f = {"t0": a["firstSoundSec"], "tempo": ann["tempo"], "residualMedianMs": 0.0, "nOnsets": 0}
+            how += "(コードの順序だけ・拍の位置合わせなし)"
         if f is None:
             f = RT.fit_grid(wav, a) if fit else {"t0": a["firstSoundSec"], "tempo": ann["tempo"],
                                                "residualMedianMs": 0.0, "nOnsets": 0}

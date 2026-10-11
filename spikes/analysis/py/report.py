@@ -481,10 +481,25 @@ def _kind_table(rows):
     return lines
 
 
+def _seq_table(rows):
+    """rows: [(label, S._sequence dict | None)] -> numbers only (no chord names)."""
+    lines = ["| 対象 | 正解の数 | 解析の数 | LCS | 類似度 | LCS/正解 | ルート 類似度 | ルート LCS/正解 |", "|---|---|---|---|---|---|---|---|"]
+    for label, a in rows:
+        if not a:
+            lines.append(f"| {label} | - | - | - | - | - | - | - |")
+            continue
+        f, r = a["full"], a["root"]
+        p = lambda x: "-" if x is None else f"{100 * x:.1f}%"
+        lines.append(f"| {label} | {f['nTruth']} | {f['nResult']} | {f['lcs']} | {p(f['similarity'])} | {p(f['lcsRecall'])} | "
+                     f"{p(r['similarity'])} | {p(r['lcsRecall'])} |")
+    return lines
+
+
 def build_report(out_dir, analyzer, only=None, plots=None, log=print):
     manifests = load_manifests(out_dir)
     entries = []  # (name, level, song, truth, result, analysis); tuned variants only
     held_entries = []  # same, held-out variants: reported separately
+    seq_dev, seq_held = [], []  # sequence-only truths: (name, level, score.sequence or None)
     for name, rpath in load_results(out_dir, analyzer, only):
         meta = manifests.get(name)
         if not meta or not meta["truth"] or not os.path.exists(os.path.join(out_dir, meta["truth"])):
@@ -494,6 +509,9 @@ def build_report(out_dir, analyzer, only=None, plots=None, log=print):
             truth = json.load(f)
         with open(rpath) as f:
             result = json.load(f)["result"]
+        if truth.get("timing") == "sequence":  # T3: chord order only, no per-beat metrics
+            (seq_held if meta["heldOut"] else seq_dev).append((name, meta["level"], S._sequence(truth, result)))
+            continue
         a = analyze_variant(truth, result)
         song = meta["song"]
         if meta["level"] in ANON_LEVELS:
@@ -509,7 +527,8 @@ def build_report(out_dir, analyzer, only=None, plots=None, log=print):
     total = aggregate([e[5] for e in scored])
     disp = {}  # variant name -> name shown in the report
     for lv in ANON_LEVELS:
-        for i, e in enumerate([e for e in entries + held_entries if e[1] == lv], 1):
+        for i, e in enumerate([e for e in entries + held_entries if e[1] == lv]
+                              + [e for e in seq_dev + seq_held if e[1] == lv], 1):
             disp[e[0]] = _display_name(lv, e[0], i)
 
     L = [f"# 誤りの分析 ({analyzer})", "",
@@ -556,6 +575,13 @@ def build_report(out_dir, analyzer, only=None, plots=None, log=print):
                         + [(disp.get(e[0], e[0]), aggregate([e[5]])) for e in held_entries])
     else:
         L += ["なし"]
+    if seq_dev or seq_held:
+        L += ["", "## コードの順序だけの正解(拍の位置なし)", "",
+              "歌詞つきのコード譜など、拍の位置が無い正解。語彙の対応(`map_vocab`)を通し、連続する同じコードを 1 つにした列どうしを比べる。"
+              "類似度 = 1 - 編集距離 / 長い方の長さ。LCS は一致する並びの最長の長さ。ルートは種類を問わない。拍ごとの指標は出さない。", ""]
+        L += _seq_table([(disp.get(n, n), a) for n, _, a in seq_dev])
+        L += ["", "ホールドアウト(別集計):", ""]
+        L += _seq_table([(disp.get(n, n), a) for n, _, a in seq_held]) if seq_held else ["なし"]
     L += ["", "## 小節の頭の位相のずれ", "",
           "変化形ごとの最頻のずれ(解析の小節頭が正解の小節の何拍目に当たるか)の変化形数。括弧内は小節頭ごとの拍数。", "",
           "| レベル | 0拍 | 1拍 | 2拍 | 3拍 |", "|---|---|---|---|---|"]

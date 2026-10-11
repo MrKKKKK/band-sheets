@@ -642,6 +642,78 @@ def _score_keys(truth, result):
             "nChangeRef": len(cref), "nChangeEst": len(cest), "nChangeHit": cm}
 
 
+# ---------------- sequence-only truth (no timing) ----------------
+
+def _collapse(seq):
+    out = []
+    for x in seq:
+        if not out or out[-1] != x:
+            out.append(x)
+    return out
+
+
+def _lcs(a, b):
+    prev = [0] * (len(b) + 1)
+    for x in a:
+        cur = [0]
+        for j, y in enumerate(b):
+            cur.append(prev[j] + 1 if x == y else max(prev[j + 1], cur[j]))
+        prev = cur
+    return prev[-1]
+
+
+def _edit(a, b):
+    prev = list(range(len(b) + 1))
+    for i, x in enumerate(a, 1):
+        cur = [i]
+        for j, y in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x != y)))
+        prev = cur
+    return prev[-1]
+
+
+def _seq_stats(t, r):
+    n, m = len(t), len(r)
+    lcs = _lcs(t, r)
+    lev = _edit(t, r)
+    d = max(n, m)
+    return {"nTruth": n, "nResult": m, "lcs": lcs, "edit": lev,
+            "lcsRecall": lcs / n if n else None, "lcsPrecision": lcs / m if m else None,
+            "similarity": 1.0 - lev / d if d else None}
+
+
+def _sequence(truth, result):
+    """Chord-order accuracy for a truth with "timing": "sequence" (T3: lyric charts without bar timing), else None.
+    Both sequences go through map_vocab (a truth form it drops is skipped and counted), no-chord entries are skipped,
+    consecutive duplicates collapse; the result is ordered by start. Exact roots (no transposition). `full` compares
+    (root, vocab quality); `root` compares roots only. similarity = 1 - editDistance / max(len)."""
+    if truth.get("timing") != "sequence" or result.get("chords") is None:
+        return None
+    tfull, troot, dropped = [], [], 0
+    for c in truth.get("chordSequence") or []:
+        if is_no_chord(c):
+            continue
+        q = map_vocab(c.get("quality"))
+        if q is None:
+            dropped += 1
+            continue
+        tfull.append((note_to_pc(c["root"]), q))
+        troot.append(note_to_pc(c["root"]))
+    rfull, rroot = [], []
+    for c in sorted(result["chords"], key=lambda c: c.get("start", 0)):
+        if is_no_chord(c):
+            continue
+        try:
+            pc = note_to_pc(c["root"])
+        except ValueError:
+            continue
+        rfull.append((pc, map_vocab(c.get("quality"))))
+        rroot.append(pc)
+    out = {"full": _seq_stats(_collapse(tfull), _collapse(rfull)),
+           "root": _seq_stats(_collapse(troot), _collapse(rroot)), "nDropped": dropped}
+    return out
+
+
 # ---------------- entry points ----------------
 
 def score(truth, result):
@@ -654,6 +726,7 @@ def score(truth, result):
         "melody": _melody(truth, result, _median_interval(sorted(tbeats))),
         "sections": _sections(truth, result),
         "keys": _score_keys(truth, result),
+        "sequence": _sequence(truth, result),
     }
 
 

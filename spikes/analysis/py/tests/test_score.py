@@ -483,6 +483,46 @@ class KeyScoreTest(unittest.TestCase):
         self.assertIsNone(S.score(make_truth(), make_truth())["keys"])
 
 
+class SequenceMetricTest(unittest.TestCase):
+    def seq_truth(self, names):
+        return {"timing": "sequence", "beats": [], "chords": [], "chordSequence": names}
+
+    def res(self, names, gap=2.0):
+        return {"chords": [dict(c, start=i * gap, end=(i + 1) * gap) for i, c in enumerate(names)], "beats": []}
+
+    def test_identical_is_one_and_per_beat_skipped(self):
+        t = self.seq_truth([{"root": "C", "quality": "maj"}, {"root": "A", "quality": "min7"}, {"root": "F", "quality": "maj"}])
+        r = self.res([{"root": "C", "quality": "maj"}, {"root": "A", "quality": "min7"}, {"root": "F", "quality": "maj"}])
+        s = S.score(t, r)
+        self.assertIsNone(s["chords"])
+        self.assertIsNone(s["beats"])
+        self.assertEqual(s["sequence"]["full"]["similarity"], 1.0)
+        self.assertEqual(s["sequence"]["root"]["lcsRecall"], 1.0)
+
+    def test_one_substitution_and_root_only(self):
+        t = self.seq_truth([{"root": "C", "quality": "maj"}, {"root": "A", "quality": "min7"}, {"root": "F", "quality": "maj"},
+                            {"root": "G", "quality": "7"}])
+        r = self.res([{"root": "C", "quality": "maj"}, {"root": "A", "quality": "min"}, {"root": "F", "quality": "maj"},
+                      {"root": "G", "quality": "7"}])
+        q = S.score(t, r)["sequence"]
+        self.assertAlmostEqual(q["full"]["similarity"], 0.75)  # min7 vs min differ in the vocabulary
+        self.assertEqual(q["full"]["lcs"], 3)
+        self.assertEqual(q["root"]["similarity"], 1.0)
+
+    def test_exact_roots_collapse_duplicates_map_vocab_and_no_chord(self):
+        t = self.seq_truth([{"root": "C", "quality": "maj"}, {"root": "C", "quality": "add9"}, {"root": "D", "quality": "7(#9)"},
+                            {"root": "N", "quality": "maj"}])
+        r = self.res([{"root": "C", "quality": "maj"}, {"root": "C", "quality": "maj"}, {"root": "D", "quality": "7"}])
+        self.assertEqual(S._sequence(t, r)["full"]["similarity"], 1.0)
+        r2 = self.res([{"root": "D", "quality": "maj"}, {"root": "E", "quality": "7"}])  # transposed up: no credit
+        q = S._sequence(t, r2)
+        self.assertEqual(q["full"]["lcs"], 0)
+        self.assertEqual(q["full"]["similarity"], 0.0)
+
+    def test_not_applicable_to_timed_truth(self):
+        self.assertIsNone(S._sequence({"beats": [], "chords": []}, {"chords": []}))
+
+
 if __name__ == "__main__":
     unittest.main()
 

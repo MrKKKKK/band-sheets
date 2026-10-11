@@ -81,6 +81,26 @@ def build_truth(ann, audio_sec, t0, tempo, name="rec"):
     num, den = ann["timeSignature"]
     eps = ann["eighthsPerBar"]
     eighth = 30.0 / tempo
+    if ann.get("timing") == "sequence":  # chord order only (no bar timing): no beats, no timed chords
+        seq = []
+        for text in ann["sequence"]:
+            root, quality, bass = parse_chord(text)
+            seq.append({"root": root, "quality": quality, "bass": bass, "text": text})
+        out = {"format": "band-sheets-analysis", "version": 1, "timing": "sequence",
+               "source": {"kind": "recording", "durationSec": None if audio_sec is None else _r(audio_sec),
+                          "click": bool(ann.get("click", False)),
+                          "audioSec": None if audio_sec is None else _r(audio_sec), "leadInSec": _r(t0)},
+               "analyzer": {"name": "ground-truth", "version": "0.1.0", "methods": []},
+               "beats": [], "timeSignature": {"num": num, "den": den, "confidence": 1}, "sections": [],
+               "chords": [], "chordSequence": seq}
+        for k in ("maximizer", "hasMidi"):
+            if ann.get(k) is not None:
+                out["source"][k] = ann[k]
+        if ann.get("key") is not None:
+            if _key_text(ann["key"]) is None:
+                raise ValueError(f"bad key: {ann['key']!r}")
+            out["keys"] = [{"startBar": 0, "key": ann["key"]}]
+        return out
     bars = ann["bars"]
     nbars = len(bars)
     beat_eighths = eps // num

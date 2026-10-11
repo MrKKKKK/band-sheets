@@ -278,5 +278,30 @@ class T27ReportTest(unittest.TestCase):
         self.assertNotIn("C5", md)
 
 
+class SequenceReportTest(unittest.TestCase):
+    def test_sequence_truth_gets_its_own_anonymous_table(self):
+        truth = {"timing": "sequence", "beats": [], "chords": [], "timeSignature": {"num": 4},
+                 "chordSequence": [{"root": "C", "quality": "maj"}, {"root": "G", "quality": "maj"}]}
+        res = {"beats": [], "sections": [], "chords": [ch(0, 2, "C"), ch(2, 4, "G")]}
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "results"))
+            os.makedirs(os.path.join(d, "rec"))
+            with open(os.path.join(d, "rec", "a.truth.json"), "w") as f:
+                json.dump(truth, f)
+            with open(os.path.join(d, "rec", "manifest.rec.json"), "w") as f:
+                json.dump({"variants": [{"name": "rec-01-a", "song": "rec", "level": "REC", "truth": "rec/a.truth.json"},
+                                        {"name": "rec-02-a", "song": "rec", "level": "REC", "truth": "rec/a.truth.json",
+                                         "heldOut": True}]}, f)
+            for n in ("rec-01-a", "rec-02-a"):
+                with open(os.path.join(d, "results", f"{n}.dsp-v1.json"), "w") as f:
+                    json.dump({"result": res, "score": {}}, f)
+            md = R.build_report(d, "dsp-v1", log=lambda *_: None)
+            sec = md.split("## コードの順序だけの正解", 1)[1].split("## 小節の頭", 1)[0]
+            self.assertIn("| REC-1 | 2 | 2 | 2 | 100.0%", sec)
+            self.assertIn("| REC-2 | 2 | 2 | 2 | 100.0%", sec)
+            self.assertNotIn("rec-01", md)
+            self.assertIn("対象: 0 変化形", md)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -252,5 +252,111 @@ class TestIntake(unittest.TestCase):
         self.assertEqual(rc, 0)
 
 
+HEAD = "bpm: 120\n拍子: 4/4\nキー: C\n弾き方: a\n"
+
+
+class TestUserNotation(unittest.TestCase):
+    def test_crlf_and_trailing_whitespace(self):
+        a = I.parse_txt(TXT.replace("\n", "  \r\n"))
+        self.assertEqual(a["bars"][1], [["Am7", 4], ["D7", 4]])
+        self.assertEqual(a["key"], "F#m")
+
+    def test_multiple_styles(self):
+        for v in ("b,e", "b、e", "b e", "b, e", "b，e"):
+            a = I.parse_txt(HEAD.replace("弾き方: a", "弾き方: " + v) + "| C |\n")
+            self.assertEqual(a["styles"], ["b", "e"])
+            self.assertEqual(a["style"], "b")
+        self.assertEqual(I.parse_txt(HEAD + "| C |\n")["styles"], ["a"])
+        with self.assertRaises(I.IntakeError) as cm:
+            I.parse_txt(HEAD.replace("弾き方: a", "弾き方: a,z") + "| C |\n")
+        self.assertIn("4行目", str(cm.exception))
+
+    def test_unknown_key(self):
+        a = I.parse_txt(HEAD.replace("キー: C", "キー: ?") + "| C |\n")
+        self.assertNotIn("key", a)
+        self.assertNotIn("keys", a)
+
+    def test_dash_bars(self):
+        a = I.parse_txt(HEAD + "|[Dm]---[Am7]- --[Abm7]--|\n| [A]---[B/A]- ----|\n| [F#m7] |\n"
+                        "| [F#m7/B]---- [B]----|\n")
+        self.assertEqual(a["bars"], [[["Dm", 3], ["Am7", 3], ["Abm7", 2]], [["A", 3], ["B/A", 5]], [["F#m7", 8]],
+                                     [["F#m7/B", 4], ["B", 4]]])
+        self.assertNotIn("timing", a)
+
+    def test_dash_bar_lines_without_outer_bars_and_multiple_bars(self):
+        a = I.parse_txt(HEAD + "[C]---- [G]----|[Am]-------- | [F]\n[Em]----[B]----\n")
+        self.assertEqual(a["bars"], [[["C", 4], ["G", 4]], [["Am", 8]], [["F", 8]], [["Em", 4], ["B", 4]]])
+
+    def test_dash_bar_without_any_dash_splits_equally(self):
+        a = I.parse_txt(HEAD + "| [C][G] |\n")
+        self.assertEqual(a["bars"][0], [["C", 4], ["G", 4]])
+
+    def test_dash_mismatch_errors_with_line_number(self):
+        for bar in ("|[C]--- [G]---|", "|[C]----- [G]----|", "|[C]--- [G]|", "|---[C]|"):
+            with self.assertRaises(I.IntakeError) as cm:
+                I.parse_txt(HEAD + bar + "\n")
+            self.assertIn("5行目", str(cm.exception))
+
+    def test_three_quarter_time(self):
+        a = I.parse_txt(HEAD.replace("4/4", "3/4") + "|[C]---[G]---|\n")
+        self.assertEqual(a["bars"][0], [["C", 3], ["G", 3]])
+
+    def test_old_notation_still_works(self):
+        a = I.parse_txt(HEAD + "| C . Em . | F G |\n")
+        self.assertEqual(a["bars"], [[["C", 4], ["Em", 4]], [["F", 4], ["G", 4]]])
+
+    def test_lyric_chord_lines_are_sequence_only(self):
+        txt = HEAD + "[CM7]aaa bbb[D]ccc\n[Am7/G]ddd[N.C.]eee [C]\n\n| [F]---- [G]---- |\n"
+        a = I.parse_txt(txt, allow_sequence=True)
+        self.assertEqual(a["timing"], "sequence")
+        self.assertEqual(a["sequence"], ["CM7", "D", "Am7/G", "C", "F", "G"])
+        b = I.parse_txt(HEAD + "[|][Em](x) [D]yy[|][C]z [|]\n", allow_sequence=True)
+        self.assertEqual(b["sequence"], ["Em", "D", "C"])
+        self.assertEqual(a["bars"], [])
+        self.assertNotIn("aaa", json.dumps(a, ensure_ascii=False))
+        with self.assertRaises(I.IntakeError):  # not allowed unless asked (chart songs)
+            I.parse_txt(txt)
+
+    def test_bar_timing_wins_when_every_chord_line_has_bars(self):
+        a = I.parse_txt(HEAD + "|[C]---- [G]----|\n| C | G |\n", allow_sequence=True)
+        self.assertNotIn("timing", a)
+        self.assertEqual(len(a["bars"]), 3)
+
+    def test_leading_dash_continues_previous_chord_and_misc_leniency(self):
+        a = I.parse_txt(HEAD + "|[Dm]---[G]-----|-[A7]------- |\n|[C]|  # note\n|[F]---- [G]---- | free text\n"
+                        "-- label --\n|[Dm]--------|[\n")
+        self.assertEqual(a["bars"][1], [["G", 1], ["A7", 7]])
+        self.assertEqual(len(a["bars"]), 5)
+        with self.assertRaises(I.IntakeError):
+            I.parse_txt(HEAD + "|-[C]-------|\n")  # nothing before it to continue
+
+    def test_pickup_none(self):
+        self.assertNotIn("pickupBeats", I.parse_txt(HEAD + "弱起: なし\n| C |\n"))
+
+    def test_other_lines_still_error(self):
+        with self.assertRaises(I.IntakeError) as cm:
+            I.parse_txt(HEAD + "| C |\nただの文章\n")
+        self.assertIn("6行目", str(cm.exception))
+        with self.assertRaises(I.IntakeError) as cm:
+            I.parse_txt(HEAD + "[H]歌\n", allow_sequence=True)
+        self.assertIn("5行目", str(cm.exception))
+
+    def test_sequence_take_end_to_end(self):
+        with tempfile.TemporaryDirectory() as d:
+            inbox = os.path.join(d, "recordings", "inbox")
+            os.makedirs(inbox)
+            click_wav(os.path.join(inbox, "x.wav"), 0.3)
+            with open(os.path.join(inbox, "x.txt"), "w", encoding="utf-8", newline="") as f:
+                f.write("bpm: 120\r\nキー: ?\r\n弾き方: b,e\r\n[C]la la[G]la\r\n[Am]la\r\n")
+            rec = os.path.join(d, "recordings")
+            I.process_take("x", I.scan_inbox(inbox)["x"], rec, os.path.join(d, "out"), log=lambda *_: None)
+            truth = json.load(open(os.path.join(d, "out", "rec", "rec-01-b.truth.json")))
+            self.assertEqual(truth["timing"], "sequence")
+            self.assertEqual([c["text"] for c in truth["chordSequence"]], ["C", "G", "Am"])
+            self.assertEqual(truth["chords"], [])
+            ids = json.load(open(os.path.join(rec, "ids.local.json")))
+            self.assertEqual(ids["recordings"]["rec-01-b"]["styles"], ["b", "e"])
+
+
 if __name__ == "__main__":
     unittest.main()

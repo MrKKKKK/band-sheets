@@ -164,5 +164,23 @@ class TestFit(unittest.TestCase):
         self.assertLess(fit["residualMedianMs"], 12)
 
 
+class TestEighthChordChanges(unittest.TestCase):
+    def test_chord_change_on_the_and_of_a_beat(self):
+        ann = dict(ANN, bars=[[["Dm", 3], ["Am7", 3], ["Abm7", 2]]])
+        t = R.build_truth(ann, 10.0, 0.0, 120)  # eighth = 0.25 s
+        self.assertEqual([(c["text"], c["start"], c["end"]) for c in t["chords"][:3]],
+                         [("Dm", 0.0, 0.75), ("Am7", 0.75, 1.5), ("Abm7", 1.5, 10.0)])
+
+    def test_sequence_truth(self):
+        ann = {"tempo": 120, "timeSignature": [4, 4], "eighthsPerBar": 8, "bars": [], "timing": "sequence",
+               "sequence": ["CM7", "D", "Am7/G"], "key": "C"}
+        t = R.build_truth(ann, 10.0, 0.5, 120)
+        self.assertEqual(t["timing"], "sequence")
+        self.assertEqual([(c["root"], c["quality"], c["bass"]) for c in t["chordSequence"]],
+                         [("C", "maj7", None), ("D", "maj", None), ("A", "min7", "G")])
+        self.assertEqual((t["beats"], t["chords"]), ([], []))
+        self.assertEqual(t["keys"], [{"startBar": 0, "key": "C"}])
+
+
 if __name__ == "__main__":
     unittest.main()
