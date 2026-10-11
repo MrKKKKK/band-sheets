@@ -187,6 +187,25 @@ def _clean_bar_line(line):
 _DIRECTIVE = re.compile(r"\{\s*([A-Za-z_]+)\s*(?::\s*|\s+)?(.*?)\s*\}")
 
 
+_KEY_WORD = re.compile(r"([A-G])\s*([#b]?)\s*(m|min|minor|maj|major|短調|長調)?\s*(?:[(（]\s*(m|min|minor|maj|major|短調|長調)\s*[)）])?", re.I)
+_MINOR_WORDS = ("m", "min", "minor", "短調")
+
+
+def _norm_key(val):
+    """`{key: ...}` value -> canonical key text (C, F#, Bb, Am) or None. Accepts a mode word (major / maj / 長調,
+    minor / min / m / 短調, any case, optional spaces or parentheses): `Bb major`, `F# minor`, `Cmaj`, `Am (minor)`."""
+    val = val.strip()
+    if RT._key_text(val) is not None:
+        return val
+    m = _KEY_WORD.fullmatch(val)
+    if not m or val[0] not in "ABCDEFG" or m.group(2) not in ("", "#", "b"):
+        return None
+    modes = {w.lower() in _MINOR_WORDS for w in (m.group(3), m.group(4)) if w}
+    if len(modes) > 1:
+        return None  # contradictory, e.g. `Am (major)`
+    return m.group(1) + m.group(2) + ("m" if True in modes else "")
+
+
 def _add_key_row(rows, key_src, ln, value, src, warns):
     """Mid-song key row. A `キー:` line and a `{key}` directive at the same position (no chord between): `キー:` wins."""
     if rows and rows[-1][1] == "key" and key_src.get(rows[-1][0]) != src:
@@ -206,7 +225,8 @@ def _directive(line, ln, head, rows, head_src, key_src, seen_chord, warns):
         return
     name, val = m.group(1).lower(), m.group(2).strip()
     if name in ("key", "k"):
-        if RT._key_text(val) is None:
+        val = _norm_key(val)
+        if val is None:
             warns.append(f"{ln}行目: {{key}} の値が読めないので無視しました")
         elif seen_chord:
             _add_key_row(rows, key_src, ln, val, "directive", warns)

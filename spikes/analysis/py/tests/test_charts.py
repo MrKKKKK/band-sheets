@@ -268,6 +268,20 @@ class TestChordProDirectives(unittest.TestCase):
         ann, _, _ = C.parse_chart("bpm: 100\n{key: Ａ♭m}\n| Abm | Db |\n{key: F♯}\n| F# | B |\n")
         self.assertEqual([k["key"] for k in ann["keys"]], ["Abm", "F#"])
 
+    def test_key_mode_words(self):
+        cases = {"Bb major": "Bb", "F# minor": "F#m", "Eb Major": "Eb", "Cmaj": "C", "Am (minor)": "Am",
+                 "D  MIN": "Dm", "G 長調": "G", "E 短調": "Em", "Bm": "Bm", "A major (minor)": None, "Q major": None,
+                 "bb major": None}
+        for v, want in cases.items():
+            self.assertEqual(C._norm_key(v), want, v)
+        ann, _, w = C.parse_chart("bpm: 100\n{key: Bb major}\n| Bb | F |\n{key: F# minor}\n| F#m | C#m |\n")
+        self.assertEqual(ann["keys"], [{"startBar": 0, "key": "Bb"}, {"startBar": 2, "key": "F#m"}])
+
+    def test_midfile_directive_without_initial_key(self):
+        ann, fmt, _ = C.parse_chart("bpm: 100\n[C]あいうえ[G]おかきく\n\nお\n{key: D major}\n[D]あいうえ[A]おかきく\n{key: E minor}\n[Em]あいうえ[B]おかきく\n")
+        self.assertEqual(fmt, "lyrics")
+        self.assertEqual(ann["keys"], [{"startBar": 2, "key": "D"}, {"startBar": 4, "key": "Em"}])
+
     def test_invalid_key_warns_and_is_ignored(self):
         ann, _, w = C.parse_chart("bpm: 100\n{key: Q}\n| C | F |\n")
         self.assertIsNone(ann.get("key"))
