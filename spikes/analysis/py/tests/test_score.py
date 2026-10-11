@@ -418,6 +418,12 @@ class KeyScoreTest(unittest.TestCase):
         self.assertEqual(S.score(t, self.result([(0, "A", "minor")]))["keys"]["perBar"], 1.0)
         self.assertEqual(S.score(t, self.result([(0, "A", "major")]))["keys"]["nearPerBar"], 1.0)  # parallel
 
+    def test_result_with_truth_style_keys_entries(self):
+        # oracle copies truth `keys` ({startBar, key}) into the result; must not KeyError('tonic')
+        t = self.truth()
+        k = S.score(t, copy.deepcopy(t))["keys"]
+        self.assertEqual(k["perBar"], 1.0)
+
     def test_no_truth_keys_is_none(self):
         self.assertIsNone(S.score(make_truth(), make_truth())["keys"])
 

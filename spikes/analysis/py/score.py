@@ -496,10 +496,18 @@ def _run_at(runs, i):
     return cur
 
 
+def _key_entry(k):
+    """(startBar, tonic_pc, mode) from a result entry {startBar, tonic, mode} or a truth-style {startBar, key: "Am"}."""
+    if "tonic" in k:
+        return int(k["startBar"]), note_to_pc(k["tonic"]), k["mode"]
+    tonic, mode = parse_key(k["key"])
+    return int(k["startBar"]), tonic, mode
+
+
 def _result_key_runs(result):
     ks = result.get("keys")
     if ks:
-        return sorted((int(k["startBar"]), note_to_pc(k["tonic"]), k["mode"]) for k in ks)
+        return sorted(_key_entry(k) for k in ks)
     k = result.get("key")
     if k:
         return [(0, note_to_pc(k["tonic"]), k["mode"])]
