@@ -90,7 +90,7 @@ def _parse_bar(seg, ln, num, eps, prev=None):
     Old form `C . Em .`: tokens split the bar equally, `.` continues the previous chord."""
     if seg.strip() == "[":  # stray bracket at the end of a line: no bar
         return None
-    if "[" in seg:
+    if "[" in seg or re.fullmatch(r"\s*-[-\s]*", seg):  # a dash-only bar = the previous chord all through the bar
         cur = []  # [chord, dashes]
         lead = 0  # dashes before the first chord: the previous bar's last chord still sounds
         for m in _BAR_TOKEN.finditer(seg):
@@ -103,7 +103,7 @@ def _parse_bar(seg, ln, num, eps, prev=None):
                     cur[-1][1] += len(m.group(2))
             elif m.group(4):
                 raise IntakeError(f"{ln}行目: 小節「{seg.strip()}」に読めない文字「{m.group(4)}」があります")
-        if not cur:
+        if not cur and not lead:
             if not seg.strip():
                 return None
             raise IntakeError(f"{ln}行目: 小節「{seg.strip()}」にコードがありません")
@@ -151,6 +151,10 @@ def _sequence_of(kind, ln, line):
     return [c for c in out if c != "N.C."]
 
 
+def _count_bars(line):
+    return sum(1 for seg in line.split("|") if seg.split()) if "|" in line else 1
+
+
 def parse_txt(text, require_style=True, allow_sequence=False):
     """-> annotation dict for rec_truth.build_truth (without wav / firstSoundSec) plus meta keys:
     style (primary = first of `styles`), styles (list), start (sec or None), maximizer (bool or None).
@@ -181,7 +185,15 @@ def parse_txt(text, require_style=True, allow_sequence=False):
         kind = _line_kind(line)
         if kind:
             items.append((kind, ln, line))
-            if kind == "bar":
+            if kind == "bar" and len(items) > 1 and items[-2][0] == "bar" and not items[-2][2].endswith("|") \
+                    and re.match(r"[-\s]*-[-\s]*\|", line):
+                # a bar that runs over the end of the previous line: `...[Am]--` + `--|[C]...` (dashes complete it)
+                nbars -= _count_bars(items[-2][2])
+                head_d, _, rest = line.partition("|")
+                merged = items[-2][2] + re.sub(r"\s", "", head_d) + "|" + rest
+                items[-2:] = [("bar", items[-2][1], merged)]
+                nbars += _count_bars(merged)
+            elif kind == "bar":
                 nbars += sum(1 for seg in line.split("|") if seg.split()) if "|" in line else 1
             continue
         m = re.fullmatch(r"([^:]+?)\s*:\s*(.*)", line)
@@ -273,6 +285,8 @@ def parse_txt(text, require_style=True, allow_sequence=False):
     else:
         for kind, ln, line in items:
             for seg in line.split("|"):
+                if not bars and pickup and re.fullmatch(r"\s*-[-\s]*", seg) and seg.count("-") == pickup * eps // num:
+                    continue  # leading dashes = the (chordless) pickup beats written as `--|`
                 entries = _parse_bar(seg, ln, num, eps, bars[-1][-1][0] if bars else None)
                 if entries:
                     bars.append(entries)
@@ -557,10 +571,78 @@ def register_legacy(rec_dir, out, original, song, style, held_out=False, log=pri
     return rid
 
 
+def _log_reparse(out, rid, held_out, song, style, variants, timing):
+    import datetime
+    d = os.path.join(out, "results")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "heldout-log.jsonl"), "a") as f:
+        f.write(json.dumps({"time": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+                            "kind": "reparse", "take": rid, "song": song, "heldOut": held_out,
+                            "style": style, "variants": variants, "timing": timing}) + "\n")
+
+
+def reparse_take(rec_dir, out, rid, log=print, fit=True):
+    """Re-read recordings/originals/<rid>.txt with the current parser and rewrite the take's annotation(s), truth and
+    manifest entry like a fresh intake. Id, song id and heldOut stay as registered (never re-decided); the audio is not
+    touched. Raises IntakeError (nothing is written) when the txt is missing or does not parse. Returns the names written."""
+    ids = RT._load_ids(rec_dir)
+    e = ids["recordings"].get(rid)
+    if e is None:
+        raise IntakeError("この id は登録されていません")
+    txt = os.path.join(rec_dir, "originals", rid + ".txt")
+    if not os.path.isfile(txt):
+        raise IntakeError("originals/ にコードの .txt がありません")
+    ann = parse_txt(open(txt, encoding="utf-8").read(), allow_sequence=True)
+    names = e.get("files") or [rid]
+    olds = {}
+    for name in names:
+        ap = os.path.join(rec_dir, name + ".chords.json")
+        if not os.path.isfile(ap) or not os.path.isfile(os.path.join(rec_dir, name + ".wav")):
+            raise IntakeError("取り込み済みの音声または .chords.json が見つかりません")
+        olds[name] = json.load(open(ap, encoding="utf-8"))
+    held_out = bool(e["heldOut"])
+    beat = 60.0 / ann["tempo"]
+    pickup = ann.get("pickupBeats", 0)
+    import soundfile as sf
+    built = []
+    for name in names:
+        wav = os.path.join(rec_dir, name + ".wav")
+        old = olds[name]
+        a = {k: v for k, v in ann.items() if k not in ("style", "styles", "start", "maximizer")}
+        a["wav"] = name + ".wav"
+        a["maximizer"] = name.endswith("-max") if len(names) == 2 else ann["maximizer"]
+        if old.get("hasMidi"):
+            a["hasMidi"] = True
+        if ann["start"] is not None:
+            a["firstSoundSec"] = round(ann["start"] - pickup * beat, 4)
+        elif old.get("firstSoundSec") is not None:  # same audio: the first onset found at intake is still right
+            a["firstSoundSec"] = old["firstSoundSec"]
+        else:
+            a["firstSoundSec"] = round(first_onset(decode_audio(wav)), 4)
+        f = {"t0": a["firstSoundSec"], "tempo": ann["tempo"], "residualMedianMs": 0.0, "nOnsets": 0}
+        if ann["start"] is None and ann.get("timing") != "sequence" and fit:
+            f = RT.fit_grid(wav, a)
+        f["audioSec"] = sf.info(wav).duration
+        built.append((name, wav, a, f))
+    for name, wav, a, f in built:
+        with open(os.path.join(rec_dir, name + ".chords.json"), "w") as fh:
+            json.dump(a, fh, indent=1, ensure_ascii=False)
+        RT.emit(a, wav, name, out, f, held_out, take=rid)
+    timing = "sequence" if ann.get("timing") == "sequence" else "bars"
+    _log_reparse(out, rid, held_out, e.get("song") or rid, e["style"], names, timing)
+    nb = len(ann["bars"])
+    log(f"{rid}: 再解析しました ({timing}" + (f"、{nb}小節" if timing == "bars" else f"、コード{len(ann['sequence'])}個") +
+        f")  [{'ホールドアウト' if held_out else '開発用'}]")
+    return names
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--register-legacy", metavar="STEM", help="register recordings/<STEM>.* (stored under its original name) "
                     "as --song/--style, --held-out or --dev; then run privacy_check")
+    ap.add_argument("--reparse", metavar="TAKE", nargs="+", help="re-read recordings/originals/<TAKE>.txt after it was "
+                    "corrected and rewrite that take's annotation / truth (id, song and held-out stay; audio untouched)")
+    ap.add_argument("--reparse-all", action="store_true", help="--reparse for every registered take that has an original .txt")
     ap.add_argument("--song", default=None)
     ap.add_argument("--style", default=None)
     ap.add_argument("--held-out", action="store_true")
@@ -571,6 +653,24 @@ def main(argv=None):
     ap.add_argument("--no-privacy-check", action="store_true")
     a = ap.parse_args(argv)
     rec_dir = a.recordings or os.path.dirname(os.path.abspath(a.inbox))
+    if a.reparse or a.reparse_all:
+        ids = RT._load_ids(rec_dir)["recordings"]
+        todo = list(a.reparse or [])
+        if a.reparse_all:
+            todo += [r for r in ids if os.path.isfile(os.path.join(rec_dir, "originals", r + ".txt")) and r not in todo]
+        fails = 0
+        for rid in todo:
+            try:
+                reparse_take(rec_dir, a.out, rid)
+            except IntakeError as e:
+                fails += 1
+                print(f"{rid}: 再解析できませんでした: {e}  (今までの内容のままです)")
+        if not a.no_privacy_check:
+            import privacy_check
+            rc = privacy_check.main(["--recordings", rec_dir] + (["--root", a.privacy_root, "--no-log"] if a.privacy_root else []))
+            if rc:
+                return rc
+        return 1 if fails else 0
     if a.register_legacy:
         try:
             register_legacy(rec_dir, a.out, a.register_legacy, a.song, a.style, a.held_out)

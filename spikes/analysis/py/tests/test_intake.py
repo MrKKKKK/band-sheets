@@ -386,5 +386,86 @@ class TestUserNotation(unittest.TestCase):
             self.assertEqual(ids["recordings"]["rec-01-b"]["styles"], ["b", "e"])
 
 
+class TestReparse(unittest.TestCase):
+    SEQ = "bpm: 120\nキー: C\n弾き方: b\n[C]words [G]more\n[Am]last [F]line\n"
+    BARS = "bpm: 120\nキー: C\n弾き方: b\n|[C]----[G]----|[Am]--------|\n"
+
+    def setUp(self):
+        self.t = tempfile.TemporaryDirectory()
+        self.rec = os.path.join(self.t.name, "recordings")
+        self.inbox = os.path.join(self.rec, "inbox")
+        self.out = os.path.join(self.t.name, "out")
+        os.makedirs(self.inbox)
+        click_wav(os.path.join(self.inbox, "Secret.wav"), 0.5)
+        open(os.path.join(self.inbox, "Secret.txt"), "w", encoding="utf-8").write(self.SEQ)
+        I.process_take("Secret", I.scan_inbox(self.inbox)["Secret"], self.rec, self.out, log=lambda m: None)
+        self.orig = os.path.join(self.rec, "originals", "rec-01-b.txt")
+
+    def tearDown(self):
+        self.t.cleanup()
+
+    def ann(self):
+        return json.load(open(os.path.join(self.rec, "rec-01-b.chords.json"), encoding="utf-8"))
+
+    def test_sequence_to_bars_keeps_id_and_held_out(self):
+        self.assertEqual(self.ann()["timing"], "sequence")
+        wav_before = open(os.path.join(self.rec, "rec-01-b.wav"), "rb").read()
+        ids_before = json.load(open(os.path.join(self.rec, "ids.local.json")))
+        open(self.orig, "w", encoding="utf-8").write(self.BARS)
+        msgs = []
+        self.assertEqual(I.reparse_take(self.rec, self.out, "rec-01-b", log=msgs.append, fit=False), ["rec-01-b"])
+        a = self.ann()
+        self.assertNotIn("timing", a)
+        self.assertEqual(a["bars"], [[["C", 4], ["G", 4]], [["Am", 8]]])
+        self.assertEqual(open(os.path.join(self.rec, "rec-01-b.wav"), "rb").read(), wav_before)
+        ids = json.load(open(os.path.join(self.rec, "ids.local.json")))
+        self.assertEqual(ids["recordings"]["rec-01-b"], ids_before["recordings"]["rec-01-b"])
+        self.assertEqual(list(ids["recordings"]), ["rec-01-b"])
+        truth = json.load(open(os.path.join(self.out, "rec", "rec-01-b.truth.json")))
+        self.assertNotEqual(truth.get("timing"), "sequence")
+        self.assertEqual(len(truth["chords"]), 3)
+        man = json.load(open(os.path.join(self.out, "rec", "manifest.rec.json")))["variants"]
+        self.assertEqual(len(man), 1)
+        self.assertFalse(man[0]["heldOut"])
+        log = [json.loads(l) for l in open(os.path.join(self.out, "results", "heldout-log.jsonl"))]
+        self.assertEqual([l["kind"] for l in log], ["register", "reparse"])
+        self.assertEqual((log[1]["take"], log[1]["heldOut"], log[1]["timing"]), ("rec-01-b", False, "bars"))
+        self.assertNotIn("words", "".join(msgs))
+
+    def test_dash_only_bar_and_bar_running_over_a_line(self):
+        a = I.parse_txt("bpm: 120\n弾き方: b\n|[C]----[G]----|--------|\n|[Am]----[F]--\n--|[C]--------|\n")
+        self.assertEqual(a["bars"], [[["C", 4], ["G", 4]], [["G", 8]], [["Am", 4], ["F", 4]], [["C", 8]]])
+        with self.assertRaises(I.IntakeError) as cm:
+            I.parse_txt("bpm: 120\n弾き方: b\n|[C]----[G]----|\n--|[C]--------|\n")
+        self.assertIn("4行目", str(cm.exception))
+
+    def test_leading_dashes_are_the_pickup(self):
+        a = I.parse_txt("bpm: 120\n弾き方: b\n弱起: 1拍\n--|[C]--------|\n")
+        self.assertEqual((a["bars"], a["pickupBeats"]), ([[["C", 8]]], 1))
+        with self.assertRaises(I.IntakeError):
+            I.parse_txt("bpm: 120\n弾き方: b\n--|[C]--------|\n")
+
+    def test_failure_keeps_old_files(self):
+        before = {n: open(os.path.join(self.rec, n), "rb").read() for n in ("rec-01-b.chords.json",)}
+        truth = open(os.path.join(self.out, "rec", "rec-01-b.truth.json"), "rb").read()
+        open(self.orig, "w", encoding="utf-8").write("bpm: 120\n弾き方: b\n| C |\n| Hm7 |\n")
+        with self.assertRaises(I.IntakeError) as cm:
+            I.reparse_take(self.rec, self.out, "rec-01-b", log=lambda m: None, fit=False)
+        self.assertIn("4行目", str(cm.exception))
+        for n, b in before.items():
+            self.assertEqual(open(os.path.join(self.rec, n), "rb").read(), b)
+        self.assertEqual(open(os.path.join(self.out, "rec", "rec-01-b.truth.json"), "rb").read(), truth)
+        log = [json.loads(l) for l in open(os.path.join(self.out, "results", "heldout-log.jsonl"))]
+        self.assertEqual(len(log), 1)
+        # via main: error is printed, exit code 1
+        import io, contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = I.main(["--reparse", "rec-01-b", "--inbox", self.inbox, "--out", self.out, "--no-privacy-check"])
+        self.assertEqual(rc, 1)
+        self.assertIn("4行目", buf.getvalue())
+        self.assertNotIn("Secret", buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

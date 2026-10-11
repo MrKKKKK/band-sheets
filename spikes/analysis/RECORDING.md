@@ -86,6 +86,9 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -e NUMBA_CACHE_DIR=/work/out/.numba-ca
 - 元のファイルは `recordings/originals/` に移り、`inbox` は空になります（エラーのものだけ残る）。
 - 最後に `privacy_check`（曲名・コード進行が git に入っていないか）が自動で走ります。ホスト側でも `python3 spikes/analysis/py/privacy_check.py` で全体を確かめられます。
 - 解析（`run_all`）はこの取り込みでは走りません。
+- 取り込んだあとで .txt を直したくなったら、`recordings/originals/` の `rec-NN-x.txt` を直して `python py/intake.py --reparse rec-NN-x`（複数可、全部なら `--reparse-all`）。
+  同じ匿名 id・ホールドアウトの判定のまま、コードの正解だけ作り直します（音声は触らない。`heldout-log.jsonl` に `reparse` と記録）。
+  読めないときは行番号つきのエラーを出して、今までの内容を残します。
 
 ## 6. コード進行だけを渡す（録音なし）
 
