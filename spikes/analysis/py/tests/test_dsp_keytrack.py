@@ -120,12 +120,56 @@ class EstimateTest(unittest.TestCase):
     def test_confidence_high_when_clear_low_when_ambiguous(self):
         clear = keytrack.estimate(*bars(*C_PHRASE * 4), [0], CFG)
         self.assertGreater(min(k.confidence for k in clear), 0.7)
-        ambiguous = keytrack.estimate(*bars(*[(C, 'maj'), (G, 'maj')] * 4), [0], CFG)
+        ambiguous = keytrack.estimate(*bars(*[(D, 'min'), (E, 'min')] * 4), [0], CFG)  # C major or A minor
         self.assertLess(max(k.confidence for k in ambiguous), 0.6)
         silent = keytrack.estimate(*bars(*[(None, 'maj')] * 4), [0], CFG)
         self.assertLess(max(k.confidence for k in silent), 0.1)
         for k in clear + ambiguous + silent:
             self.assertTrue(0.0 <= k.confidence <= 1.0)
+
+    def test_resolutions_found(self):
+        chords, boc = bars((G, '7'), (C, 'maj'), (Db, '7'), (C, 'maj'), (B, 'dim'), (C, 'maj'), (Ab, 'dim7'), (A, 'min'),
+                           (E, 'maj'), (A, 'min7'), (G, '7'), (E, '7'), (C, 'maj'), (F, 'maj'))
+        ev = keytrack.resolutions(chords, boc)
+        got = [(e.dom_bar, e.target_bar, e.tonic, e.mode, e.kind) for e in ev]
+        self.assertEqual(got, [
+            (0, 1, C, 'major', 'dominant7'),   # V7 -> I
+            (2, 3, C, 'major', 'dominant7'),   # subV7 -> I
+            (4, 5, C, 'major', 'dominant7'),   # vii° -> I
+            (6, 7, A, 'minor', 'dominant7'),   # dim7 (G# B D F): A is a semitone above G#
+            (8, 9, A, 'minor', 'triad'),       # plain V triad -> i
+            (12, 13, F, 'major', 'triad'),     # C -> F counts as a plain V -> I in F
+        ])  # G7 -> E7: target not stable; E7 -> C: not a resolution
+
+    def test_tonicization_keeps_the_key(self):
+        # A7 -> Dm, then straight back to C material: V/ii, not a modulation to D minor
+        phrase = C_PHRASE + [(A, '7'), (D, 'min'), (G, '7'), (C, 'maj')] + C_PHRASE
+        keys = keytrack.estimate(*bars(*phrase * 2), [0], CFG)
+        self.assertEqual({(k.tonic, k.mode) for k in keys}, {(C, 'major')})
+
+    def test_plain_i_iv_at_the_end_is_not_a_modulation(self):
+        # C -> F looks like V -> I in F; at the end of the song with only C / F after it, the key stays C
+        keys = keytrack.estimate(*bars(*C_PHRASE * 3, (C, 'maj'), (F, 'maj'), (F, 'maj'), (C, 'maj'), (C, 'maj')),
+                                 [0, 12], CFG)
+        self.assertEqual({(k.tonic, k.mode) for k in keys}, {(C, 'major')})
+
+    def test_cadence_followed_by_new_key_modulates(self):
+        d_phrase = [(A, '7'), (D, 'maj'), (G, 'maj'), (E, 'min'), (A, '7'), (D, 'maj'), (B, 'min'), (D, 'maj')]
+        keys = keytrack.estimate(*bars(*C_PHRASE * 4, *d_phrase * 2), [0], CFG)  # no section boundary at all
+        self.assertEqual((keys[0].tonic, keys[0].mode), (C, 'major'))
+        self.assertEqual((keys[-1].tonic, keys[-1].mode), (D, 'major'))
+        ch = change_bars(keys)
+        self.assertEqual(len(ch), 1)
+        self.assertLessEqual(abs(ch[0] - 16), 1)
+
+    def test_relative_keys_decided_by_resolution(self):
+        # the same C major / A minor chord set; only the cadences differ
+        to_c = [(A, 'min'), (D, 'min'), (F, 'maj'), (G, '7'), (C, 'maj'), (A, 'min'), (F, 'maj'), (G, '7')]
+        keys = keytrack.estimate(*bars(*to_c * 2, (C, 'maj')), [0], CFG)
+        self.assertEqual({(k.tonic, k.mode) for k in keys}, {(C, 'major')})
+        to_am = [(C, 'maj'), (F, 'maj'), (D, 'min'), (E, '7'), (A, 'min'), (F, 'maj'), (C, 'maj'), (D, 'min')]
+        keys = keytrack.estimate(*bars(*to_am * 2, (E, '7'), (A, 'min')), [0], CFG)
+        self.assertEqual({(k.tonic, k.mode) for k in keys}, {(A, 'minor')})
 
     def test_minor_key(self):
         phrase = [(A, 'min'), (D, 'min'), (E, '7'), (A, 'min')]

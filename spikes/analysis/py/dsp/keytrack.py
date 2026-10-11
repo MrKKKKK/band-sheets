@@ -14,6 +14,13 @@ is the posterior probability (forward-backward) of the chosen key.
   detected section start (`section_bars`; a soft preferred change point, not a forced one), times
   near_factor for near keys (dominant, subdominant, relative, parallel). cfg.key.change_cost_mid /
   change_cost_boundary override the table when > 0 (0.0 = use the table).
+- Resolutions (primary criterion, user decision 2026-10-11 「解決先で決める」): a dominant-function chord
+  followed by its target (resolutions()) adds [resolution] bonus to the target key on both bars. An HMM
+  pass gives the key just before the dominant (first pass with every dominant-7th-type resolution's bonus, then
+  repeated up to _MAX_PASSES times until the path is stable). When the target key differs from it, the bonus counts
+  only if min_bars bars diatonic to the target key follow before the music returns to the old key
+  (resolves to it, or is diatonic to it only: _modulates) = modulation; otherwise it is a tonicization
+  and is ignored. Profile 'kk' gets no bonuses (comparison of key profiles only).
 - [confidence] scale sharpens the posterior (scores are multiplied by it before forward-backward;
   the Viterbi path does not depend on it).
 
@@ -25,6 +32,7 @@ from __future__ import annotations
 
 import os
 import tomllib
+from dataclasses import dataclass
 from functools import lru_cache
 
 import numpy as np
@@ -112,9 +120,132 @@ def _emissions(chords: list[BeatChord], bar_of_col: np.ndarray, n_bars: int, pro
     raise ValueError(f'unknown key profile: {profile!r}')
 
 
+@dataclass(frozen=True)
+class Resolution:
+    dom_bar: int  # bar of the dominant chord's first column
+    target_bar: int  # bar of the target chord's first column
+    tonic: int  # target root = tonic of the key it points to
+    mode: str  # 'major' | 'minor' (from the target chord's quality)
+    kind: str  # 'dominant7' | 'triad' ([resolution] weight name)
+
+
+_MAX_PASSES = 4
+_TARGET_MODE = {'maj': 'major', 'maj7': 'major', 'min': 'minor', 'min7': 'minor'}
+
+
+def _resolution_kind(dom: BeatChord, tgt: BeatChord) -> str | None:
+    step = (tgt.root - dom.root) % 12
+    if dom.quality == '7' and step in (5, 11):  # V7 -> a 5th down; tritone substitute -> a semitone down
+        return 'dominant7'
+    if dom.quality == 'maj' and step == 5:  # plain V triad
+        return 'triad'
+    if dom.quality in ('dim', 'm7b5') and step == 1:  # vii°
+        return 'dominant7'
+    if dom.quality == 'dim7' and step % 3 == 1:  # a semitone above any of its 4 tones
+        return 'dominant7'
+    return None
+
+
+def resolutions(chords: list[BeatChord], bar_of_col: np.ndarray) -> list[Resolution]:
+    """Dominant -> target pairs between consecutive chord segments (no-chord columns break the chain)."""
+    segs: list[tuple[BeatChord, int]] = []  # (chord, bar of its first column)
+    prev_key = None
+    for ch, b in zip(chords, np.asarray(bar_of_col, dtype=int)):
+        key = (ch.root, ch.quality)
+        if key != prev_key:
+            segs.append((ch, int(b)))
+            prev_key = key
+    out = []
+    for (dom, db), (tgt, tb) in zip(segs, segs[1:]):
+        if dom.root is None or tgt.root is None or tgt.quality not in _TARGET_MODE or tb < 0:
+            continue
+        kind = _resolution_kind(dom, tgt)
+        if kind:
+            out.append(Resolution(max(db, 0), tb, tgt.root % 12, _TARGET_MODE[tgt.quality], kind))
+    return out
+
+
+def _bar_diatonic(chords: list[BeatChord], bar_of_col: np.ndarray, n_bars: int, fit: np.ndarray,
+                  diatonic: float) -> np.ndarray:
+    """(n_bars, 24) bool: the bar has stable chords (maj, maj7, min, min7) and all of them are diatonic (or
+    tonic) to the key. Dominant-function chords point at another chord, so they never place a bar in a key
+    (they act through resolutions); bars without stable chords are False for every key."""
+    ok = np.ones((n_bars, 24), dtype=bool)
+    seen = np.zeros(n_bars, dtype=bool)
+    for ch, b in zip(chords, bar_of_col):
+        if b < 0 or ch.root is None or ch.quality not in _TARGET_MODE:
+            continue
+        seen[b] = True
+        q = QUAL_INDEX.get(ch.quality)
+        ok[b] &= fit[:, ch.root % 12, q] >= diatonic if q is not None else False
+    return ok & seen[:, None]
+
+
+def _modulates(dia: np.ndarray, target_bar: int, new: int, prev: int, n_need: int, back_home: set[int],
+               end_counts: bool = True) -> bool:
+    """After the target bar: n_need bars diatonic to the new key only, before the music returns to the previous
+    key -> modulation. A return is a bar that resolves to the previous key (`back_home`: target bars of its
+    resolutions; the only cue between relative keys) or is diatonic to the previous key only. Bars diatonic
+    to both keys (common chords prove nothing: e.g. C and F after C7 -> F in C) or to neither are neutral;
+    reaching the song's end without a return counts as staying when `end_counts` (not for a plain triad
+    dominant, which needs positive evidence because I -> IV looks the same)."""
+    count = 0
+    for b in range(target_bar + 1, dia.shape[0]):
+        if b in back_home:
+            return False
+        in_new, in_prev = dia[b, new], dia[b, prev]
+        if in_new and not in_prev:
+            count += 1
+            if count >= n_need:
+                return True
+        elif in_prev and not in_new:
+            return False
+    return end_counts
+
+
+def _resolution_bonus(chords, bar_of_col, n_bars, path0, table) -> np.ndarray:
+    """(n_bars, 24) bonus from the resolutions; path0 = None applies every 'dominant7' resolution without the
+    tonicization test (the first guess: plain triads are left out, since I -> IV looks like V -> I)."""
+    res = table['resolution']
+    n_need = int(res['min_bars'])
+    dia = _bar_diatonic(chords, bar_of_col, n_bars, fit_matrix(table), float(table['stage']['diatonic']))
+    bonus = np.zeros((n_bars, 24))
+    res_list = resolutions(chords, bar_of_col)
+    for r in res_list:
+        k = key_index(r.tonic, r.mode)
+        if path0 is None:
+            if r.kind != 'dominant7':
+                continue
+            for b in {r.dom_bar, r.target_bar}:
+                bonus[b, k] += float(res[r.kind])
+            continue
+        prev = int(path0[max(r.dom_bar - 1, 0)])  # the key just before the cadence
+        back_home = {q.target_bar for q in res_list if key_index(q.tonic, q.mode) == prev}
+        if k != prev and not _modulates(dia, r.target_bar, k, prev, n_need, back_home, r.kind == 'dominant7'):
+            continue  # tonicization: the key stays
+        for b in {r.dom_bar, r.target_bar}:
+            bonus[b, k] += float(res[r.kind])
+    return bonus
+
+
 def _logsumexp(x: np.ndarray, axis: int) -> np.ndarray:
     m = np.max(x, axis=axis, keepdims=True)
     return np.squeeze(m, axis=axis) + np.log(np.sum(np.exp(x - m), axis=axis))
+
+
+def _viterbi(em: np.ndarray, trans) -> np.ndarray:
+    n_bars = em.shape[0]
+    score = em[0].copy()
+    back = np.zeros((n_bars, 24), dtype=int)
+    for b in range(1, n_bars):
+        cand = score[:, None] + trans(b)
+        back[b] = np.argmax(cand, axis=0)
+        score = cand[back[b], np.arange(24)] + em[b]
+    path = np.zeros(n_bars, dtype=int)
+    path[-1] = int(np.argmax(score))
+    for b in range(n_bars - 1, 0, -1):
+        path[b - 1] = back[b, path[b]]
+    return path
 
 
 def estimate(chords: list[BeatChord], bar_of_col: np.ndarray, section_bars: list[int], cfg: Config,
@@ -136,17 +267,19 @@ def estimate(chords: list[BeatChord], bar_of_col: np.ndarray, section_bars: list
     def trans(b: int) -> np.ndarray:
         return -(bnd if b in boundaries else mid) * near
 
-    # Viterbi (max-sum) for the key path
-    score = em[0].copy()
-    back = np.zeros((n_bars, 24), dtype=int)
-    for b in range(1, n_bars):
-        cand = score[:, None] + trans(b)
-        back[b] = np.argmax(cand, axis=0)
-        score = cand[back[b], np.arange(24)] + em[b]
-    path = np.zeros(n_bars, dtype=int)
-    path[-1] = int(np.argmax(score))
-    for b in range(n_bars - 1, 0, -1):
-        path[b - 1] = back[b, path[b]]
+    if profile == 'theory':
+        # first guess: every dominant-7th-type resolution counts (relative keys share all chords, so the
+        # bonus-free path is no guide to "the key before the cadence"); then test each one against the latest path
+        base = em
+        path = _viterbi(base + _resolution_bonus(chords, bar_of_col, n_bars, None, table), trans)
+        for _ in range(_MAX_PASSES):  # the "key before the cadence" comes from the previous pass
+            em = base + _resolution_bonus(chords, bar_of_col, n_bars, path, table)
+            new = _viterbi(em, trans)
+            if np.array_equal(new, path):
+                break
+            path = new
+    else:
+        path = _viterbi(em, trans)
 
     # forward-backward (sum-product) on the sharpened scores for the per-bar posterior
     s = float(table['confidence']['scale'])

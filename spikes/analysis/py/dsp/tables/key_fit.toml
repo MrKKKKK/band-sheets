@@ -11,9 +11,13 @@
 # quality = analyzer chord quality (maj min 7 maj7 min7 dim aug m7b5 dim7 sus4).
 # A chord in several lists takes the HIGHEST stage. A chord in no list is "other".
 # Minor keys use the union of natural, harmonic and melodic minor (note §2.3), except IV (borrowed).
+#
+# PRIMARY CRITERION — where things resolve (user decision 2026-10-11, 「解決先で決める」): which key a passage
+# is in (tonicization vs. modulation, C major vs. A minor) is decided by its resolutions ([resolution]).
+# The stages below are the base evidence; the tonic stage is only a weak fallback when nothing resolves.
 
 [stage]  # score per bar (mean over the bar's beats) for each fit stage; other >= 0 (never forbids)
-tonic = 1.2      # I / i: where the key settles (note §2.1, §5.4: the deciding cue between relative keys)
+tonic = 1.05     # I / i: weak fallback only (relative keys share their chords; [resolution] decides first)
 diatonic = 1.0
 borrowed = 0.5
 secondary = 0.4
@@ -23,6 +27,20 @@ other = 0.0
 mid = 0.75         # inside a detected section (expensive: tonicization is not modulation, note §5.1)
 boundary = 0.25    # at a detected section start (cheap but not free: boundaries are soft, note §5.3)
 near_factor = 0.75 # multiplier for near keys: dominant, subdominant, relative, parallel (note §5.2, §5.3)
+
+[resolution]  # a dominant-function chord followed by its target = evidence for the key whose tonic is the target
+# (note §2.4–2.5 cadences, §3.1 secondary dominants, §3.3 tritone substitute, §3.5 diminished 7th, §5.1):
+#   V7 or plain V triad -> root a 5th down;  7 (tritone substitute) -> root a semitone down;
+#   vii° (dim, m7b5) -> root a semitone up;  dim7 -> a semitone above any of its 4 tones.
+# The target must be a stable chord (maj, maj7 -> major key; min, min7 -> minor key).
+# If the target key differs from the key just before the dominant, the resolution counts only when min_bars
+# bars diatonic to the target key only follow (judged by the bar's stable chords; dominant-function chords,
+# bars in both keys and bars in neither are neutral; reaching the end
+# of the song counts, except after a plain-triad dominant) before the music returns to the old key — a bar that resolves to the old key, or is
+# diatonic to the old key only (modulation); otherwise it is a tonicization and the key stays (note §5.1).
+dominant7 = 0.6    # bonus added to the target key's score on the dominant's bar and the target's bar
+triad = 0.3        # same for a plain major triad as the dominant (weaker: also plain I -> IV motion)
+min_bars = 2       # provisional (T14 may tune)
 
 [confidence]  # tuning only (not theory): scores x scale before the per-bar posterior (forward-backward)
 scale = 5.0
