@@ -1,0 +1,87 @@
+# key_fit.toml — how well a chord fits a key, for the per-bar key HMM (spike 2 T22, keytrack.py).
+#
+# source: the user's knowledge note 「和声法ノート」 §2.1–2.3 (diatonic chords, T・S・D), §3.1 (secondary
+#         dominants), §3.3 (tritone substitutes), §3.4 (borrowing from the parallel key), §3.5 (passing
+#         diminished 7th), §5.1–5.4 (modulation vs. tonicization, near keys, ambiguity), §6.5 (this table).
+# books:  (to be filled in once the user confirms which books of the note §7 were checked)
+# weights: initial order only, not tuned (T14 may change the numbers in [stage] and [change];
+#          which chord belongs to which list is music theory — change it only after fixing the note).
+#
+# A chord is written "<degree> <quality>": degree = semitones above the key's tonic (0-11),
+# quality = analyzer chord quality (maj min 7 maj7 min7 dim aug m7b5 dim7 sus4).
+# A chord in several lists takes the HIGHEST stage. A chord in no list is "other".
+# Minor keys use the union of natural, harmonic and melodic minor (note §2.3), except IV (borrowed).
+
+[stage]  # score per bar (mean over the bar's beats) for each fit stage; other >= 0 (never forbids)
+tonic = 1.2      # I / i: where the key settles (note §2.1, §5.4: the deciding cue between relative keys)
+diatonic = 1.0
+borrowed = 0.5
+secondary = 0.4
+other = 0.0
+
+[change]  # key-change cost between two bars, in the same units as [stage] (one bar of a full fit = 1.0)
+mid = 0.75         # inside a detected section (expensive: tonicization is not modulation, note §5.1)
+boundary = 0.25    # at a detected section start (cheap but not free: boundaries are soft, note §5.3)
+near_factor = 0.75 # multiplier for near keys: dominant, subdominant, relative, parallel (note §5.2, §5.3)
+
+[confidence]  # tuning only (not theory): scores x scale before the per-bar posterior (forward-backward)
+scale = 5.0
+
+[major]
+tonic = ["0 maj", "0 maj7"]
+diatonic = [
+  "0 maj", "0 maj7",              # I    T
+  "2 min", "2 min7",              # ii   S
+  "4 min", "4 min7",              # iii  T (substitute)
+  "5 maj", "5 maj7",              # IV   S
+  "7 maj", "7 7", "7 sus4",       # V    D (Vsus4 too)
+  "9 min", "9 min7",              # vi   T (substitute)
+  "11 dim", "11 m7b5",            # vii° D
+]
+borrowed = [
+  "5 min", "5 min7",              # iv
+  "8 maj", "8 maj7",              # bVI
+  "10 maj", "10 7",               # bVII
+  "3 maj", "3 maj7",              # bIII
+  "2 m7b5", "2 dim",              # ii ø
+  "7 min", "7 min7",              # v
+  "1 maj", "1 maj7",              # bII (Neapolitan)
+]
+secondary = [
+  "9 7", "9 maj",                 # V/ii
+  "11 7", "11 maj",               # V/iii
+  "0 7",                          # V/IV (only with the 7th: the plain I is diatonic)
+  "2 7", "2 maj",                 # V/V
+  "4 7", "4 maj",                 # V/vi
+  "1 7", "8 7", "3 7", "10 7", "6 7", "6 maj",   # tritone substitutes subV/I, /V, /ii, /vi, /IV
+  "0 dim7", "1 dim7", "2 dim7", "3 dim7", "4 dim7", "5 dim7",     # passing diminished 7th
+  "6 dim7", "7 dim7", "8 dim7", "9 dim7", "10 dim7", "11 dim7",   # (4 equal tones: any root)
+  "1 dim", "3 dim", "6 dim", "8 dim",                             # vii° of ii, iii, V, vi
+]
+
+[minor]
+tonic = ["0 min", "0 min7"]
+diatonic = [
+  "0 min", "0 min7",              # i     T
+  "2 dim", "2 m7b5",              # ii°   S
+  "3 maj", "3 maj7",              # bIII  T (substitute)
+  "5 min", "5 min7",              # iv    S
+  "7 min", "7 min7",              # v     D (natural, weak)
+  "7 maj", "7 7", "7 sus4",       # V     D (harmonic)
+  "8 maj", "8 maj7",              # bVI   S
+  "10 maj", "10 7",               # bVII  D-like (subtonic)
+  "11 dim", "11 dim7",            # vii°  D
+]
+borrowed = [
+  "5 maj", "5 7",                 # IV (dorian / melodic minor)
+  "0 maj",                        # I (Picardy third)
+  "1 maj", "1 maj7",              # bII (Neapolitan)
+]
+secondary = [
+  "0 7",                          # V/iv
+  "3 7",                          # V/bVI
+  "2 7", "2 maj",                 # V/V
+  "1 7",                          # bII7 (tritone substitute of V)
+  "0 dim7", "1 dim7", "2 dim7", "3 dim7", "4 dim7", "5 dim7",
+  "6 dim7", "7 dim7", "8 dim7", "9 dim7", "10 dim7", "11 dim7",   # passing diminished 7th
+]

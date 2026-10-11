@@ -148,7 +148,7 @@ class AnalyzeHooksTest(unittest.TestCase):
         self.assertEqual(len(chords), len(bar_of_col))
         self.assertEqual(len(section_bars), len(r['sections']))
         self.assertEqual(section_bars[0], 0)
-        self.assertEqual(r['keys'], [])  # stub: no per-bar keys
+        self.assertEqual([k['startBar'] for k in r['keys']][:1], [0])  # T22: per-bar keys from bar 0
 
     def test_keys_in_result_from_tracker(self):
         fake = [BarKey(0, 0, 'major', 0.8), BarKey(1, 0, 'major', 0.6), BarKey(2, 7, 'major', 0.5)]
