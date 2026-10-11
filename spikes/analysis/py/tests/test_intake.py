@@ -149,14 +149,14 @@ class TestIntake(unittest.TestCase):
         a = json.load(open(os.path.join(self.rec, "rec-01-a.chords.json")))
         self.assertEqual((a["startSource"], a["startGiven"]), ("fitted", 0.0))
 
-    def count_in_wav(self, path, first_click=1.0, bpm=120, bars=2, sr=44100):
+    def count_in_wav(self, path, first_click=1.0, bpm=120, bars=2, sr=44100, first_gain=1.0):
         beat = 60.0 / bpm
-        y = np.zeros(int(sr * (first_click + 14 * beat + 1)))
         rng = np.random.default_rng(2)
+        y = rng.standard_normal(int(sr * (first_click + 14 * beat + 1))) * 0.0005  # room noise floor
         m = int(0.02 * sr)
         for k in range(bars * 4):
             i = int((first_click + k * beat) * sr)
-            y[i:i + m] += rng.standard_normal(m) * np.hanning(m) * 0.5
+            y[i:i + m] += rng.standard_normal(m) * np.hanning(m) * 0.5 * (first_gain if k == 0 else 1.0)
         bar1 = first_click + bars * 4 * beat
         for k, f in enumerate((261.6, 220.0, 349.2, 329.6)):  # chord tones: one per bar from bar 1
             i = int((bar1 + k * 4 * beat) * sr)
@@ -165,8 +165,8 @@ class TestIntake(unittest.TestCase):
             y[i:i + seg.size] += seg[:max(0, y.size - i)]
         sf.write(path, y, sr)
 
-    def run_count(self, txt):
-        self.count_in_wav(os.path.join(self.inbox, "x.wav"))
+    def run_count(self, txt, **kw):
+        self.count_in_wav(os.path.join(self.inbox, "x.wav"), **kw)
         open(os.path.join(self.inbox, "x.txt"), "w", encoding="utf-8").write(txt)
         msgs = []
         I.process_take("x", I.scan_inbox(self.inbox)["x"], self.rec, self.out, log=msgs.append)
@@ -182,6 +182,13 @@ class TestIntake(unittest.TestCase):
         self.assertEqual((b[0]["bar"], b[0]["downbeat"]), (0, True))
         self.assertAlmostEqual(b[0]["t"], 5.0, delta=0.03)
         self.assertFalse(any("警告" in m for m in msgs), msgs)
+
+    def test_count_in_weak_first_click(self):
+        truth, a, msgs = self.run_count(TXT + "カウント: 2小節\n", first_gain=0.03)  # 30 dB quieter
+        self.assertAlmostEqual(a["countIn"]["firstClickSec"], 1.0, delta=0.03)
+        self.assertEqual(a["countIn"]["weakClicks"], 1)
+        self.assertAlmostEqual(truth["beats"][0]["t"], 5.0, delta=0.03)
+        self.assertTrue(any("小さい" in m for m in msgs), msgs)
 
     def test_count_in_with_pickup_and_conflicting_start(self):
         truth, a, msgs = self.run_count(TXT + "弱起: 1拍\ncount: 2\n開始: 3秒\n")

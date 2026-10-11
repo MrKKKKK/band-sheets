@@ -344,14 +344,14 @@ def decode_audio(path):
     return np.clip(y, -1.0, 1.0).astype(np.float32)
 
 
-def onset_times(y, sr=TARGET_SR):
-    """Onset times (s) of the audio, same detector and strength gate as first_onset."""
+def onset_times(y, sr=TARGET_SR, gate=0.2):
+    """Onset times (s) of the audio, same detector as first_onset; gate = minimum strength relative to the strongest onset."""
     import librosa
     y = librosa.resample(y, orig_sr=sr, target_sr=22050)
     hop = 128
     env = librosa.onset.onset_strength(y=librosa.effects.percussive(y), sr=22050, hop_length=hop)
     frames = librosa.onset.onset_detect(onset_envelope=env, sr=22050, hop_length=hop, backtrack=False)
-    frames = [f for f in frames if env[f] >= 0.2 * env.max()]
+    frames = [f for f in frames if env[f] >= gate * env.max()]
     return [float(t) for t in librosa.frames_to_time(frames, sr=22050, hop_length=hop)]
 
 
@@ -370,21 +370,35 @@ def detect_count_in(y, bpm, n_beats):
     ts = np.array(onset_times(y))
     if ts.size == 0:
         raise IntakeError("カウントのクリックが見つかりません")
-    t0 = ts[0]
+    t0 = float(ts[0])
+    weak = np.array(onset_times(y, gate=0.03))  # a quiet / noise-like first click is below the normal gate
+    # look back along the grid for weaker clicks before the first strong one
+    n_weak = 0
+    for j in range(1, n_beats):
+        pos = t0 - j * beat
+        if pos < -0.15 * beat:
+            break
+        d = np.abs(weak - pos)
+        if d.size and d.min() <= 0.15 * beat:
+            t0 = float(weak[int(d.argmin())])
+            n_weak += 1
+        else:
+            break
+    cand = weak if n_weak else ts
     ks, got = [], []
     for k in range(n_beats):
-        d = np.abs(ts - (t0 + k * beat))
+        d = np.abs(cand - (t0 + k * beat))
         i = int(d.argmin())
         if d[i] <= 0.15 * beat:
             ks.append(k)
-            got.append(ts[i])
+            got.append(cand[i])
     if len(ks) < max(3, int(0.75 * n_beats)):
         raise IntakeError(f"カウントのクリックが bpm({bpm:g})の間隔で並んでいません（{n_beats}個のうち{len(ks)}個しか見つかりません）。"
                           "bpm かカウントの小節数を確かめてください")
     slope, icpt = np.polyfit(ks, got, 1)
     if abs(slope / beat - 1) > 0.03:
         raise IntakeError(f"カウントのクリック間隔 {slope:.4f}秒 が bpm({bpm:g})の {beat:.4f}秒 と合いません")
-    return {"firstClickSec": float(icpt), "spacingSec": float(slope), "nClicks": len(ks)}
+    return {"firstClickSec": float(icpt), "spacingSec": float(slope), "nClicks": len(ks), "weakClicks": n_weak}
 
 
 def resolve_count(wav, y, ann, beat):
@@ -396,7 +410,11 @@ def resolve_count(wav, y, ann, beat):
     bar1 = first_click + ann["count"] * num * beat
     fs = round(bar1 - pickup * beat, 4)
     info = {"source": "count", "countBars": ann["count"], "firstClickSec": first_click, "spacingSec": c["spacingSec"],
-            "spacingVsBpm": c["spacingSec"] / beat, "nClicks": c["nClicks"], "chosen": fs, "given": None, "warning": None}
+            "spacingVsBpm": c["spacingSec"] / beat, "nClicks": c["nClicks"], "weakClicks": c["weakClicks"], "chosen": fs,
+            "given": None, "warning": None, "note": None}
+    if c["weakClicks"]:
+        info["note"] = (f"注意: 最初のクリックが小さい／ノイズ状だったため、拍の間隔をさかのぼって{c['weakClicks']}個ぶん弱いクリックを"
+                        f"クリックとみなしました（最初のクリック {first_click:.3f}秒）。")
     if ann["start"] is not None:
         g = ann["start"] - pickup * beat
         info["given"] = g
@@ -581,11 +599,12 @@ def process_take(base, t, rec_dir, out, log=print, fit=True, fit_start=False):
             a["firstSoundSec"], f2, info = resolve_count(wav, y, ann, beat)
             a["startSource"] = "count"
             a["countIn"] = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in info.items() if k in
-                            ("countBars", "firstClickSec", "spacingSec", "nClicks")}
+                            ("countBars", "firstClickSec", "spacingSec", "nClicks", "weakClicks")}
             if ann["start"] is not None:
                 a["startGiven"] = ann["start"]
-            if info["warning"]:
-                log(f"{name}: {info['warning']}")
+            for m in (info["note"], info["warning"]):
+                if m:
+                    log(f"{name}: {m}")
             f = f2 if f2 is not None else {"t0": a["firstSoundSec"], "tempo": ann["tempo"], "residualMedianMs": 0.0, "nOnsets": 0}
             how = f"カウント{ann['count']}小節のクリックから"
         elif ann["start"] is not None:
@@ -699,7 +718,7 @@ def _log_reparse(out, rid, held_out, song, style, variants, timing, infos=None):
         f.write(json.dumps({"time": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
                             "kind": "reparse", "take": rid, "song": song, "heldOut": held_out,
                             "style": style, "variants": variants, "timing": timing,
-                            "start": [{k: (round(v, 4) if isinstance(v, float) else v) for k, v in i.items() if k != "warning"}
+                            "start": [{k: (round(v, 4) if isinstance(v, float) else v) for k, v in i.items() if k not in ("warning", "note")}
                                       for i in (infos or []) if i]}) + "\n")
 
 
@@ -747,12 +766,13 @@ def reparse_take(rec_dir, out, rid, log=print, fit=True, fit_start=False):
             a["firstSoundSec"], f2, info = resolve_count(wav, decode_audio(wav), ann, beat)
             a["startSource"] = "count"
             a["countIn"] = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in info.items() if k in
-                            ("countBars", "firstClickSec", "spacingSec", "nClicks")}
+                            ("countBars", "firstClickSec", "spacingSec", "nClicks", "weakClicks")}
             if ann["start"] is not None:
                 a["startGiven"] = ann["start"]
             f = f2 if f2 is not None else dict(f, t0=a["firstSoundSec"])
-            if info["warning"]:
-                log(f"{rid}: {info['warning']}")
+            for m in (info["note"], info["warning"]):
+                if m:
+                    log(f"{rid}: {m}")
         elif ann["start"] is not None and fit:
             a["firstSoundSec"], f2, info = resolve_start(wav, decode_audio(wav), a, a["firstSoundSec"], beat, fit_start)
             a["startGiven"] = ann["start"]
