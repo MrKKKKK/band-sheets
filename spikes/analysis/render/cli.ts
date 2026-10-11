@@ -14,7 +14,7 @@ import { saintsSampleText } from '../../../src/lib/saintsSample';
 import { chordTimeline } from './chordTimeline';
 import { chordEtude, chordEtudeAABA } from './etude';
 import { modulatedBars, modulateSong, modulationKeys, transposeMelodyBars } from './modulate';
-import { pianoPartBody, recComp } from './pianoPart';
+import { pianoPartBody, REC_HARD, recComp } from './pianoPart';
 import {
   buildManifest,
   cleanGenerated,
@@ -108,7 +108,7 @@ for (const v of selected) {
   const song = m ? modulateSong(base.song, m) : base.song;
   const written = m ? chordTimeline(song) : base.timeline;
   // comp 'rec' also moves anticipated chord changes: the truth follows the returned timeline.
-  const rec = v.comp === 'rec' ? recComp(written, { seed: v.recSeed, pickupBeats: v.pickupBeats ?? 0 }) : null;
+  const rec = v.comp === 'rec' ? recComp(written, { ...(v.recStyle === 'hard' ? REC_HARD : {}), seed: v.recSeed, pickupBeats: v.pickupBeats ?? 0 }) : null;
   const timeline = rec ? rec.timeline : written;
   if (!rec && v.pickupBeats) throw new Error(`「${v.name}」: 弱起は comp 'rec' だけで扱えます`);
   const score = importScore(buildScoreTex(song, rec ? rec.body : pianoPartBody(written, v.comp), v));

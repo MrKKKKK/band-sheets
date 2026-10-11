@@ -4,7 +4,8 @@ import { parseSong } from '../../../src/lib/parseSong';
 import { saintsSampleText } from '../../../src/lib/saintsSample';
 import { chordTimeline } from './chordTimeline';
 import { chordEtude, chordEtudeAABA } from './etude';
-import { CHORD_INTERVALS, pianoPartBody, recComp } from './pianoPart';
+import { CHORD_INTERVALS, pianoPartBody, REC_HARD, REC_HARD_DEFAULTS, recComp } from './pianoPart';
+import type { RecHardOptions } from './pianoPart';
 import { parseChordSymbol } from './chordSymbol';
 import { buildTruth, generateMidi, importScore, setPrograms } from './truth';
 import type { ChordTimeline, Variant } from './types';
@@ -152,5 +153,157 @@ describe('recComp', () => {
   it('rejects non-4/4 and is refused by pianoPartBody', () => {
     expect(() => recComp({ ...small, ts: [3, 4] })).toThrow();
     expect(() => pianoPartBody(small, 'rec')).toThrow();
+  });
+});
+
+/** Sounding notes of a voice with ties merged: [start, end) in sixteenths, MIDI pitch. */
+function sounding(score: model.Score, voice: number): { at16: number; end16: number; midi: number; dyn: number }[] {
+  const out: { at16: number; end16: number; midi: number; dyn: number }[] = [];
+  const open = new Map<number, (typeof out)[number]>();
+  for (const bar of score.tracks[0].staves[0].bars) {
+    for (const b of bar.voices[voice].beats) {
+      const at16 = (bar.index * 3840 + b.playbackStart) / 240;
+      const end16 = at16 + b.playbackDuration / 240;
+      for (const n of b.notes) {
+        const o = open.get(n.realValue);
+        if (n.isTieDestination) {
+          expect(o, `tie without origin at ${at16}`).toBeDefined();
+          expect(o!.end16).toBe(at16);
+          o!.end16 = end16;
+        } else {
+          const x = { at16, end16, midi: n.realValue, dyn: b.dynamics };
+          out.push(x);
+          open.set(n.realValue, x);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+describe('recComp hard style (T4b)', () => {
+  const hard = (h: Partial<RecHardOptions>, x: object = {}) =>
+    recComp(etude, { ...REC_HARD, missShare: 0, ...x, hard: { ...REC_HARD_DEFAULTS, ...h } });
+  const pcsOf = (text: string) => {
+    const c = parseChordSymbol(text);
+    return { c, pcs: CHORD_INTERVALS[c.quality].map((i) => (c.root + i) % 12) };
+  };
+  /** Chord of the returned timeline at a sixteenth. */
+  const chordAt = (r: ReturnType<typeof recComp>, at16: number) => {
+    let k = 0;
+    while (k + 1 < r.timeline.chords.length && r.timeline.chords[k + 1].bar * 16 + r.timeline.chords[k + 1].beat * 4 <= at16) k++;
+    return r.timeline.chords[k].text;
+  };
+
+  it('is deterministic and leaves the T4 style alone', () => {
+    expect(recComp(saints, REC_HARD)).toEqual(recComp(saints, REC_HARD));
+    expect(recComp(saints, { ...REC_HARD, seed: 2 }).body).not.toBe(recComp(saints, REC_HARD).body);
+    expect(recComp(saints, { seed: 1 }).body).not.toBe(recComp(saints, REC_HARD).body);
+  });
+
+  it('imports as four full voices (left hand ff, the rest mf) with valid ties', () => {
+    for (const t of [saints, etude]) {
+      const score = load(recComp(t, REC_HARD).body);
+      const bars = score.tracks[0].staves[0].bars;
+      expect(bars).toHaveLength(32);
+      for (const b of bars) {
+        expect(b.voices).toHaveLength(4);
+        for (const v of b.voices) expect(v.beats.reduce((n, x) => n + x.playbackDuration, 0)).toBe(3840);
+      }
+      // DynamicValue: MF = 4, FF = 6.
+      for (let v = 0; v < 4; v++) for (const n of sounding(score, v)) expect(n.dyn).toBe(v === 0 ? 6 : 4);
+    }
+  });
+
+  it('passing chords: halfBarShare 1 changes every one-chord bar on beat 3 and returns on the next bar', () => {
+    const none = hard({ halfBarShare: 0 }, { anticipateShare: 0 });
+    expect(none.timeline.chords).toEqual(etude.chords);
+    const all = hard({ halfBarShare: 1 }, { anticipateShare: 0 });
+    const writtenChange = new Set(etude.chords.filter((c) => c.beat !== 0).map((c) => c.bar));
+    for (let bar = 0; bar < 31; bar++) {
+      if (writtenChange.has(bar)) continue;
+      const mid = all.timeline.chords.find((c) => c.bar === bar && c.beat === 2);
+      expect(mid, `bar ${bar}`).toBeDefined();
+      expect(chordAt(all, bar * 16 + 15)).not.toBe(chordAt(all, bar * 16));
+      expect(chordAt(all, (bar + 1) * 16)).toBe(chordAt(none, (bar + 1) * 16));
+    }
+    // The written chords are all still there (truth stays exact: it is the returned timeline).
+    for (const c of etude.chords) expect(chordAt(all, c.bar * 16 + c.beat * 4)).toBe(c.text);
+  });
+
+  it('power chords: no third in the right hand at thirdShare 0; always at 1', () => {
+    for (const [share, want] of [[0, false], [1, true]] as const) {
+      const r = hard({ thirdShare: share, minorThirdShare: share, pedalEighths: 0 });
+      const score = load(r.body);
+      for (const v of [1, 2]) {
+        const hits = new Map<number, number[]>();
+        for (const n of sounding(score, v)) hits.set(n.at16, [...(hits.get(n.at16) ?? []), n.midi % 12]);
+        for (const [at16, pcs] of hits) {
+          const { c, pcs: chord } = pcsOf(chordAt(r, at16));
+          if (c.quality === 'sus4') continue;
+          expect(pcs.includes(chord[1]), `${c.text} at ${at16}: ${pcs}`).toBe(want);
+        }
+      }
+    }
+  });
+
+  it('inverted power chords: the left hand starts on the 5th (invertShare 1) or on the bass (0)', () => {
+    for (const share of [0, 1]) {
+      const r = hard({ invertShare: share });
+      const lh = sounding(load(r.body), 0);
+      let inverted = 0;
+      for (const ch of r.timeline.chords) {
+        const at16 = ch.bar * 16 + ch.beat * 4;
+        if (ch.bar === 31) continue;
+        const { c, pcs } = pcsOf(ch.text);
+        const low = lh.find((n) => n.at16 === at16)!.midi;
+        expect(low).toBeLessThan(48);
+        const plain = share === 0 || c.bass !== null || c.quality === 'sus4';
+        expect(low % 12, `${ch.text} at ${at16}`).toBe(plain ? (c.bass ?? c.root) : pcs[2]);
+        if (!plain) {
+          inverted++;
+          // then the root (a 4th above; a tritone for dim), unless the half bar restarts the figure
+          if (at16 % 8 < 6) expect(lh.find((n) => n.at16 === at16 + 2)!.midi % 12).toBe(c.root);
+        }
+      }
+      if (share === 1) expect(inverted).toBeGreaterThan(20);
+    }
+  });
+
+  it('sustain: the last right-hand pair of a chord rings into the next one, without re-struck pitches', () => {
+    const crossing = (r: ReturnType<typeof recComp>) => {
+      const score = load(r.body);
+      const changes = r.timeline.chords.slice(1).map((c) => c.bar * 16 + c.beat * 4);
+      const rh = [...sounding(score, 1), ...sounding(score, 2)];
+      let n = 0;
+      for (const x of rh) {
+        const ch = changes.find((c) => x.at16 < c && x.end16 > c);
+        if (ch === undefined) continue;
+        n++;
+        expect(x.end16 - ch).toBeLessThanOrEqual(8);
+        expect(rh.some((y) => y.at16 === ch && y.midi === x.midi)).toBe(false);
+      }
+      return n;
+    };
+    expect(crossing(hard({ pedalEighths: 0 }))).toBe(0);
+    expect(crossing(hard({ pedalEighths: 4 }))).toBeGreaterThan(20);
+  });
+
+  it('melody: held non-chord tones on beats 1 / 3 at longNonChordShare 1', () => {
+    const r = hard({ longNonChordShare: 1 });
+    const mel = sounding(load(r.body), 3);
+    const held = mel.filter((n) => n.end16 - n.at16 >= 4 && n.at16 % 8 === 0);
+    expect(held.length).toBeGreaterThan(40);
+    for (const n of held) expect(pcsOf(chordAt(r, n.at16)).pcs).not.toContain(n.midi % 12);
+  });
+
+  it('pickup (etude3): bar 0 only has the melody pickup', () => {
+    const t = chordTimeline(parseSong(chordEtudeAABA(3).text));
+    const r = recComp(t, { ...REC_HARD, seed: 3, pickupBeats: 1 });
+    const score = load(r.body);
+    expect(score.tracks[0].staves[0].bars).toHaveLength(33);
+    expect(Math.min(...sounding(score, 0).map((n) => n.at16))).toBe(16);
+    for (const v of [1, 2]) expect(Math.min(...sounding(score, v).map((n) => n.at16))).toBeGreaterThanOrEqual(16);
+    expect(sounding(score, 3).filter((n) => n.at16 < 16).map((n) => n.at16)).toEqual([12, 14]);
   });
 });

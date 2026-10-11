@@ -73,6 +73,8 @@ export interface Variant {
   lrGrade?: 0 | 1 | 2;
   /** Seed of the REC-like accompaniment (comp 'rec'); default 1. */
   recSeed?: number;
+  /** comp 'rec' only: 'hard' = the harder REC-like style of T4b (pianoPart.ts REC_HARD); absent = T4 style. */
+  recStyle?: 'hard';
   /** Etude form: 'aaba' = etude3 (A1 A2 B A3, 8 bars each, with a pickup). Absent = A1 B1 A2 B2. */
   etudeForm?: 'aaba';
   /** Beats of pickup (anacrusis) before bar 1; the silent rest of the pickup bar is cut from the wav. */

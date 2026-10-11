@@ -8,7 +8,7 @@ describe('allVariants', () => {
   it('has unique names and a level on every variant', () => {
     expect(new Set(v.map((x) => x.name)).size).toBe(v.length);
     for (const x of v) expect([0, 1, 2, 3, 'LR', 'V']).toContain(x.level);
-    expect(v.length).toBeLessThanOrEqual(50);
+    expect(v.length).toBeLessThanOrEqual(56); // 50 + the 6 LR '-hard' variants of T4b
   });
   it('keeps the 21 spike 0 variants unchanged at level 0', () => {
     expect(l0).toHaveLength(21);
@@ -80,7 +80,7 @@ describe('allVariants', () => {
       expect(x.comp).toBe('rec');
       expect(x.mix).toBe('piano');
       expect(x.tempo).toBe(124);
-      expect(x.name.endsWith('-rec')).toBe(true);
+      expect(x.name.endsWith(x.recStyle === 'hard' ? '-rec-hard' : '-rec')).toBe(true);
       expect(x.recSeed).toBeDefined();
       expect([0, 1]).toContain(x.lrGrade);
       expect(x.soundFont === 'musescore').toBe(x.lrGrade === 1);
@@ -88,18 +88,36 @@ describe('allVariants', () => {
     const tuning = lr.filter((x) => !x.heldOut);
     expect(tuning.map((x) => x.name).sort()).toEqual([
       'etude-piano-t124-straight-rec',
+      'etude-piano-t124-straight-rec-hard',
       'etude-piano-t124-straight-sf-muse-rec',
+      'etude-piano-t124-straight-sf-muse-rec-hard',
       'piano-t124-straight-rec',
+      'piano-t124-straight-rec-hard',
       'piano-t124-straight-sf-muse-rec',
+      'piano-t124-straight-sf-muse-rec-hard',
     ]);
     for (const x of tuning) expect(x.etudeSeed).toBeUndefined();
   });
   it('etude3: held out, AABA with a 1-beat pickup, seed 3, LR only', () => {
     const e3 = v.filter((x) => x.name.startsWith('etude3-'));
-    expect(e3).toHaveLength(2);
+    expect(e3.map((x) => x.name)).toEqual([
+      'etude3-piano-t124-straight-rec',
+      'etude3-piano-t124-straight-sf-muse-rec',
+      'etude3-piano-t124-straight-rec-hard',
+      'etude3-piano-t124-straight-sf-muse-rec-hard',
+    ]);
     for (const x of e3) {
       expect(x).toMatchObject({ heldOut: true, level: 'LR', etudeSeed: 3, etudeForm: 'aaba', pickupBeats: 1, recSeed: 3 });
     }
+  });
+  it('T4b: the harder REC-like style only on the -rec-hard variants, same grades and seeds as T4', () => {
+    const hard = lr.filter((x) => x.recStyle === 'hard');
+    expect(hard).toHaveLength(6);
+    for (const x of hard) {
+      const t4 = lr.find((y) => y.name === x.name.replace(/-hard$/, ''))!;
+      expect({ ...x, name: t4.name, recStyle: undefined }).toEqual({ ...t4, recStyle: undefined });
+    }
+    for (const x of v) if (x.recStyle) expect(x.comp).toBe('rec');
   });
   it('level V: one etude with the wider vocabulary, tuning', () => {
     const lv = v.filter((x) => x.level === 'V');

@@ -40,6 +40,7 @@ export function variantExtras(v: Variant): Record<string, unknown> {
   // spike 2 (T4): only when set, so the spike 1 entries stay as they were.
   if (v.lrGrade !== undefined) out.lrGrade = v.lrGrade;
   if (v.recSeed !== undefined) out.recSeed = v.recSeed;
+  if (v.recStyle !== undefined) out.recStyle = v.recStyle;
   if (v.etudeForm !== undefined) out.etudeForm = v.etudeForm;
   if (v.pickupBeats !== undefined) out.pickupBeats = v.pickupBeats;
   if (v.vocabShare !== undefined) out.vocabShare = v.vocabShare;

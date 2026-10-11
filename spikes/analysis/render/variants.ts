@@ -40,6 +40,7 @@ interface Extra {
   etude?: 'etude2' | 'etude7' | 'etude3' | 'etudevoc';
   lrGrade?: 0 | 1 | 2;
   modulation?: Modulation;
+  recStyle?: 'hard';
 }
 
 function make(
@@ -58,6 +59,7 @@ function make(
   const tags = [
     x.soundFont ? '-sf-muse' : '',
     x.comp ? `-${x.comp}` : '',
+    x.recStyle ? `-${x.recStyle}` : '',
     x.pianoGainDb !== undefined ? `-pianoM${-x.pianoGainDb}` : '',
     x.drift ? '-drift' : '',
     x.modulation ? `-mod${x.modulation.tag}` : '',
@@ -83,6 +85,7 @@ function make(
   }
   if (x.comp === 'rec') v.recSeed = v.etudeSeed ?? 1;
   if (x.lrGrade !== undefined) v.lrGrade = x.lrGrade;
+  if (x.recStyle) v.recStyle = x.recStyle;
   if (x.modulation) v.modulation = x.modulation;
   if (x.heldOut) v.heldOut = true;
   return v;
@@ -132,6 +135,13 @@ export function allVariants(): Variant[] {
   // Held-out song of a different form: etude3 (AABA, 1-beat pickup, seed 3).
   out.push(lr('etude', { lrGrade: 0, etude: 'etude3', heldOut: true }));
   out.push(lr('etude', { lrGrade: 1, etude: 'etude3', heldOut: true, soundFont: 'musescore' }));
+  // ---- spike 2 (T4b): the harder REC-like style (render/pianoPart.ts REC_HARD), same songs and grades ----
+  for (const s of ['etude', 'saints'] as const) {
+    out.push(lr(s, { lrGrade: 0, recStyle: 'hard' }));
+    out.push(lr(s, { lrGrade: 1, soundFont: 'musescore', recStyle: 'hard' }));
+  }
+  out.push(lr('etude', { lrGrade: 0, etude: 'etude3', heldOut: true, recStyle: 'hard' }));
+  out.push(lr('etude', { lrGrade: 1, etude: 'etude3', heldOut: true, soundFont: 'musescore', recStyle: 'hard' }));
   // Level V: the etude with dim / aug / sus4 / m7b5 / dim7 mixed in (block chords, full mix).
   out.push(et({ level: 'V', etude: 'etudevoc' }));
   // ---- spike 2 (T23): modulation variants, L0 and LR grade 1 (piano only, MuseScore timbre) ----
