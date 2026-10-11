@@ -37,6 +37,7 @@ SWITCHES = [
     {'chords': {'seventh_mode': 'segment'}},
     {'chords': {'vocab': 'v2'}},
     {'chords': {'theory_prior': 1.0}},
+    {'chords': {'power': True}},  # T27: every chord of the synth sounds its 3rd -> no '5'
     {'sections': {'percussive_weight': 0.5}},
     {'key': {'track': 'sections', 'change_cost_mid': 2.0, 'change_cost_boundary': 0.5}},
 ]
@@ -115,6 +116,17 @@ class AnalyzeHooksTest(unittest.TestCase):
                 r = self._analyze(apply_overrides(Config(), sw))
                 self.assertEqual(_strip(r), base)  # same machine: exactly equal
                 self.assertNotEqual(r['analyzer']['configHash'], self.default['analyzer']['configHash'])
+
+    def test_candidates_only_add_a_field(self):
+        r = self._analyze(apply_overrides(Config(), {'chords': {'candidates': True}}))
+        self.assertTrue(r['chords'])
+        for c in r['chords']:
+            cands = c.pop('candidates')
+            self.assertEqual(len(cands), 3)
+            self.assertEqual(cands[0]['name'], c['text'].rstrip('?'))  # clear synth: the chosen chord ranks first
+            self.assertEqual([x['prob'] for x in cands], sorted((x['prob'] for x in cands), reverse=True))
+        self.assertEqual(_strip(r), _strip(self.default))
+        self.assertNotIn('candidates', self.default['chords'][0])
 
     def test_second_pass_runs_and_matches_first(self):
         for sw in ({'chords': {'theory_prior': 1.0}}, {'key': {'track': 'sections'}, 'chords': {'theory_prior': 0.5}}):

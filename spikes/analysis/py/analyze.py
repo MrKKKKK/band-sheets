@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dsp.audio import load_features  # noqa: E402
 from dsp.beats import track_beats  # noqa: E402
-from dsp import harmony, keytrack, seventh, vocab  # noqa: E402
+from dsp import harmony, keytrack, posterior, seventh, vocab  # noqa: E402
 from dsp.chords import NOTE_NAMES, estimate_chords, merge_chords  # noqa: E402
 from dsp.chroma import beat_chroma_bounds  # noqa: E402
 from dsp.config import Config, apply_overrides, load_config  # noqa: E402
@@ -34,9 +34,14 @@ _KEY_TRACKS = ('global', 'sections')
 
 
 def _merge(beat_chords, chroma, cfg: Config):
+    """merge -> [power: '5' per segment (T27)] -> [seventh per segment (T8)] -> [candidates (T27)]."""
     segments = merge_chords(beat_chords, cfg)
+    if cfg.chords.power:
+        segments = vocab.decide_power_segments(segments, chroma, cfg)
     if cfg.chords.seventh_mode == 'segment':
         segments = seventh.decide_segments(segments, chroma, cfg)
+    if cfg.chords.candidates:
+        segments = posterior.attach_candidates(segments, beat_chords, cfg)
     return segments
 
 

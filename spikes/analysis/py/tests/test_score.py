@@ -373,6 +373,61 @@ class VocabScoreTest(unittest.TestCase):
         self.assertIsNone(S.score(make_truth(), make_truth())["chords"]["vocab"]["bassPerBeat"])
 
 
+class SplitScoreTest(unittest.TestCase):
+    """T27: root / quality split, power chords ('5'), top-k candidates."""
+
+    def test_existing_metrics_unchanged_and_split_perfect(self):
+        t = make_truth()
+        c = S.score(t, copy.deepcopy(t))["chords"]
+        self.assertEqual((c["perBeat"], c["vocab"]["perBeat"]), (1.0, 1.0))
+        sp = c["split"]
+        self.assertEqual((sp["rootPerBeat"], sp["qualityPerBeat"], sp["powerShare"]), (1.0, 1.0, 0.0))
+        self.assertIsNone(sp["topKPerBeat"])  # no candidates in the result
+        self.assertIsNone(sp["nBeatsTopKHit"])
+
+    def test_power_result_is_root_only(self):
+        t = make_truth(chords=[ch(0, 4, "C", "maj"), ch(4, 8, "A", "min")])
+        r = make_truth(chords=[ch(0, 4, "C", "5"), ch(4, 8, "C", "maj")])
+        c = S.score(t, r)["chords"]
+        sp = c["split"]
+        self.assertEqual(sp["nBeatsScored"], 16)
+        self.assertEqual(sp["nBeatsRootHit"], 8)  # C5 has the right root; C for Am does not
+        self.assertEqual(sp["nBeatsPower"], 8)
+        self.assertEqual(sp["powerShare"], 0.5)
+        self.assertEqual((sp["nBeatsQualityScored"], sp["nBeatsQualityHit"]), (8, 0))  # C (maj) vs Am (min)
+        # existing metrics: a '5' is an unknown result quality (miss), and a vocab miss
+        self.assertEqual(c["perBeat"], 0.0)
+        self.assertEqual(c["nBeatsUnknownQualityResult"], 8)
+        self.assertEqual(c["vocab"]["nBeatsHit"], 0)
+
+    def test_quality_counted_without_root(self):
+        t = make_truth(chords=[ch(0, 8, "C", "maj7")])
+        r = make_truth(chords=[ch(0, 8, "G", "maj")])
+        sp = S.score(t, r)["chords"]["split"]
+        self.assertEqual((sp["rootPerBeat"], sp["qualityPerBeat"]), (0.0, 1.0))
+
+    def test_missing_result_is_root_and_quality_miss(self):
+        t = make_truth(chords=[ch(0, 8, "C", "maj")])
+        r = make_truth(chords=[ch(0, 4, "C", "maj")])
+        sp = S.score(t, r)["chords"]["split"]
+        self.assertEqual((sp["rootPerBeat"], sp["qualityPerBeat"]), (0.5, 0.5))
+
+    def test_top_k(self):
+        t = make_truth(chords=[ch(0, 4, "C", "maj"), ch(4, 8, "A", "min7")])
+        r0 = ch(0, 4, "G", "maj")
+        r0["candidates"] = [{"name": "G", "root": "G", "quality": "maj", "prob": 0.5},
+                            {"name": "C5", "root": "C", "quality": "5", "prob": 0.3},
+                            {"name": "Cmaj7", "root": "C", "quality": "maj7", "prob": 0.2}]
+        r1 = ch(4, 8, "C", "maj")  # no candidates: the chord itself
+        sp = S.score(t, make_truth(chords=[r0, r1]))["chords"]["split"]
+        self.assertEqual(sp["nBeatsTopKHit"], 8)  # Cmaj7 counts as C (triad class); C5 never does
+        self.assertEqual(sp["topKPerBeat"], 0.5)
+
+    def test_map_vocab_power(self):
+        self.assertEqual(S.map_vocab("5"), "5")
+        self.assertEqual(S.vocab_triad("5"), "5")
+
+
 class KeyScoreTest(unittest.TestCase):
     """4 bars of 4 beats (2 s per bar). Truth keys: C from bar 0, G from bar 2."""
 

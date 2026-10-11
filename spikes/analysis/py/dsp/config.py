@@ -71,6 +71,10 @@ class ChordsConfig:
     vocab_margin: float = 0.02  # 'v2': those only if they beat the best v1 chord by this (T21; T14 tunes)
     vocab_sus4_margin: float = 0.1  # 'v2': the same margin for sus4 alone (passing 4ths on chord changes; T21 sweep, T14 tunes)
     theory_prior: float = 0.0  # 0 = off; strength of the theory prior (T26: harmony.transition, 2nd pass)
+    power: bool = False  # T27: power chord quality '5' (root + 5th) when the 3rd is not sounded (vocab.gate_power)
+    power_third_max: float = 0.2  # T27: '5' only if the stronger 3rd (m3 / M3) <= this x the mean of root and 5th (0.3 lowered L1, T27 eval)
+    candidates: bool = False  # T27: chords[].candidates = top-k chords of the posterior over the segment
+    candidates_k: int = 3  # T27: k of the candidates
 
 
 @dataclass(frozen=True)
@@ -197,6 +201,10 @@ SPIKE1_OFF_VALUES: dict[str, dict[str, Any]] = {
         'vocab_margin': 0.02,
         'vocab_sus4_margin': 0.1,
         'theory_prior': 0.0,
+        'power': False,
+        'power_third_max': 0.2,
+        'candidates': False,
+        'candidates_k': 3,
     },
     'sections': {'percussive_weight': 0.0},
     'key': {'track': 'global', 'change_cost_mid': 0.0, 'change_cost_boundary': 0.0},

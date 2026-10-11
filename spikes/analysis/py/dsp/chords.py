@@ -24,7 +24,12 @@ Spike 2 hooks (docs/audio-spike2-plan.md §5; every default = spike 1 behaviour,
     with 4 tones counts as a seventh. vocab.gate_scores weights / gates the 'v2'-only qualities first.
   * bass_root != 'none': scores += bass_root_weight x bassroot.root_evidence (masked sevenths stay 0).
   * slash: BeatChord.bass from bassroot.bass_notes (None when equal to the root).
-  * confidence == 'posterior': posterior.chord_posterior(_BETA * scores, stay); None keeps 'margin'.
+  * confidence == 'posterior': posterior.chord_posterior(_BETA * scores, stay, n_move=vocab.move_states);
+    None keeps 'margin'.
+  * power (T27): '5' states gated by vocab.gate_power (after gate_scores); on columns read as a power chord
+    (vocab.power_columns) the bass root evidence is ignored (a 4th with no 3rd: the upper note is the root).
+  * candidates (T27): the posterior is computed and each BeatChord carries its column (BeatChord.posterior);
+    posterior.attach_candidates turns them into segment candidates.
   * prior (n_cols, n_states, n_states), log bonus per move (harmony.transition, 2nd pass): Viterbi
     with full per-column transition matrices; an all-zero prior takes the spike 1 fast path.
 """
@@ -58,6 +63,10 @@ def check_config(cfg: Config) -> None:
         v = getattr(cfg.chords, key)
         if v not in allowed:
             raise ValueError(f'unknown chords.{key}: {v!r} (expected one of {allowed})')
+    if cfg.chords.candidates_k < 1:
+        raise ValueError(f'chords.candidates_k must be >= 1, got {cfg.chords.candidates_k}')
+    if cfg.chords.power_third_max < 0:
+        raise ValueError(f'chords.power_third_max must be >= 0, got {cfg.chords.power_third_max}')
 
 
 def chord_name(root: int | None, quality: str, bass: int | None = None) -> str:
@@ -88,6 +97,9 @@ def _scores(chroma: np.ndarray, states, cfg: Config, feat: Features | None = Non
     unit = chroma / np.where(norm > 0, norm, 1.0)
     s = tpl @ unit
     s, masked = vocab.gate_scores(s, unit, states, cfg)  # 'v1': s untouched, nothing masked
+    if cc.power:
+        s, pm = vocab.gate_power(s, unit, states, cfg)
+        masked |= pm
     is_seventh = np.array([_is_seventh(q) for _, q in states])
     if is_seventh.any():
         best_triad = s[~is_seventh].max(axis=0)
@@ -188,6 +200,8 @@ def estimate_chords(
     roots = np.array([r for r, _ in states])
     if cc.bass_root != 'none':
         ev = bassroot.root_evidence(feat, bounds, cfg)
+        if cc.power:  # rule C: no 3rd -> the bass does not name the root (G under C is C5's 5th)
+            ev = np.where(vocab.power_columns(s, states)[None, :], 0.0, ev)
         s = np.where(masked, 0.0, s + cc.bass_root_weight * ev[roots])
     energy = chroma.sum(axis=0)
     silent = energy < cc.no_chord_energy
@@ -198,22 +212,25 @@ def estimate_chords(
         path = np.argmax(_median_filter(s, cc.median_width), axis=0)
     else:
         path = np.argmax(s, axis=0)
-    post = posterior.chord_posterior(_BETA * s, cc.self_transition) if cc.confidence == 'posterior' else None
+    want_post = cc.confidence == 'posterior' or cc.candidates
+    post = posterior.chord_posterior(_BETA * s, cc.self_transition, n_move=vocab.move_states(cfg)) if want_post else None
     basses = bassroot.bass_notes(feat, bounds, cfg) if cc.slash else [None] * n
     out: list[BeatChord] = []
     for t in range(n):
         if silent[t]:
-            out.append(BeatChord(root=None, quality='maj', confidence=1.0))
+            out.append(BeatChord(root=None, quality='maj', confidence=1.0,
+                                 posterior=post[:, t] if cc.candidates else None))
             continue
         r, q = states[int(path[t])]
-        if post is not None:
+        if post is not None and cc.confidence == 'posterior':
             conf = float(post[int(path[t]), t])
         else:
             others = s[roots != r, t]
             conf = float(s[int(path[t]), t] - (others.max() if others.size else 0.0))
         b = basses[t]
         bass = None if b is None or b % 12 == r else int(b) % 12
-        out.append(BeatChord(root=r, quality=q, confidence=float(min(max(conf, 0.0), 1.0)), bass=bass))
+        out.append(BeatChord(root=r, quality=q, confidence=float(min(max(conf, 0.0), 1.0)), bass=bass,
+                             posterior=post[:, t] if cc.candidates else None))
     return out
 
 
@@ -226,6 +243,7 @@ class ChordSegment:
     confidence: float  # mean over the segment's beats
     low_confidence: bool
     bass: int | None = None  # slash-chord bass (only with chords.slash)
+    candidates: tuple = ()  # T27: ((root, quality, prob), ...) top-k of the posterior (chords.candidates)
 
 
 def merge_chords(chords: list[BeatChord], cfg: Config) -> list[ChordSegment]:

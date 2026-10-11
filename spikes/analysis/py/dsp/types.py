@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -32,9 +32,11 @@ class BeatGrid:  # beats.track_beats(feat, cfg)
 @dataclass(frozen=True)
 class BeatChord:  # chords.estimate_chords(chroma, cfg, ...) -> list[BeatChord] (per column)
     root: int | None  # 0-11, None = no chord
-    quality: str  # vocab.states: v1 'maj' | 'min' | '7' | 'maj7' | 'min7'
+    quality: str  # vocab.states: v1 'maj' | 'min' | '7' | 'maj7' | 'min7' (+ v2 qualities, '5' with chords.power)
     confidence: float  # 0-1 (margin: gap between 1st and 2nd; or posterior, chords.confidence)
     bass: int | None = None  # 0-11 slash-chord bass (chords.slash); None = root position / unknown
+    # (n_states,) posterior of this column over vocab.states(cfg) (T27, chords.candidates); not part of equality
+    posterior: np.ndarray | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -67,7 +69,7 @@ class BarKey:  # keytrack.estimate(chords, bar_of_col, section_bars, cfg) -> lis
 #   bassroot.bass_notes(feat, bounds, cfg) -> list[int | None]  bass pitch class per column
 #   vocab.states(cfg) -> list[(root, quality)]; vocab.intervals(quality) -> tuple[int, ...]
 #   harmonics.templates(states, feat, cfg) -> (n_states, 12)
-#   posterior.chord_posterior(emis, stay) -> (n_states, n_cols) | None (None = keep margin confidence)
+#   posterior.chord_posterior(emis, stay, trans=None, n_move=None) -> (n_states, n_cols) | None (None = keep margin confidence)
 #   seventh.decide_segments(segments, chroma, cfg) -> segments
 #   keytrack.estimate(chords, bar_of_col, section_bars, cfg) -> list[BarKey]
 #   harmony.transition(states, bar_keys, bar_of_col, cfg) -> (n_cols, n_states, n_states) log prior, 0 = none

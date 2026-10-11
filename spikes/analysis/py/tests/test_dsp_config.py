@@ -109,7 +109,12 @@ class Spike2ConfigTest(unittest.TestCase):
         seen = {config_hash(Config())}
         for group, offs in SPIKE1_OFF_VALUES.items():
             for k, off in offs.items():
-                on = (not off) if isinstance(off, bool) else ('x' if isinstance(off, str) else off + 0.25)
+                if isinstance(off, bool):
+                    on = not off
+                elif isinstance(off, str):
+                    on = 'x'
+                else:
+                    on = off + 1 if isinstance(off, int) else off + 0.25  # int: T27 candidates_k
                 c = apply_overrides(Config(), {group: {k: on}})
                 h = config_hash(c)
                 self.assertNotIn(h, seen, f'{group}.{k}')

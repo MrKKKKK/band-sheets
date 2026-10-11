@@ -23,6 +23,9 @@ Chord rules (decision 8):
   result has root+class right AND a 7th; precision = of scored beats where the result has a 7th, the share
   where root+class is right AND the truth has a 7th. 7 vs maj7 is not distinguished. A constant triad
   analyzer gets recall 0.0 and precision None (no result 7ths).
+- Split (T27, chords.split, record only): root per beat, quality (triad class) per beat over samples whose result is
+  not a power chord '5' (nBeatsPower / powerShare report those), and top-k (truth root + triad class among the
+  result chord's `candidates`). See _score_split. A '5' result stays a miss in every metric above.
 """
 import argparse
 import bisect
@@ -73,9 +76,10 @@ def has_seventh(quality):
     return quality in SEVENTH_QUALITIES
 
 
-VOCAB_QUALITIES = ("maj", "min", "7", "maj7", "min7", "dim", "aug", "sus4", "m7b5", "dim7")
+POWER = "5"  # T27: power chord (root + 5th, no 3rd); its own triad class, so it never matches maj / min
+VOCAB_QUALITIES = ("maj", "min", "7", "maj7", "min7", "dim", "aug", "sus4", "m7b5", "dim7", POWER)
 _TRIAD_OF = {"maj": "maj", "7": "maj", "maj7": "maj", "min": "min", "min7": "min",
-             "dim": "dim", "m7b5": "dim", "dim7": "dim", "aug": "aug", "sus4": "sus4"}
+             "dim": "dim", "m7b5": "dim", "dim7": "dim", "aug": "aug", "sus4": "sus4", POWER: POWER}
 _ALTERED_FIFTH = re.compile(r"b5|#5|\+5|-5|aug|\+")
 _HAS_EXT = re.compile(r"(7|9|11|13)")
 
@@ -86,7 +90,9 @@ def map_vocab(quality):
     Returns one of VOCAB_QUALITIES, or None for a form outside the vocabulary that is dropped and counted
     (7(b5), 7(#5), aug7, mM7, sus2, or anything unparseable). Tensions (9 11 13 and their alterations), 6 and
     add9 are dropped down to the underlying chord (C6, Cadd9 -> maj; G7(#9), G9, G13 -> 7; CM9 -> maj7;
-    Dm9, Dm11 -> min7; Dm6 -> min); 7sus4 -> sus4; m7b5 / m9b5 -> m7b5."""
+    Dm9, Dm11 -> min7; Dm6 -> min); 7sus4 -> sus4; m7b5 / m9b5 -> m7b5.
+    '5' (power chord, T27) stays '5': a result '5' is root-only (quality unknown), so it is a vocab miss against
+    any truth triad; a truth '5' (rare in charts) is matched only by a result '5'."""
     if quality is None:
         return None
     q = str(quality).strip()
@@ -283,6 +289,7 @@ def _chords(truth, result):
         "nSeventhHit": seventh_hit_r,
         "majminWeighted": _majmin_weighted(tc, rc),
         "vocab": _score_vocab(eighth_pts, ttrack, rtrack),
+        "split": _score_split(eighth_pts, ttrack, rtrack),
         "nBeatsScored": scored,
         "nBeatsHit": hit,
         "nBeatsExcluded": excluded,
@@ -338,6 +345,63 @@ def _score_vocab(points, ttrack, rtrack):
         "bassPerBeat": acc["bassHit"] / acc["bassScored"] if acc["bassScored"] else None,
         "nBeatsScored": n["scored"], "nBeatsHit": n["hit"], "nBeatsTriadHit": n["triadHit"],
         "nBeatsDropped": n["dropped"], "nBassScored": n["bassScored"], "nBassHit": n["bassHit"],
+    }
+
+
+def _cand_keys(r):
+    """[(root_pc, triad class)] of a result chord's candidates (T27); the chord itself when it has none.
+    A candidate whose quality is outside the vocabulary has class None (never matches)."""
+    cands = r.get("candidates")
+    if not cands:
+        cands = [r]
+    out = []
+    for c in cands:
+        vq = map_vocab(c.get("quality"))
+        out.append((note_to_pc(c["root"]), None if vq is None else vocab_triad(vq)))
+    return out
+
+
+def _score_split(points, ttrack, rtrack):
+    """Root / quality split and top-k at [(time, weight)] points (T27). Truth goes through map_vocab (dropped forms
+    are not scored), like _score_vocab.
+    - root: result root pitch class == truth root (any result quality, '5' included); no result chord = miss.
+    - quality: triad class equal (vocab_triad, so C vs Cmaj7 counts; root not required), counted only where the
+      result quality is not '5' (nBeatsPower = scored samples whose result is '5'; a missing result is a miss).
+    - top-k: the truth (root, triad class) is among the result chord's candidates (the chord itself when it has
+      no candidates); topKPerBeat is None when no result chord carries candidates."""
+    acc = dict(scored=0.0, rootHit=0.0, power=0.0, qualScored=0.0, qualHit=0.0, topkHit=0.0)
+    has_cands = any(c.get("candidates") for c in rtrack.chords)
+    for tm, w in points:
+        t = ttrack.at(tm)
+        if t is None:
+            continue
+        tq = map_vocab(t["quality"])
+        if tq is None:
+            continue
+        tr, tcls = note_to_pc(t["root"]), vocab_triad(tq)
+        acc["scored"] += w
+        r = rtrack.at(tm)
+        if r is not None and note_to_pc(r["root"]) == tr:
+            acc["rootHit"] += w
+        rq = None if r is None else map_vocab(r["quality"])
+        if rq == POWER:
+            acc["power"] += w
+        else:
+            acc["qualScored"] += w
+            if rq is not None and vocab_triad(rq) == tcls:
+                acc["qualHit"] += w
+        if r is not None and (tr, tcls) in _cand_keys(r):
+            acc["topkHit"] += w
+    n = {k: (int(v) if float(v).is_integer() else v) for k, v in acc.items()}
+    sc = acc["scored"]
+    return {
+        "rootPerBeat": acc["rootHit"] / sc if sc else None,
+        "qualityPerBeat": acc["qualHit"] / acc["qualScored"] if acc["qualScored"] else None,
+        "topKPerBeat": (acc["topkHit"] / sc if sc else None) if has_cands else None,
+        "powerShare": acc["power"] / sc if sc else None,
+        "nBeatsScored": n["scored"], "nBeatsRootHit": n["rootHit"], "nBeatsPower": n["power"],
+        "nBeatsQualityScored": n["qualScored"], "nBeatsQualityHit": n["qualHit"],
+        "nBeatsTopKHit": n["topkHit"] if has_cands else None,
     }
 
 

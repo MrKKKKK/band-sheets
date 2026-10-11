@@ -2,7 +2,8 @@
 
 Decisions: root names use sharps (score.note_to_pc accepts both); chord segments with no chord (root None)
 are omitted (gaps = no chord); bass is None unless chords.slash finds a slash-chord bass (then the
-text is 'C/E'); chord text carries '?' for low confidence; beats carry bar/beat only from the first
+text is 'C/E'); with chords.candidates each chord carries `candidates` [{name, root, quality, prob}] (T27,
+top-k of the posterior over the segment, prob descending); chord text carries '?' for low confidence; beats carry bar/beat only from the first
 downbeat on. `keys` (per-bar key runs: startBar, tonic, mode, confidence) is written only when
 `bar_keys` is given (key.track == 'sections'), so the spike 1 output is unchanged.
 """
@@ -11,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .chords import ChordSegment, chord_text
+from .chords import ChordSegment, chord_name, chord_text
 from .config import Config, config_hash, config_summary
 from .types import BarKey, BeatChord, BeatGrid, Downbeats, Features, Section
 
@@ -63,7 +64,7 @@ def build_result(
         if s.root is None:
             continue
         bc = BeatChord(root=s.root, quality=s.quality, confidence=s.confidence, bass=s.bass)
-        chords.append({
+        entry = {
             'start': beat_time(s.start_beat),
             'end': beat_time(s.end_beat),
             'root': NOTE_NAMES[s.root % 12],
@@ -71,7 +72,11 @@ def build_result(
             'bass': NOTE_NAMES[s.bass % 12] if s.bass is not None else None,
             'text': chord_text(bc, cfg),
             'confidence': float(s.confidence),
-        })
+        }
+        if cfg.chords.candidates:
+            entry['candidates'] = [{'name': chord_name(r, q), 'root': NOTE_NAMES[r % 12], 'quality': q, 'prob': float(p)}
+                                   for r, q, p in s.candidates]
+        chords.append(entry)
 
     secs = [
         {'start': beat_time(phase + s.start_bar * bpb), 'end': beat_time(phase + s.end_bar * bpb), 'label': s.label}

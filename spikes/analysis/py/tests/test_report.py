@@ -244,5 +244,39 @@ class T20ReportTest(unittest.TestCase):
         self.assertIn("| x | 0 | 0 | - | - | 0/0/0 | - |", "\n".join(R._key_table([("x", agg)])))
 
 
+class T27ReportTest(unittest.TestCase):
+    def test_split_table(self):
+        truth = {"beats": beats(16), "chords": [ch(0, 4, "C"), ch(4, 8, "A", "min")]}
+        r1 = ch(0, 4, "C", "5")
+        r1["candidates"] = [{"name": "C5", "root": "C", "quality": "5", "prob": 0.6},
+                            {"name": "C", "root": "C", "quality": "maj", "prob": 0.4}]
+        res = {"beats": beats(16), "chords": [r1, ch(4, 8, "C")]}
+        a = R.analyze_variant(truth, res)
+        self.assertEqual(a["split"], {"nBeatsScored": 16, "nBeatsRootHit": 8, "nBeatsPower": 8,
+                                      "nBeatsQualityScored": 8, "nBeatsQualityHit": 0,
+                                      "nBeatsTopKHit": 8, "nBeatsTopKScored": 16})
+        agg = R.aggregate([a, R.analyze_variant(truth, {"beats": beats(16), "chords": [ch(0, 8, "C")]})])
+        t = "\n".join(R._split_table([("REC", agg)]))
+        # 2nd variant has no candidates: top-k is counted over the variants that have them only
+        self.assertIn("| REC | 32 | 50.0% | 33.3% | 8 | 25.0% | 50.0% |", t)
+
+    def test_split_section_in_report(self):
+        truth = {"beats": beats(16), "chords": [ch(0, 8, "C")]}
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "results"))
+            with open(os.path.join(d, "t.truth.json"), "w") as f:
+                json.dump(truth, f)
+            with open(os.path.join(d, "manifest.json"), "w") as f:
+                json.dump({"variants": [{"name": "secretrec", "song": "secretsong", "truth": "t.truth.json",
+                                         "level": "REC"}]}, f)
+            with open(os.path.join(d, "results", "secretrec.dsp-v1.json"), "w") as f:
+                json.dump({"result": {"beats": beats(16), "chords": [ch(0, 8, "C", "5")]}}, f)
+            md = R.build_report(d, "dsp-v1", log=lambda *_: None)
+        self.assertIn("## ルートと種類の分け(T27)", md)
+        self.assertIn("| REC | 16 | 100.0% | - | 16 | 100.0% | - |", md)
+        self.assertNotIn("secret", md)
+        self.assertNotIn("C5", md)
+
+
 if __name__ == "__main__":
     unittest.main()

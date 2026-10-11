@@ -72,7 +72,8 @@ class StatesTest(unittest.TestCase):
         for q in V1_QUALS + NEW_QUALS:
             self.assertEqual(S.map_vocab(q), q)  # result 'quality' field
             self.assertEqual(S.map_vocab(vocab.suffix(q)), q)  # chord text suffix
-        self.assertEqual(set(V1_QUALS + NEW_QUALS), set(S.VOCAB_QUALITIES))
+        self.assertEqual(set(V1_QUALS + NEW_QUALS + ('5',)), set(S.VOCAB_QUALITIES))  # '5': T27 power chords
+        self.assertEqual(S.map_vocab(vocab.suffix('5')), '5')
         self.assertEqual([chord_name(11, q) for q in NEW_QUALS], ['Bdim', 'Baug', 'Bsus4', 'Bm7b5', 'Bdim7'])
 
     def test_unknown_vocab_raises(self):

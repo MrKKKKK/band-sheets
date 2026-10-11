@@ -9,6 +9,8 @@ Scoring (Q6): like score.py, each truth beat is sampled at 1/4 and 3/4 of its wi
 are weighted sums in beats. Level M (mid-bar starts) is shown in its own level row only; the overall and per-song
 tables leave it out. Level REC (private recordings, R17) is shown as "REC": no chord names and no recording names
 anywhere in the report; mistakes are listed by kind only (e.g. "mistaken for a fifth above").
+Root / quality split (T27): per level, root per beat, quality per beat (result not '5'), the '5' share and top-k
+(score.py "split"); numbers only, so REC / CH stay anonymous.
 Plots (R17): the variants named by --plots (default DEFAULT_PLOTS), plus the first variant of levels LR and REC.
 
 Chord categories (truth classes maj/min only, like score.py):
@@ -220,6 +222,7 @@ def tempo_class(truth, result):
 
 
 VOCAB_COUNTS = ("nBeatsScored", "nBeatsHit", "nBeatsTriadHit", "nBeatsDropped", "nBassScored", "nBassHit")
+SPLIT_COUNTS = ("nBeatsScored", "nBeatsRootHit", "nBeatsPower", "nBeatsQualityScored", "nBeatsQualityHit")
 KEY_COUNTS = ("nBars", "nBarsHit", "nBarsNear", "nChangeRef", "nChangeEst", "nChangeHit")
 
 
@@ -230,6 +233,19 @@ def vocab_key_counts(truth, result):
     return ({c: v[c] for c in VOCAB_COUNTS} if v else None), ({c: k[c] for c in KEY_COUNTS} if k else None)
 
 
+def split_counts(truth, result):
+    """Root / quality / top-k counts for one variant (T27, score.py "split"), or None. nBeatsTopKHit is present only
+    when the result has candidates."""
+    sp = (S._chords(truth, result) or {}).get("split")
+    if not sp:
+        return None
+    out = {c: sp[c] for c in SPLIT_COUNTS}
+    if sp.get("nBeatsTopKHit") is not None:
+        out["nBeatsTopKHit"] = sp["nBeatsTopKHit"]
+        out["nBeatsTopKScored"] = sp["nBeatsScored"]
+    return out
+
+
 def analyze_variant(truth, result):
     beats = chord_beats(truth, result)
     vocab, keys = vocab_key_counts(truth, result)
@@ -237,7 +253,7 @@ def analyze_variant(truth, result):
     return {"n": sum(b[4] for b in beats), "cats": cats, "pairs": pairs, "kinds": kind_counts(beats),
             "calib": calibration(beats),
             "qsplit": question_split(beats), "phase": phase_error(truth, result),
-            "tempo": tempo_class(truth, result), "vocab": vocab, "keys": keys}
+            "tempo": tempo_class(truth, result), "vocab": vocab, "keys": keys, "split": split_counts(truth, result)}
 
 
 # ---------------- aggregation ----------------
@@ -245,9 +261,12 @@ def analyze_variant(truth, result):
 def aggregate(items):
     agg = {"variants": 0, "n": 0, "cats": Counter(), "pairs": Counter(), "kinds": Counter(), "calib": [[0, 0] for _ in range(N_BINS)],
            "qsplit": {"?": [0, 0], "plain": [0, 0]}, "phase": Counter(), "phaseVariants": Counter(),
-           "tempo": Counter(), "vocab": Counter(), "vocabVariants": 0, "keys": Counter(), "keyVariants": 0}
+           "tempo": Counter(), "vocab": Counter(), "vocabVariants": 0, "keys": Counter(), "keyVariants": 0,
+           "split": Counter()}
     for a in items:
         agg["variants"] += 1
+        if a.get("split"):
+            agg["split"].update(a["split"])
         if a.get("vocab"):
             agg["vocab"].update(a["vocab"])
             agg["vocabVariants"] += 1
@@ -428,6 +447,18 @@ def _vocab_table(rows):
     return lines
 
 
+def _split_table(rows):
+    """rows: [(label, agg)] -> root / quality (beats whose result is not '5') / top-k / '5' share (T27)."""
+    lines = ["| 対象 | 拍数 | ルート/拍 | 種類/拍('5' 以外) | `5` の拍 | `5` の割合 | 候補内/拍 |", "|---|---|---|---|---|---|---|"]
+    for label, a in rows:
+        sp = a["split"]
+        n = sp["nBeatsScored"]
+        lines.append(f"| {label} | {_num(n)} | {_pct(sp['nBeatsRootHit'], n)} | "
+                     f"{_pct(sp['nBeatsQualityHit'], sp['nBeatsQualityScored'])} | {_num(sp['nBeatsPower'])} | "
+                     f"{_pct(sp['nBeatsPower'], n)} | {_pct(sp['nBeatsTopKHit'], sp['nBeatsTopKScored'])} |")
+    return lines
+
+
 def _key_table(rows):
     """rows: [(label, agg)] -> key per bar, near key per bar (record), key-change F (+-1 bar); only variants with truth keys."""
     lines = ["| 対象 | 調つき変化形数 | 小節数 | 調/小節 | 近い調/小節(記録) | 変わり目 正解/解析/一致 | 変わり目 F |",
@@ -504,6 +535,11 @@ def build_report(out_dir, analyzer, only=None, plots=None, log=print):
           "(7・M7→maj、m7→min、m7b5・dim7→dim)。外した拍は語彙に無い形(`7(b5)`・`7(#5)`・`aug7`・`mM7`・`sus2` など)で採点しない拍。"
           "ベースの当たりは正解に分数コードのある拍だけの記録。", ""]
     L += _vocab_table([(_level_label(l), by_level[l]) for l in levels] + [("全体", total)])
+    L += ["", "## ルートと種類の分け(T27)", "",
+          "正解は語彙の対応の規則で直す。ルート/拍は解析のルートが正解と同じ割合(`5` も数える)。種類/拍は 3和音の種類が同じ割合"
+          "(ルートは問わない。解析が `5` の拍は数えない)。候補内/拍は正解(ルート+3和音の種類)が解析の候補(上位 k)に入る割合"
+          "(候補の無い解析は `-`)。", ""]
+    L += _split_table([(_level_label(l), by_level[l]) for l in levels] + [("全体", total)])
     L += ["", "## 調(正解に調の注記がある変化形だけ)", "",
           "小節ごとに主音と長短が一致した割合。近い調は同じ調・平行調・同主調・5度隣の調のどれか(記録)。変わり目 F は ±1 小節で照合。", ""]
     L += _key_table([(_level_label(l), by_level[l]) for l in levels] + [("全体", total)])
