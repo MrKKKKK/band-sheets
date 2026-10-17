@@ -8,6 +8,7 @@
 #          T14 changed [stage] tonic, [change] mid / boundary and [resolution] triad only; which chord belongs to
 #          which list is music theory — change it only after fixing the note.
 #          T14b (note v3, user decision 2026-10-17): [stage] dominant (new) and tonic; the rest flat, kept.
+#          T14c (phrase framing, user decision 2026-10-17): [phrase] bars; the rest kept.
 #
 # A chord is written "<degree> <quality>": degree = semitones above the key's tonic (0-11),
 # quality = analyzer chord quality (maj min 7 maj7 min7 dim aug m7b5 dim7 sus4).
@@ -49,6 +50,13 @@ near_factor = 0.75 # multiplier for near keys: dominant, subdominant, relative, 
 dominant7 = 0.6    # bonus added to the target key's score on the dominant's bar and the target's bar
 triad = 0.6        # same for a plain major triad as the dominant (also plain I -> IV motion). T14: 0.3 -> 0.6 (0.3-1.0 flat)
 min_bars = 2       # T14: 2 / 3 / 4 flat, kept 2
+
+[phrase]  # phrase framing (note §5.0, T14c, user decision 2026-10-17): a phrase = `bars` bars from bar 0, restarted at
+# every detected section start. A resolution counts as key evidence only when its target chord frames a phrase (covers
+# its first or last beat: what a phrase / loop starts or ends on). C E7 Am F: E7 -> Am is mid-phrase = a tonicization
+# of vi (V/vi), not A minor.
+bars = 8           # 0 = off (every resolution counts, T14b). T14c: 8 (4 .609, 8 .632, 16 .637 CH key/bar; 8 = a pop
+                   # phrase / period; a phrase-edge tonic bonus was tried and lowered CH key/bar, so it is not used)
 
 [confidence]  # tuning only (not theory): scores x scale before the per-bar posterior (forward-backward)
 scale = 5.0

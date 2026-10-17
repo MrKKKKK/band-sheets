@@ -154,6 +154,7 @@ class Resolution:
     tonic: int  # target root = tonic of the key it points to
     mode: str  # 'major' | 'minor' (from the target chord's quality)
     kind: str  # 'dominant7' | 'triad' ([resolution] weight name)
+    target_cols: tuple[int, int] = (0, 0)  # columns [start, end) of the target chord segment
 
 
 _MAX_PASSES = 4
@@ -175,21 +176,50 @@ def _resolution_kind(dom: BeatChord, tgt: BeatChord) -> str | None:
 
 def resolutions(chords: list[BeatChord], bar_of_col: np.ndarray) -> list[Resolution]:
     """Dominant -> target pairs between consecutive chord segments (no-chord columns break the chain)."""
-    segs: list[tuple[BeatChord, int]] = []  # (chord, bar of its first column)
+    segs: list[tuple[BeatChord, int, int]] = []  # (chord, bar of its first column, first column)
     prev_key = None
-    for ch, b in zip(chords, np.asarray(bar_of_col, dtype=int)):
+    for c, (ch, b) in enumerate(zip(chords, np.asarray(bar_of_col, dtype=int))):
         key = (ch.root, ch.quality)
         if key != prev_key:
-            segs.append((ch, int(b)))
+            segs.append((ch, int(b), c))
             prev_key = key
+    ends = [s[2] for s in segs[1:]] + [len(chords)]
     out = []
-    for (dom, db), (tgt, tb) in zip(segs, segs[1:]):
+    for i, ((dom, db, _), (tgt, tb, tc)) in enumerate(zip(segs, segs[1:])):
         if dom.root is None or tgt.root is None or tgt.quality not in _TARGET_MODE or tb < 0:
             continue
         kind = _resolution_kind(dom, tgt)
         if kind:
-            out.append(Resolution(max(db, 0), tb, tgt.root % 12, _TARGET_MODE[tgt.quality], kind))
+            out.append(Resolution(max(db, 0), tb, tgt.root % 12, _TARGET_MODE[tgt.quality], kind, (tc, ends[i + 1])))
     return out
+
+
+def phrases(bar_of_col: np.ndarray, section_bars: list[int], n_bars: int, length: int) -> list[tuple[int, int]]:
+    """Phrase units [first column, last column] (inclusive): `length`-bar groups counted from bar 0 and restarted at
+    every detected section start (note §5.0 phrase framing). length <= 0 -> [] (framing off)."""
+    if length <= 0 or n_bars <= 0:
+        return []
+    bar_of_col = np.asarray(bar_of_col, dtype=int)
+    starts = sorted({0} | {int(b) for b in section_bars if 0 < int(b) < n_bars})
+    bounds: list[int] = []
+    for a, z in zip(starts, starts[1:] + [n_bars]):
+        bounds += list(range(a, z, length))
+    out = []
+    for a, z in zip(bounds, bounds[1:] + [n_bars]):
+        cols = np.flatnonzero((bar_of_col >= a) & (bar_of_col < z))
+        if len(cols):
+            out.append((int(cols[0]), int(cols[-1])))
+    return out
+
+
+def frames_phrase(r: Resolution, units: list[tuple[int, int]]) -> bool:
+    """True when the resolution's target chord frames a phrase: it covers the phrase's first or last column (the
+    chord a phrase / loop starts or ends on). A target in the middle of a phrase that starts and ends elsewhere (C E7
+    Am F) is a tonicization of that chord, not evidence for its key (note §5.0, T14c). No phrases -> True."""
+    if not units:
+        return True
+    a, z = r.target_cols
+    return any(a <= p0 < z or a <= p1 < z for p0, p1 in units)
 
 
 def _bar_diatonic(chords: list[BeatChord], bar_of_col: np.ndarray, n_bars: int, fit: np.ndarray,
@@ -233,15 +263,16 @@ def _modulates(dia: np.ndarray, target_bar: int, new: int, prev: int, n_need: in
     return end_counts
 
 
-def _resolution_bonus(chords, bar_of_col, n_bars, path0, table) -> np.ndarray:
+def _resolution_bonus(chords, bar_of_col, n_bars, path0, table, units=()) -> np.ndarray:
     """(n_bars, 24) bonus from the resolutions; path0 = None applies every 'dominant7' resolution without the
-    tonicization test (the first guess: plain triads are left out, since I -> IV looks like V -> I)."""
+    tonicization test (the first guess: plain triads are left out, since I -> IV looks like V -> I). Only resolutions
+    whose target frames a phrase (`units`, frames_phrase) count, in every pass."""
     res = table['resolution']
     n_need = int(res['min_bars'])
     dia = _bar_diatonic(chords, bar_of_col, n_bars, fit_matrix(table), float(table['stage']['diatonic']),
                         neutral_matrix(table))
     bonus = np.zeros((n_bars, 24))
-    res_list = resolutions(chords, bar_of_col)
+    res_list = [r for r in resolutions(chords, bar_of_col) if frames_phrase(r, list(units))]
     for r in res_list:
         k = key_index(r.tonic, r.mode)
         if path0 is None:
@@ -299,12 +330,13 @@ def estimate(chords: list[BeatChord], bar_of_col: np.ndarray, section_bars: list
         return -(bnd if b in boundaries else mid) * near
 
     if profile == 'theory':
+        units = phrases(bar_of_col, section_bars, n_bars, int(table.get('phrase', {}).get('bars', 0)))
         # first guess: every dominant-7th-type resolution counts (relative keys share all chords, so the
         # bonus-free path is no guide to "the key before the cadence"); then test each one against the latest path
         base = em
-        path = _viterbi(base + _resolution_bonus(chords, bar_of_col, n_bars, None, table), trans)
+        path = _viterbi(base + _resolution_bonus(chords, bar_of_col, n_bars, None, table, units), trans)
         for _ in range(_MAX_PASSES):  # the "key before the cadence" comes from the previous pass
-            em = base + _resolution_bonus(chords, bar_of_col, n_bars, path, table)
+            em = base + _resolution_bonus(chords, bar_of_col, n_bars, path, table, units)
             new = _viterbi(em, trans)
             if np.array_equal(new, path):
                 break

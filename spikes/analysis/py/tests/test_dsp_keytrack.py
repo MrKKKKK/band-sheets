@@ -114,6 +114,32 @@ class EstimateTest(unittest.TestCase):
                                  [0], CFG)
         self.assertEqual({(k.tonic, k.mode) for k in keys}, {(C, 'major')})
 
+    def test_phrases_restart_at_sections(self):
+        _, boc = bars(*[(C, 'maj')] * 20, beats=2, pickup=1)
+        units = keytrack.phrases(boc, [12], 20, 8)
+        self.assertEqual(units, [(1, 16), (17, 24), (25, 40)])  # bars 0-7, 8-11 (section at 12), 12-19; no pickup
+        self.assertEqual(keytrack.phrases(boc, [12], 20, 0), [])
+
+    def test_resolution_counts_only_when_its_target_frames_a_phrase(self):
+        chords, boc = bars((C, 'maj'), (E, '7'), (A, 'min'), (F, 'maj'), (G, '7'), (C, 'maj'))
+        units = keytrack.phrases(boc, [0], 6, 4)  # bars 0-3, 4-5
+        got = {(r.tonic, r.mode): keytrack.frames_phrase(r, units) for r in keytrack.resolutions(chords, boc)}
+        self.assertEqual(got, {(A, 'minor'): False, (C, 'major'): True})  # Am mid-phrase; C ends the last phrase
+
+    def test_v7_of_vi_inside_major_phrases_keeps_the_major_key(self):
+        # user 2026-10-17: C E7 Am F as one phrase unit is C major (E7 -> Am = V/vi, a tonicization of vi), even with
+        # many E7 -> Am and a single final G7 -> C
+        keys = keytrack.estimate(*bars(*[(C, 'maj'), (E, '7'), (A, 'min'), (F, 'maj')] * 4, (G, '7'), (C, 'maj')),
+                                 [0], CFG)
+        self.assertEqual({(k.tonic, k.mode) for k in keys}, {(C, 'major')})
+
+    def test_minor_framed_phrases_stay_minor(self):
+        for phrase, tail in (([(A, 'min'), (D, 'min'), (E, '7'), (A, 'min')], []),
+                             ([(A, 'min'), (F, 'maj'), (G, 'maj'), (E, '7')], [(A, 'min')])):
+            with self.subTest(phrase=phrase):
+                keys = keytrack.estimate(*bars(*phrase * 4, *tail), [0], CFG)
+                self.assertEqual({(k.tonic, k.mode) for k in keys}, {(A, 'minor')})
+
     def test_empty(self):
         self.assertEqual(keytrack.estimate([], np.zeros(0, int), [0], CFG), [])
 
