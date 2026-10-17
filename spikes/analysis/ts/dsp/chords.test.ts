@@ -108,6 +108,38 @@ describe('estimateChords (hand-made chroma)', () => {
   });
 });
 
+describe('prior forms', () => {
+  it('row provider is bit-identical to the flat array; timing at n=1200', () => {
+    const k = 120;
+    const n = 1200;
+    let seed = 12345;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const cols = Array.from({ length: n }, (_, t) => [[0, 4, 7], [7, 11, 2], [9, 0, 4], [5, 9, 0]][Math.floor(t / 8) % 4]);
+    const chroma = chromaOf(cols);
+    for (const perBeat of [1, 2]) {
+      const rows = n / perBeat;
+      const flat = Float64Array.from({ length: rows * k * k }, () => (rnd() - 0.5) * 3);
+      const provider = { rows, row: (r: number) => flat.subarray(r * k * k, (r + 1) * k * k) };
+      const t0 = performance.now();
+      const a = estimateChords(chroma, n, cfg, { prior: flat, perBeat });
+      const t1 = performance.now();
+      const b = estimateChords(chroma, n, cfg, { prior: provider, perBeat });
+      const t2 = performance.now();
+      console.log(`[T7c] perBeat=${perBeat} flat ${(t1 - t0).toFixed(0)} ms, provider ${(t2 - t1).toFixed(0)} ms`);
+      expect(b.map((c) => [c.root, c.quality, c.confidence])).toEqual(a.map((c) => [c.root, c.quality, c.confidence]));
+    }
+    const beatRows = Float64Array.from({ length: (n / 2) * k * k }, () => rnd() - 0.5);
+    const prov = { rows: n / 2, row: (r: number) => beatRows.subarray(r * k * k, (r + 1) * k * k) };
+    const x = estimateChords(chroma, n, cfg, { prior: prov, perBeat: 2 });
+    const y = estimateChords(chroma, n, cfg, { prior: beatRows, perBeat: 2 });
+    expect(x.map((c) => [c.root, c.quality])).toEqual(y.map((c) => [c.root, c.quality]));
+    expect(() => estimateChords(chroma, n, cfg, { prior: { rows: 7, row: () => beatRows } })).toThrow(/prior/);
+    // isZero -> fast path, same as no prior
+    const z = estimateChords(chroma, n, cfg, { prior: { rows: n, row: () => { throw new Error('unused'); }, isZero: () => true } });
+    expect(z.map((c) => c.root)).toEqual(estimateChords(chroma, n, cfg).map((c) => c.root));
+  });
+});
+
 describe('chordPosterior', () => {
   it('uniform emissions give uniform posterior; ties are exact', () => {
     const p = chordPosterior(new Float64Array(3 * 4), 3, 4, 0.6);

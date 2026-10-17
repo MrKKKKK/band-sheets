@@ -169,7 +169,7 @@ function viterbi(
   k: number,
   n: number,
   stay0: number,
-  prior: Float32Array | Float64Array | null,
+  prior: Prior | null,
   perBeat: number,
   nMove: number,
 ): Int32Array {
@@ -180,10 +180,22 @@ function viterbi(
   const logp = new Float64Array(k * n);
   for (let i = 0; i < k * n; i++) logp[i] = BETA * emis[i];
   let usePrior = false;
-  if (prior) for (let i = 0; i < prior.length; i++) if (prior[i] !== 0) { usePrior = true; break; }
+  let provider: PriorRows | null = null;
+  let flatPrior: Float32Array | Float64Array | null = null; // flat form: index with a row offset, no subarray
+  if (prior) {
+    if ('row' in prior) {
+      provider = prior;
+      usePrior = !(prior.isZero?.() ?? false);
+    } else {
+      const flat = prior;
+      for (let i = 0; i < flat.length; i++) if (flat[i] !== 0) { usePrior = true; break; }
+      flatPrior = flat;
+      provider = { rows: flat.length / (k * k), row: () => flat };
+    }
+  }
   let rowDiv = 1; // columns per prior row
-  if (usePrior && prior) {
-    const rows = prior.length / (k * k);
+  if (usePrior && provider) {
+    const rows = provider.rows;
     if (rows === n) rowDiv = 1;
     else if (perBeat > 1 && rows * perBeat === n) rowDiv = perBeat; // beat-level prior: repeated per column
     else throw new Error(`prior has ${rows} rows != ${n} columns`);
@@ -204,19 +216,21 @@ function viterbi(
         next[j] = (useStay ? stayV : move) + logp[j * n + t];
       }
     } else {
-      const base = Math.floor(t / rowDiv) * k * k;
+      const r = Math.floor(t / rowDiv);
+      const P = flatPrior ?? (provider as PriorRows).row(r);
+      const o = flatPrior ? r * k * k : 0;
       for (let j = 0; j < k; j++) {
         // cand[i][j] = delta[i] + trans[i][j] + prior[t][i][j]; argmax over i, first max wins
         let bestI = 0;
         let bestV = -Infinity;
         for (let i = 0; i < k; i++) {
-          const c = delta[i] + (i === j ? lStay : lMove) + (prior as ArrayLike<number>)[base + i * k + j];
+          const c = delta[i] + (i === j ? lStay : lMove) + P[o + i * k + j];
           if (c > bestV) {
             bestV = c;
             bestI = i;
           }
         }
-        const stayC = delta[j] + lStay + (prior as ArrayLike<number>)[base + j * k + j];
+        const stayC = delta[j] + lStay + P[o + j * k + j];
         const b = stayC >= bestV ? j : bestI;
         back[j * n + t] = b;
         next[j] = (b === j ? stayC : bestV) + logp[j * n + t];
@@ -232,9 +246,18 @@ function viterbi(
   return path;
 }
 
+/** Lazy prior: `rows` rows of a [k, k] log-bonus matrix (flattened, index i * k + j = from i to j). */
+export interface PriorRows {
+  rows: number;
+  row(r: number): ArrayLike<number>;
+  /** true -> the prior is all zero (fast path). Without it the prior is assumed non-zero. */
+  isZero?(): boolean;
+}
+export type Prior = Float32Array | Float64Array | PriorRows;
+
 export interface EstimateOptions {
   /** 2nd-pass theory prior [rows, k, k] flattened; rows == n columns or n / perBeat beats. */
-  prior?: Float32Array | Float64Array | null;
+  prior?: Prior | null;
   perBeat?: number;
 }
 
