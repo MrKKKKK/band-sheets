@@ -60,10 +60,10 @@ def _strip(r: dict) -> dict:
 
 
 def _close(a, b, path='$'):
-    """Exact for everything but floats; floats equal up to 1e-9 relative (CI runs outside the
-    Docker image, so the last bits of BLAS results may differ). Returns a mismatch path or None."""
+    """Exact for everything but floats; floats equal up to 1e-6 relative (CI runs outside the
+    Docker image, so the last bits of BLAS results may differ; observed ~1e-8). Returns a mismatch path or None."""
     if isinstance(a, float) or isinstance(b, float):
-        ok = isinstance(a, (int, float)) and isinstance(b, (int, float)) and math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-12)
+        ok = isinstance(a, (int, float)) and isinstance(b, (int, float)) and math.isclose(a, b, rel_tol=1e-6, abs_tol=1e-9)
         return None if ok else f'{path}: {a!r} != {b!r}'
     if type(a) is not type(b):
         return f'{path}: type {type(a).__name__} != {type(b).__name__}'
