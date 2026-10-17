@@ -103,6 +103,19 @@ class CompareResultsTest(unittest.TestCase):
         b['beats'][0]['t'] = 1.0
         self.assertEqual(P.compare_results(a, b)['diffs'], [])
 
+    def test_wav_mode_beat_fraction(self):
+        a = {'beats': [{'t': i * 0.5} for i in range(200)], 'chords': [{'start': 0.0, 'end': 1.0}]}
+        b = {'beats': [{'t': i * 0.5} for i in range(200)], 'chords': [{'start': 0.0, 'end': 1.0}]}
+        b['beats'][5]['t'] += 4.5e-5
+        b['beats'][6]['t'] += 1.0e-2   # 1 late beat of 200 is within 1 %
+        self.assertEqual(len(P.compare_results(a, b)['diffs']), 2)  # strict
+        self.assertEqual([d[0] for d in P.compare_results(a, b, 5e-3, 1e-4, 0.01)['diffs']], [])
+        b['beats'][7]['t'] += 1.0e-2
+        b['beats'][8]['t'] += 1.0e-2   # 3 late beats of 200 > 1 %
+        self.assertEqual(len(P.compare_results(a, b, 5e-3, 1e-4, 0.01)['diffs']), 3)
+        b['chords'][0]['end'] += 1.0e-2  # non-beat times never get the fraction
+        self.assertIn('.chords[0].end', [d[0] for d in P.compare_results(a, b, 5e-3, 1e-4, 0.5)['diffs']])
+
     def test_fmt_diff_hides_values_for_private(self):
         d = ('.chords[3].text', 'value', 'C', 'D')
         self.assertEqual(P.fmt_diff(d, True), '.chords[3].text (value)')

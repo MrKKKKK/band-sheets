@@ -11,6 +11,10 @@ Inputs: a result directory holds one JSON per variant, `<variant>.dsp-v1.json` (
 scorer is identical. Variants = the tuning (dev) variants of tools/common.dev_variants (no held-out, no REC) that
 exist on both sides.
 
+--mode y (strict, Python's y injected: times 1e-6 s, floats 1e-4) or wav (own resampler, plan §4 end-to-end: beat
+times within 5 ms on 99 % of the beats, other times 5 ms, floats 1e-4). Default: y when the TS dir name ends in
+`-y`, else wav. Structure / strings (incl. the `?` marks) / integers are exact in both. --time-tol overrides.
+
 Direct comparison (T19): the two result JSONs of each variant are compared field by field, everything except
 `analyzer.timingsSec`. Structure, strings, booleans and integers must be equal; times (t / start / end / durationSec)
 within --time-tol seconds; every other float (confidences, probabilities, ...) within --float-tol. This covers fields
@@ -56,6 +60,10 @@ METRICS = [
     ('key_reg', 'key regions', lambda s: _g(s, 'keys', 'changeF'), None),
 ]
 TIME_TOL = 1e-6
+# --mode wav (own resampler, plan §4 end-to-end table): beats within 5 ms on 99 % of the beats, other times 5 ms.
+WAV_TIME_TOL = 5e-3
+WAV_BEAT_FRAC = 0.01
+BEAT_T = re.compile(r'^\.beats\[\d+\]\.t$')
 TIME_TOL_USED = [TIME_TOL]  # set by main() for the report header
 FLOAT_TOL_USED = [1e-4]
 FLOAT_TOL = 1e-4
@@ -80,7 +88,7 @@ def _isnum(x):
     return (_isint(x) or isinstance(x, float))
 
 
-def compare_results(a, b, time_tol=TIME_TOL, float_tol=FLOAT_TOL):
+def compare_results(a, b, time_tol=TIME_TOL, float_tol=FLOAT_TOL, beat_frac=0.0):
     """Direct deep comparison of two result dicts. Returns {'diffs': [(path, kind, a, b)], 'maxTime', 'maxFloat'}.
 
     kind: 'type' | 'keys' | 'length' | 'value' (exact mismatch) | 'time' | 'float' (over tolerance).
@@ -128,6 +136,10 @@ def compare_results(a, b, time_tol=TIME_TOL, float_tol=FLOAT_TOL):
             diffs.append((path, 'value', x, y))
 
     walk(a, b, '', None)
+    if beat_frac:  # up to beat_frac of the beats may exceed time_tol (wav mode)
+        late = [d for d in diffs if d[1] == 'time' and BEAT_T.match(d[0])]
+        if len(late) <= beat_frac * len(a.get('beats') or []):
+            diffs = [d for d in diffs if d not in late]
     return {'diffs': diffs, **mx}
 
 
@@ -205,13 +217,13 @@ def question_stats(a, b):
     return qa / n, qb / n, same / n, unexpl / n
 
 
-def row_for(name, truth, ra, rb, time_tol=TIME_TOL, float_tol=FLOAT_TOL):
+def row_for(name, truth, ra, rb, time_tol=TIME_TOL, float_tol=FLOAT_TOL, beat_frac=0.0):
     sa, sb = S.score(truth, ra), S.score(truth, rb)
     row = {'name': name, 'm': {k: (g(sa), g(sb)) for k, _, g, _ in METRICS}}
     row['q'] = question_stats(ra, rb)
     row['beat5'], row['phase'] = beat_match(ra, rb)
     row['tempo'] = tempo_differs(ra, rb)
-    row['direct'] = compare_results(ra, rb, time_tol, float_tol)
+    row['direct'] = compare_results(ra, rb, time_tol, float_tol, beat_frac)
     return row
 
 
@@ -263,7 +275,7 @@ def level_key(g):
     return order.index(g) if g in order else len(order)
 
 
-def build(out_dir, py_dir, ts_dir, only=None, time_tol=TIME_TOL, float_tol=FLOAT_TOL):
+def build(out_dir, py_dir, ts_dir, only=None, time_tol=TIME_TOL, float_tol=FLOAT_TOL, beat_frac=0.0):
     rows, missing = [], []
     for name, grp, _song, _wav, truth in common.dev_variants(out_dir):
         if only and not any(fnmatch.fnmatch(name, g) for g in only):
@@ -274,7 +286,7 @@ def build(out_dir, py_dir, ts_dir, only=None, time_tol=TIME_TOL, float_tol=FLOAT
             continue
         with open(os.path.join(out_dir, truth)) as f:
             tr = json.load(f)
-        r = row_for(name, tr, ra, rb, time_tol, float_tol)
+        r = row_for(name, tr, ra, rb, time_tol, float_tol, beat_frac)
         r['group'] = group_of(grp)
         rows.append(r)
     return rows, missing
@@ -372,7 +384,8 @@ def main(argv=None):
     ap.add_argument('--py-label', default='Python')
     ap.add_argument('--ts-label', default='TS')
     ap.add_argument('--only', help='comma list of globs on variant names')
-    ap.add_argument('--time-tol', type=float, default=TIME_TOL, help='direct comparison: seconds for t/start/end/durationSec')
+    ap.add_argument('--mode', choices=('y', 'wav'), help='y: strict (Python y injected); wav: plan §4 end-to-end rules')
+    ap.add_argument('--time-tol', type=float, help='direct comparison: seconds for t/start/end/durationSec (default per mode)')
     ap.add_argument('--float-tol', type=float, default=FLOAT_TOL, help='direct comparison: other floats')
     ap.add_argument('--allow', action='append', default=[], metavar='VARIANT=REASON',
                     help='waive one variant (repeatable); the reason is printed in the report')
@@ -386,8 +399,13 @@ def main(argv=None):
         if not reason:
             ap.error(f'--allow {item!r}: a reason is required (VARIANT=REASON)')
         allow[name] = reason
-    TIME_TOL_USED[0], FLOAT_TOL_USED[0] = a.time_tol, a.float_tol
-    rows, missing = build(a.out_dir, py_dir, ts_dir, a.only.split(',') if a.only else None, a.time_tol, a.float_tol)
+    mode = a.mode or ('y' if os.path.basename(os.path.normpath(ts_dir)).endswith('-y') else 'wav')
+    time_tol = a.time_tol if a.time_tol is not None else (TIME_TOL if mode == 'y' else WAV_TIME_TOL)
+    beat_frac = 0.0 if mode == 'y' else WAV_BEAT_FRAC
+    print(f'mode: {mode} (time tol {time_tol:g} s' + (f', {beat_frac:.0%} of beats may exceed it' if beat_frac else '') + ')',
+          file=sys.stderr)
+    TIME_TOL_USED[0], FLOAT_TOL_USED[0] = time_tol, a.float_tol
+    rows, missing = build(a.out_dir, py_dir, ts_dir, a.only.split(',') if a.only else None, time_tol, a.float_tol, beat_frac)
     text = render(rows, missing, a.py_label, a.ts_label, allow)
     failing = [r for r in rows if r['name'] not in allow and (r['direct']['diffs'] or exceeded(r))]
     if a.output:
