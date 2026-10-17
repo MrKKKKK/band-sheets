@@ -1,11 +1,11 @@
 /**
- * Vite config for the T8 bench page only (not the app). Serve inside the devcontainer:
+ * Vite config for the T16 bench page only (not the app). Serve inside the devcontainer:
  *   docker exec -u node -w /workspaces/band-sheets band-sheets \
  *     npx vite --config spikes/analysis/ts/browser/vite.config.ts
  * then open http://localhost:5180/bench.html. `server.host: true` because localhost is ::1 in the
  * container (CLAUDE.md). The dev server's client always opens a (same-origin) WebSocket, so the
  * Playwright spec measures a production build served by `vite preview` instead (no WebSocket, no
- * @vite/client): `npx vite build --config ... && npx vite preview --config ...` (out/t8/dist).
+ * @vite/client): `npx vite build --config ... && npx vite preview --config ...` (out/t16/dist).
  * Dev-only middleware serves the dev synthetic clip from gitignored out/ (never committed, never a
  * held-out variant or recording): ./clip.wav (44.1 kHz render) and ./clip-y.f32 (Python's
  * librosa.load of the same file, for the resampler comparison). Without out/ they 404 and the page
@@ -49,7 +49,7 @@ export default defineConfig({
   preview: { host: true, port: 5181, strictPort: true },
   worker: { format: 'es' },
   build: {
-    outDir: join(OUT, 't8', 'dist'),
+    outDir: join(OUT, 't16', 'dist'),
     emptyOutDir: true,
     rollupOptions: { input: join(import.meta.dirname, 'bench.html') },
   },

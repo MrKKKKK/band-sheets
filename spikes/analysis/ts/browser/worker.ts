@@ -1,11 +1,13 @@
 /**
  * The analysis Worker (plan section 2 "画面": analysis off the main thread). Receives the decoded mono
- * signal at its own rate (transferred, no copy), runs the vertical slice and posts per-stage stats.
+ * signal at its own rate (transferred, no copy), resamples to 22050 Hz, runs the full analyzer (dsp/analyze.ts) and posts per-stage stats.
  * Defence in depth for the privacy rule: network APIs are removed from the Worker's global scope
  * before any message is handled (the analysis code never uses them anyway).
  */
 import type { RunRequest, WorkerMessage } from './protocol';
-import { runSlice } from './slice';
+import { analyze } from '../dsp/analyze';
+import { MemTracker } from '../dsp/core/mem';
+import { resampleSinc, toMono } from '../dsp/core/resample';
 
 interface WorkerScope {
   postMessage(m: WorkerMessage): void;
@@ -37,11 +39,34 @@ scope.onmessage = (e) => {
   const req = e.data;
   if (req.type !== 'run') return;
   try {
-    const result = runSlice(
-      { channels: req.channels, sr: req.sr },
-      { onStage: (stage) => scope.postMessage({ type: 'stage', id: req.id, stage }) },
-    );
-    scope.postMessage({ type: 'done', id: req.id, result, workerHeap: heap() });
+    const mem = new MemTracker();
+    const t0 = performance.now();
+    for (const c of req.channels) mem.adopt(c);
+    const mono = toMono(req.channels);
+    if (mono !== req.channels[0]) mem.adopt(mono);
+    const y = resampleSinc(mono, req.sr, 22050, {}, mem);
+    if (y !== mono) mem.release(...req.channels, ...(mono !== req.channels[0] ? [mono] : []));
+    const resampleMs = performance.now() - t0;
+    const resampleStat = { name: 'resample', ms: resampleMs, memLive: mem.live, memPeak: mem.peak };
+    scope.postMessage({ type: 'stage', id: req.id, stage: resampleStat });
+    const out = analyze(y, {
+      mem,
+      preTimings: { resample: resampleMs / 1000 },
+      onStage: (stage) => scope.postMessage({ type: 'stage', id: req.id, stage }),
+    });
+    const r = out.result;
+    const summary = {
+      stages: [resampleStat, ...out.stats],
+      resampleMs,
+      totalMs: performance.now() - t0,
+      memPeak: out.mem.peak,
+      beats: r.beats.length,
+      chords: r.chords.length,
+      sections: r.sections.length,
+      resultJsonBytes: JSON.stringify(r).length,
+      warnings: r.analyzer.warnings ?? [],
+    };
+    scope.postMessage({ type: 'done', id: req.id, summary, workerHeap: heap() });
   } catch (err) {
     scope.postMessage({ type: 'error', id: req.id, message: err instanceof Error ? err.message : String(err) });
   }

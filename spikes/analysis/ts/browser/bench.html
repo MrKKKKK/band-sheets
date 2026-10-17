@@ -87,7 +87,7 @@
     </style>
   </head>
   <body>
-    <h1>解析の計測（スパイク 3 T8）</h1>
+    <h1>解析の計測（スパイク 3 T16 全体）</h1>
     <p class="note">
       音はこのページの中だけで使います。どこにも送りません。1・3・5 分の音は、1 分ほどの合成音をつなげて作ります。
     </p>
@@ -98,7 +98,6 @@
       <button id="run3">3 分</button>
       <button id="run5">5 分</button>
       <button id="runall">1・3・5 分を続けて</button>
-      <button id="cmp">変換を比べる</button>
       <label>手元のファイル: <input id="file" type="file" accept="audio/*" /></label>
     </div>
     <p id="status" role="status">準備中…</p>
@@ -109,25 +108,29 @@
             <th>入力</th>
             <th>長さ</th>
             <th>変換 s</th>
-            <th>HPSS s</th>
-            <th>打撃 s</th>
-            <th>拍 s</th>
-            <th>クロマ s</th>
-            <th>コード s</th>
+            <th>load s</th>
+            <th>beats s</th>
+            <th>chroma s</th>
+            <th>chords s</th>
+            <th>downbeat s</th>
+            <th>merge s</th>
+            <th>sections s</th>
+            <th>key s</th>
+            <th>keytrack s</th>
+            <th>chords2 s</th>
+            <th>merge2 s</th>
             <th>計 s</th>
             <th>待ち s</th>
             <th>配列のピーク MB</th>
             <th>Worker ヒープ MB</th>
             <th>画面ヒープ MB</th>
             <th>タイマー回数 / 最大の間</th>
-            <th>拍 / コード / BPM</th>
+            <th>拍 / コード / 区間</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
-    <h2 class="note">変換の比べ</h2>
-    <pre id="resampler">（「変換を比べる」で表示）</pre>
     <script type="module" src="./bench.ts"></script>
   </body>
 </html>

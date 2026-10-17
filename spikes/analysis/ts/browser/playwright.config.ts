@@ -1,5 +1,5 @@
 /**
- * Playwright config for the T8 bench only (devcontainer Chromium):
+ * Playwright config for the T16 bench only (devcontainer Chromium):
  *   docker exec -u node -w /workspaces/band-sheets band-sheets \
  *     npx playwright test --config spikes/analysis/ts/browser/playwright.config.ts
  */
@@ -8,7 +8,7 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: import.meta.dirname,
   testMatch: /bench\.spec\.ts$/,
-  outputDir: '../../out/t8/test-results',
+  outputDir: '../../out/t16/test-results',
   workers: 1,
   reporter: 'list',
   timeout: 600_000,
