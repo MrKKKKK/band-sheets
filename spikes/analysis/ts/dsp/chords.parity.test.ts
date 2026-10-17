@@ -85,7 +85,7 @@ describe.skipIf(variants.length === 0)('chords parity (Python dumps)', () => {
       const perBeat = readStage(dir, 'per_beat', meta).data[0];
       const prior = readStage(dir, 'chord_prior', meta).data;
       const chords: ColumnChord[] = estimateChords(chroma.data, n, cfg, { perBeat, prior });
-      const segs = mergeSegments(chords, cfg, perBeat);
+      const segs = mergeSegments(chords, cfg, perBeat).filter((s) => s.root !== null); // result.json omits no-chord gaps
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const result = JSON.parse(require('node:fs').readFileSync(join(dir, 'result.json'), 'utf8')) as {
         chords: { text: string; confidence: number; candidates: { root: string; quality: string; prob: number }[] }[];
