@@ -1,0 +1,188 @@
+{
+  "format": "band-sheets-analysis",
+  "version": 1,
+  "source": {
+    "kind": "recording",
+    "durationSec": 8.0,
+    "click": false
+  },
+  "analyzer": {
+    "name": "dsp-v1",
+    "version": "adec583eb3c6",
+    "methods": [
+      "beats:ellis",
+      "chroma:cqt",
+      "chords:template+viterbi",
+      "downbeat:chord+bass+onset",
+      "sections:novelty",
+      "key:krumhansl-schmuckler",
+      "config:adec583eb3c6"
+    ],
+    "configHash": "adec583eb3c6",
+    "config": {},
+    "timingsSec": {
+      "load": 0.703,
+      "beats": 0.052,
+      "chroma": 0.19,
+      "chords": 0.003,
+      "downbeat": 0.001,
+      "merge": 0.0,
+      "sections": 0.017,
+      "key": 0.001,
+      "keytrack": 0.005,
+      "chords2": 0.003,
+      "merge2": 0.0,
+      "total": 0.974
+    }
+  },
+  "beats": [
+    {
+      "t": 0.01473922902494331,
+      "downbeat": false
+    },
+    {
+      "t": 0.521859410430839,
+      "downbeat": false
+    },
+    {
+      "t": 1.0378684807256235,
+      "downbeat": true,
+      "bar": 0,
+      "beat": 0
+    },
+    {
+      "t": 1.5560544217687076,
+      "downbeat": false,
+      "bar": 0,
+      "beat": 1
+    },
+    {
+      "t": 2.0719727891156463,
+      "downbeat": false,
+      "bar": 0,
+      "beat": 2
+    },
+    {
+      "t": 2.6005895691609977,
+      "downbeat": false,
+      "bar": 0,
+      "beat": 3
+    },
+    {
+      "t": 3.1196371882086167,
+      "downbeat": true,
+      "bar": 1,
+      "beat": 0
+    },
+    {
+      "t": 3.6341496598639456,
+      "downbeat": false,
+      "bar": 1,
+      "beat": 1
+    },
+    {
+      "t": 4.1388208616780044,
+      "downbeat": false,
+      "bar": 1,
+      "beat": 2
+    },
+    {
+      "t": 4.668888888888889,
+      "downbeat": false,
+      "bar": 1,
+      "beat": 3
+    },
+    {
+      "t": 5.1736054421768705,
+      "downbeat": true,
+      "bar": 2,
+      "beat": 0
+    },
+    {
+      "t": 5.703446712018141,
+      "downbeat": false,
+      "bar": 2,
+      "beat": 1
+    },
+    {
+      "t": 6.2096145124716555,
+      "downbeat": false,
+      "bar": 2,
+      "beat": 2
+    },
+    {
+      "t": 6.738095238095238,
+      "downbeat": false,
+      "bar": 2,
+      "beat": 3
+    },
+    {
+      "t": 7.25718820861678,
+      "downbeat": true,
+      "bar": 3,
+      "beat": 0
+    },
+    {
+      "t": 7.773015873015873,
+      "downbeat": false,
+      "bar": 3,
+      "beat": 1
+    }
+  ],
+  "timeSignature": {
+    "num": 4,
+    "den": 4,
+    "confidence": 0.010199400175769605
+  },
+  "sections": [
+    {
+      "start": 1.0378684807256235,
+      "end": 8.0,
+      "label": "A"
+    }
+  ],
+  "chords": [
+    {
+      "start": 0.01473922902494331,
+      "end": 8.0,
+      "root": "C",
+      "quality": "maj",
+      "bass": null,
+      "text": "C",
+      "confidence": 0.9996453846780816,
+      "candidates": [
+        {
+          "name": "C",
+          "root": "C",
+          "quality": "maj",
+          "prob": 0.9996453846780816
+        },
+        {
+          "name": "Am",
+          "root": "A",
+          "quality": "min",
+          "prob": 0.0003022075911485645
+        },
+        {
+          "name": "Cm",
+          "root": "C",
+          "quality": "min",
+          "prob": 2.8135738413853223e-05
+        }
+      ]
+    }
+  ],
+  "key": {
+    "tonic": "C",
+    "mode": "major",
+    "confidence": 0.2531596753863926
+  },
+  "keys": [
+    {
+      "startBar": 0,
+      "tonic": "C",
+      "mode": "major",
+      "confidence": 0.9936568734631066
+    }
+  ]
+}

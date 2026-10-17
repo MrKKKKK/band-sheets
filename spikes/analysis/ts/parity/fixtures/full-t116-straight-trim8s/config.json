@@ -1,0 +1,86 @@
+{
+  "audio": {
+    "hop": 512,
+    "hpss": true,
+    "hpss_margin": 1.0,
+    "sr": 22050
+  },
+  "beats": {
+    "method": "ellis",
+    "start_bpm": 120.0,
+    "tempo_hint": 0.0,
+    "tempo_octave": "rule",
+    "tightness": 100.0,
+    "trim": false
+  },
+  "chords": {
+    "bass_root": "none",
+    "bass_root_weight": 0.0,
+    "candidates": true,
+    "candidates_k": 3,
+    "confidence": "posterior",
+    "harmonic_decay": 0.6,
+    "harmonics": "none",
+    "low_confidence": 0.93,
+    "median_width": 3,
+    "merge_min_beats": 1,
+    "no_chord_energy": 0.02,
+    "power": false,
+    "power_third_max": 0.2,
+    "resolution": "eighth",
+    "self_transition": 0.6,
+    "seventh_margin": 0.0,
+    "seventh_mode": "beat",
+    "seventh_weight": 0.98,
+    "slash": false,
+    "smoothing": "viterbi",
+    "theory_prior": 1.0,
+    "use_seventh": true,
+    "vocab": "v2",
+    "vocab_margin": 0.05,
+    "vocab_sus4_margin": 0.2,
+    "vocab_weight": 1.0
+  },
+  "chroma": {
+    "aggregate": "median",
+    "bass_fmin_hz": 32.7,
+    "bass_octaves": 3,
+    "bins_per_octave": 36,
+    "fmin_hz": 32.7,
+    "kind": "cqt",
+    "n_octaves": 6,
+    "top_voice_discount": 0.0
+  },
+  "downbeat": {
+    "anticipation_shift": 1.0,
+    "beats_per_bar": 4,
+    "chord_conf_floor": 0.3,
+    "same_root_change": 0.5,
+    "tie_break_phase": 0,
+    "w_bass": 0.5,
+    "w_chord_change": 1.0,
+    "w_onset": 0.5
+  },
+  "key": {
+    "change_cost_boundary": 0.0,
+    "change_cost_mid": 0.0,
+    "enabled": true,
+    "track": "sections"
+  },
+  "name": "dsp-v1",
+  "sections": {
+    "chroma_weight": 1.0,
+    "enabled": true,
+    "kernel_bars": 4,
+    "loudness_weight": 0.5,
+    "min_novelty": 0.25,
+    "min_section_bars": 4,
+    "noise_factor": 2.5,
+    "peak_threshold": 0.3,
+    "percussive_weight": 0.5,
+    "repetition_weight": 0.5,
+    "same_label_similarity": 0.85,
+    "snap_bars": 4,
+    "snap_min_ratio": 0.8
+  }
+}

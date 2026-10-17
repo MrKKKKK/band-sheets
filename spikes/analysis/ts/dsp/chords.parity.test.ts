@@ -1,7 +1,8 @@
 /**
  * Parity of the chord stage against the Python dumps (plan section 4: labels identical, posterior within
  * 1e-9). Input = Python's col_chroma (+ per_beat); pass 2 additionally gets Python's chord_prior.
- * Skips cleanly when out/parity is absent (CI).
+ * Dirs: out/parity/* (local dumps) and parity/fixtures/* (committed, runs in CI). A stage missing in a dump makes
+ * that test a visible skip (never a silent pass).
  */
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -10,10 +11,14 @@ import { readMeta, readStage } from '../parity/stageFile';
 import { DEFAULT_CHORDS_CONFIG, chordText, downbeatChords, estimateChords, mergeSegments, NOTE_NAMES, type ColumnChord } from './chords';
 import * as vocab from './vocab';
 
-const PARITY = join(import.meta.dirname, '../../out/parity');
-const variants = existsSync(PARITY)
-  ? readdirSync(PARITY).filter((v) => existsSync(join(PARITY, v, 'meta.json')))
-  : [];
+const ROOTS = [join(import.meta.dirname, '../../out/parity'), join(import.meta.dirname, '../parity/fixtures')];
+const variants: { name: string; dir: string }[] = ROOTS.flatMap((root) =>
+  existsSync(root)
+    ? readdirSync(root)
+        .filter((v) => existsSync(join(root, v, 'meta.json')))
+        .map((v) => ({ name: root.endsWith('fixtures') ? `fixture:${v}` : v, dir: join(root, v) }))
+    : [],
+);
 const cfg = DEFAULT_CHORDS_CONFIG;
 
 interface Expected {
@@ -61,8 +66,7 @@ function compare(dir: string, pass: 'chords1' | 'chords2'): { labelMatch: number
 }
 
 describe.skipIf(variants.length === 0)('chords parity (Python dumps)', () => {
-  for (const v of variants) {
-    const dir = join(PARITY, v);
+  for (const { name: v, dir } of variants) {
     it(`${v}: pass 1 labels identical, posterior within 1e-6 (f32 dump)`, () => {
       const r = compare(dir, 'chords1');
       console.log(`[T7] ${v} pass1 labels=${(r.labelMatch * 100).toFixed(2)}% postMaxDiff=${r.postMax.toExponential(2)} confMaxDiff=${r.confMax.toExponential(2)}`);
@@ -70,9 +74,9 @@ describe.skipIf(variants.length === 0)('chords parity (Python dumps)', () => {
       // Python's posterior is float64 in memory but stored as float32: the dump itself rounds by up to 6e-8.
       expect(r.postMax).toBeLessThan(1e-6);
     });
-    it(`${v}: downbeatChords (margin, 1 col/beat) equals downbeat_chords_*`, () => {
+    it(`${v}: downbeatChords (margin, 1 col/beat) equals downbeat_chords_*`, ({ skip }) => {
       const meta = readMeta(dir);
-      if (!meta.stages.downbeat_chords_root) return;
+      if (!meta.stages.downbeat_chords_root || !meta.stages.beat_chroma) skip('stage downbeat_chords_* / beat_chroma not in this dump');
       const bc = readStage(dir, 'beat_chroma', meta);
       const nb = bc.shape[1];
       const out = downbeatChords(bc.data, nb, cfg);
@@ -89,16 +93,16 @@ describe.skipIf(variants.length === 0)('chords parity (Python dumps)', () => {
       console.log(`[T7b] ${v} downbeat chords n=${nb} confMaxDiff=${maxC.toExponential(2)}`);
       expect(maxC).toBeLessThan(1e-6);
     });
-    it(`${v}: pass 2 (given prior) labels identical`, () => {
+    it(`${v}: pass 2 (given prior) labels identical`, ({ skip }) => {
       const meta = readMeta(dir);
-      if (!meta.stages.chord_prior || !meta.stages.chords2_root) return;
+      if (!meta.stages.chord_prior || !meta.stages.chords2_root) skip('stage chord_prior / chords2_* not in this dump');
       const r = compare(dir, 'chords2');
       console.log(`[T7] ${v} pass2 labels=${(r.labelMatch * 100).toFixed(2)}% postMaxDiff=${r.postMax.toExponential(2)}`);
       expect(r.labelMatch).toBe(1);
     });
-    it(`${v}: pass 2 segments, '?' marks and candidates match result.json`, () => {
+    it(`${v}: pass 2 segments, '?' marks and candidates match result.json`, ({ skip }) => {
       const meta = readMeta(dir);
-      if (!meta.stages.chord_prior || !existsSync(join(dir, 'result.json'))) return;
+      if (!meta.stages.chord_prior || !existsSync(join(dir, 'result.json'))) skip('chord_prior / result.json not in this dump');
       const chroma = readStage(dir, 'col_chroma', meta);
       const n = chroma.shape[1];
       const perBeat = readStage(dir, 'per_beat', meta).data[0];
