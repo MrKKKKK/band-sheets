@@ -7,11 +7,12 @@
  * (they pass through the CQT, which matches only to cosine .9999; measured max 9.4e-6). analyzer.timingsSec
  * is the only field allowed to differ.
  * Prints one row per variant (beats max ms, chord segments, '?' agreement, phase, sections, keys).
- * Skips cleanly without out/parity (CI). Dev synthetic variants only (dump_stages.py refuses the others).
+ * Network is stubbed out (stubNoNetwork) for every run. Skips cleanly without out/parity (CI). Dev synthetic variants only (dump_stages.py refuses the others).
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubNoNetwork } from '../parity/noNetwork';
 import { readMeta, readStage } from '../parity/stageFile';
 import { analyze } from './analyze';
 import { DEFAULT_CONFIG } from './config';
@@ -115,6 +116,9 @@ export function diffResults(ts: TsAnalysisResult, py: Record<string, unknown>): 
 }
 
 describe.skipIf(variants.length === 0)('analyze end to end vs Python result.json (Python y in)', () => {
+  // files are read before analyze; the analysis itself must not touch the network
+  beforeEach(() => stubNoNetwork());
+  afterEach(() => vi.unstubAllGlobals());
   it.each(variants)('%s', (v) => {
     const dir = join(PARITY, v);
     const meta = readMeta(dir);

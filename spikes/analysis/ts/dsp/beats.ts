@@ -1,5 +1,7 @@
-// Ports librosa 0.11.0 feature.tempo / feature.tempogram / beat.beat_track (Ellis DP) line by line (ISC, see ts/THIRD_PARTY.md).
+// Follows librosa 0.11.0 (ISC, (c) 2013--2023 librosa development team); see ts/THIRD_PARTY.md.
 /**
+ * librosa parts ported line by line: feature.tempo / feature.tempogram / beat.beat_track (Ellis DP).
+ *
  * Beat tracking (port of py/dsp/beats.py + the tempo-octave rule of py/dsp/tempo.py, DEFAULT path only:
  * method 'ellis', start_bpm 120, tightness 100, trim False, tempo_octave 'rule', tempo_hint 0).
  *
@@ -18,6 +20,8 @@
  * tempogram autocorrelation is computed directly (not by FFT; same values to ~1e-16) and the frame
  * mean is a compensated sum (numpy uses pairwise; same to ~1e-16).
  */
+
+import { MemTracker } from './core/mem';
 
 export const SR = 22050;
 export const HOP = 512;
@@ -329,39 +333,73 @@ export function convolveSame(a: ArrayLike<number>, k: ArrayLike<number>): Float6
  * +-max(2 hops, 20 % of the median interval); beats without a rise >= 5 % of the global steepest keep
  * their time, leading / trailing ones of that kind are dropped, then beats closer than 0.25 IBI to
  * the previous one are dropped. Same formulas as py/dsp/beats.py _refine.
+ *
+ * Streamed (T19): py builds |y|, the smoothed envelope and the rise as three signal-length arrays (5 min:
+ * 3 x 53 MB float64). Here one pass computes env[i] (the same sum in the same order as convolveSame, so
+ * bit-identical), keeps the last w + 1 env values in a ring, and updates the global rise max and the
+ * running argmax of every beat window that contains i (first maximum, like np.argmax). Scratch memory
+ * is O(beats). `times` must be ascending (beat tracker output).
  */
-export function refine(times: Float64Array, yPerc: Float32Array, sr = SR, hop = HOP): Float64Array {
-  if (times.length === 0) return times;
+export function refine(times: Float64Array, yPerc: Float32Array, sr = SR, hop = HOP, mem?: MemTracker): Float64Array {
+  const nb = times.length;
+  if (nb === 0) return times;
   const w = Math.max(Math.trunc(0.003 * sr), 1);
   const han = hanningSym(2 * w + 1);
   const hs = pairwiseSum(han);
   const kern = han.map((v) => v / hs);
-  const ax = new Float64Array(yPerc.length);
-  for (let i = 0; i < ax.length; i++) ax[i] = Math.abs(yPerc[i]);
-  const env = convolveSame(ax, kern);
-  const rise = new Float64Array(env.length);
-  let riseMax = -Infinity;
-  for (let i = 0; i < rise.length; i++) {
-    if (i >= w) rise[i] = env[i] - env[i - w];
-    if (rise[i] > riseMax) riseMax = rise[i];
-  }
-  const floor = 0.05 * riseMax;
-  const ibi = times.length >= 2 ? median(diff(times)) : 0.0;
+  const n = yPerc.length;
+  const m = kern.length;
+  const len = Math.max(n, m); // np.convolve(mode='same') length = len(rise)
+  const left = Math.floor((m - 1) / 2);
+
+  const ibi = nb >= 2 ? median(diff(times)) : 0.0;
   const half = Math.max(2 * hop, Math.trunc(0.2 * ibi * sr));
-  const out = Float64Array.from(times);
-  const has = new Uint8Array(times.length);
-  for (let k = 0; k < times.length; k++) {
+  const alloc = mem ?? new MemTracker();
+  const lo = alloc.f64(nb);
+  const hi = alloc.f64(nb);
+  const bestJ = alloc.f64(nb);
+  const bestV = alloc.f64(nb);
+  for (let k = 0; k < nb; k++) {
+    if (k > 0 && times[k] < times[k - 1]) throw new Error('refine: beat times must be ascending');
     const c = roundHalfEven(times[k] * sr);
-    const lo = Math.max(c - half, 0);
-    const hi = Math.min(c + half + 1, rise.length);
-    if (hi <= lo) continue;
-    let j = lo;
-    for (let i = lo + 1; i < hi; i++) if (rise[i] > rise[j]) j = i;
-    if (rise[j] >= floor) {
-      out[k] = (j - w / 2) / sr;
+    lo[k] = Math.max(c - half, 0);
+    hi[k] = Math.min(c + half + 1, len);
+  }
+
+  const ringN = w + 1;
+  const ring = new Float64Array(ringN); // env[i - w .. i]
+  let riseMax = -Infinity;
+  let kFirst = 0; // first window with hi > i (lo / hi are non-decreasing in k)
+  for (let i = 0; i < len; i++) {
+    // env[i] exactly as convolveSame(|y|, kern)[i]
+    const f = i + left;
+    const jLo = Math.max(0, f - m + 1);
+    const jHi = Math.min(n - 1, f);
+    let s = 0;
+    for (let j = jLo; j <= jHi; j++) s += Math.abs(yPerc[j]) * kern[f - j];
+    const rise = i >= w ? s - ring[(i - w) % ringN] : 0;
+    ring[i % ringN] = s;
+    if (rise > riseMax) riseMax = rise;
+    while (kFirst < nb && hi[kFirst] <= i) kFirst++;
+    for (let k = kFirst; k < nb && lo[k] <= i; k++) {
+      if (i === lo[k] || rise > bestV[k]) {
+        bestV[k] = rise;
+        bestJ[k] = i;
+      }
+    }
+  }
+
+  const floor = 0.05 * riseMax;
+  const out = Float64Array.from(times);
+  const has = new Uint8Array(nb);
+  for (let k = 0; k < nb; k++) {
+    if (hi[k] <= lo[k]) continue;
+    if (bestV[k] >= floor) {
+      out[k] = (bestJ[k] - w / 2) / sr;
       has[k] = 1;
     }
   }
+  alloc.release(lo, hi, bestJ, bestV);
   const first = has.indexOf(1);
   if (first < 0) return out;
   const last = has.lastIndexOf(1);
@@ -475,6 +513,8 @@ export interface BeatInput {
   yPerc: Float32Array;
   sr?: number;
   hop?: number;
+  /** counts refine's scratch (optional) */
+  mem?: MemTracker;
 }
 
 export interface BeatGrid {
@@ -506,7 +546,7 @@ export function trackBeats(
   if (env.length === 0 || !env.some((v) => v > 0)) return { times: new Float64Array(0), tempo: 0.0, method: 'ellis' };
   const est = estimateTempo(env, sr, hop);
   const frames = beatTrackFrames(env, est.bpm, sr, hop);
-  const times = refine(framesToTime(frames, sr, hop), input.yPerc, sr, hop);
+  const times = refine(framesToTime(frames, sr, hop), input.yPerc, sr, hop, input.mem);
   const tempo = gridBpm(times);
   debug.tempo = est;
   debug.framesRaw = frames;

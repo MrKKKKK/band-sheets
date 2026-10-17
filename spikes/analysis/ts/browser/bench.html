@@ -80,6 +80,13 @@
       th {
         text-align: center;
       }
+      #error {
+        color: #b3261e;
+        font-weight: 600;
+      }
+      #error:empty {
+        display: none;
+      }
       pre {
         white-space: pre-wrap;
         font-size: 0.8rem;
@@ -87,7 +94,7 @@
     </style>
   </head>
   <body>
-    <h1>解析の計測（スパイク 3 T16 全体）</h1>
+    <h1>解析の計測（スパイク 3 T16・T19 全体）</h1>
     <p class="note">
       音はこのページの中だけで使います。どこにも送りません。1・3・5 分の音は、1 分ほどの合成音をつなげて作ります。
     </p>
@@ -101,12 +108,14 @@
       <label>手元のファイル: <input id="file" type="file" accept="audio/*" /></label>
     </div>
     <p id="status" role="status">準備中…</p>
+    <p id="error" role="alert"></p>
     <div class="scroll">
       <table>
         <thead>
           <tr>
             <th>入力</th>
             <th>長さ</th>
+            <th>読み込み s</th>
             <th>変換 s</th>
             <th>load s</th>
             <th>beats s</th>

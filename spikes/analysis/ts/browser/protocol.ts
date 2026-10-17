@@ -5,7 +5,7 @@ export interface RunRequest {
   type: 'run';
   id: number;
   sr: number;
-  /** transferred (zero-copy) */
+  /** transferred (zero-copy); the Worker empties this array once it has resampled */
   channels: Float32Array[];
 }
 
@@ -26,4 +26,5 @@ export interface RunSummary {
 export type WorkerMessage =
   | { type: 'stage'; id: number; stage: StageStat }
   | { type: 'done'; id: number; summary: RunSummary; workerHeap?: number }
-  | { type: 'error'; id: number; message: string };
+  /** code: AnalysisInputError code (unusable input; message is the Japanese text for the user) */
+  | { type: 'error'; id: number; message: string; code?: string };

@@ -1,11 +1,12 @@
 /**
  * The analysis Worker (plan section 2 "画面": analysis off the main thread). Receives the decoded mono
- * signal at its own rate (transferred, no copy), resamples to 22050 Hz, runs the full analyzer (dsp/analyze.ts) and posts per-stage stats.
+ * signal at its own rate (transferred, no copy), validates it (AnalysisInputError -> an error message with
+ * its code), resamples to 22050 Hz, drops the file-rate signal, runs the full analyzer (dsp/analyze.ts) and posts per-stage stats.
  * Defence in depth for the privacy rule: network APIs are removed from the Worker's global scope
  * before any message is handled (the analysis code never uses them anyway).
  */
 import type { RunRequest, WorkerMessage } from './protocol';
-import { analyze } from '../dsp/analyze';
+import { AnalysisInputError, analyze, validateInput } from '../dsp/analyze';
 import { MemTracker } from '../dsp/core/mem';
 import { resampleSinc, toMono } from '../dsp/core/resample';
 
@@ -42,14 +43,20 @@ scope.onmessage = (e) => {
     const mem = new MemTracker();
     const t0 = performance.now();
     for (const c of req.channels) mem.adopt(c);
-    const mono = toMono(req.channels);
+    let mono: Float32Array | null = toMono(req.channels);
     if (mono !== req.channels[0]) mem.adopt(mono);
-    const y = resampleSinc(mono, req.sr, 22050, {}, mem);
-    if (y !== mono) mem.release(...req.channels, ...(mono !== req.channels[0] ? [mono] : []));
+    validateInput(mono, req.sr); // before the long resample; positions in the file's own time
+    const box: { y: Float32Array | null } = { y: resampleSinc(mono, req.sr, 22050, {}, mem) };
+    if (box.y !== mono) {
+      // the file-rate signal is not needed any more: drop every reference (the message keeps one too)
+      mem.release(...req.channels, ...(mono !== req.channels[0] ? [mono] : []));
+      req.channels.length = 0;
+      mono = null;
+    }
     const resampleMs = performance.now() - t0;
     const resampleStat = { name: 'resample', ms: resampleMs, memLive: mem.live, memPeak: mem.peak };
     scope.postMessage({ type: 'stage', id: req.id, stage: resampleStat });
-    const out = analyze(y, {
+    const out = analyze(box, {
       mem,
       preTimings: { resample: resampleMs / 1000 },
       onStage: (stage) => scope.postMessage({ type: 'stage', id: req.id, stage }),
@@ -68,6 +75,8 @@ scope.onmessage = (e) => {
     };
     scope.postMessage({ type: 'done', id: req.id, summary, workerHeap: heap() });
   } catch (err) {
-    scope.postMessage({ type: 'error', id: req.id, message: err instanceof Error ? err.message : String(err) });
+    req.channels.length = 0;
+    const code = err instanceof AnalysisInputError ? err.code : undefined;
+    scope.postMessage({ type: 'error', id: req.id, message: err instanceof Error ? err.message : String(err), code });
   }
 };

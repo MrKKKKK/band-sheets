@@ -10,13 +10,15 @@
  * values is an error (the TS port has the default path only). There is no `--tempo` (beats.tempo_hint is
  * not ported).
  * Output: the result JSON (stdout, or -o FILE); per-stage timings and MemTracker peak go to stderr.
+ * Unusable input (empty, < 1 s, silent, NaN / Inf, no beats; dsp/analyze.ts validateInput) prints
+ * `error [code]: <Japanese message>` to stderr and exits 1 (no result JSON is written).
  * Reads local files only; no network.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { decodeWav } from './browser/wav';
-import { analyze } from './dsp/analyze';
+import { AnalysisInputError, analyze, validateInput } from './dsp/analyze';
 import { resolveConfig } from './dsp/config';
 import { resampleSinc, toMono } from './dsp/core/resample';
 
@@ -87,6 +89,7 @@ function main(argv: string[]): void {
     sr = wav.sampleRate;
   }
   pre.read = (performance.now() - t) / 1000;
+  validateInput(y, sr); // before resampling: fail fast, report positions in the file's own time
   if (sr !== SR) {
     t = performance.now();
     y = resampleSinc(y, sr, SR);
@@ -104,4 +107,14 @@ function main(argv: string[]): void {
   else process.stdout.write(text + '\n');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main(process.argv.slice(2));
+function run(argv: string[]): void {
+  try {
+    main(argv);
+  } catch (e) {
+    if (!(e instanceof AnalysisInputError)) throw e;
+    process.stderr.write(`error [${e.code}]: ${e.message}\n`);
+    process.exit(1);
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) run(process.argv.slice(2));
