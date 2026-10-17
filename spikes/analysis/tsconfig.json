@@ -13,5 +13,5 @@
     "noFallthroughCasesInSwitch": true,
     "noEmit": true
   },
-  "include": ["render/**/*.ts"]
+  "include": ["render/**/*.ts", "ts/**/*.ts"]
 }

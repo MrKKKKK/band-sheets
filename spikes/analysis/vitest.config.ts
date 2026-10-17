@@ -4,7 +4,7 @@ export default defineConfig({
   root: import.meta.dirname,
   test: {
     environment: 'node',
-    include: ['render/**/*.test.ts'],
+    include: ['render/**/*.test.ts', 'ts/**/*.test.ts'],
     maxWorkers: 2,
   },
 });
