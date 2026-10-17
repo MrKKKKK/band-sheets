@@ -68,7 +68,7 @@
 ### 決定（2026-10-17、ユーザー）
 
 - 1〜6 はすべて推奨どおり: (b) 縦の一本 → G1、目標は Chromebook 5 分の曲 60 秒・PC 20 秒・ピーク 300 MB（G1 で見直し）、計測は非公開の Artifact、FFT だけ `fft.js`、録音とホールドアウトは使わない、鼻歌はスパイク 4。
-- Chromebook: ASUS CM3001DM（CM30 Detachable。CPU・メモリは T16 で計測ページから確かめる。ARM の省電力 CPU と見られるので、60 秒の目標は G1 で特に見直す）。
+- Chromebook: ASUS CM3001DM2（CM30 Detachable。CPU・メモリは T16 で計測ページから確かめる。ARM の省電力 CPU と見られるので、60 秒の目標は G1 で特に見直す）。
 
 ### 決めてほしいこと（当時の案）
 
