@@ -7,7 +7,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { readMeta, readStage } from '../parity/stageFile';
-import { DEFAULT_CHORDS_CONFIG, chordText, estimateChords, mergeSegments, NOTE_NAMES, type ColumnChord } from './chords';
+import { DEFAULT_CHORDS_CONFIG, chordText, downbeatChords, estimateChords, mergeSegments, NOTE_NAMES, type ColumnChord } from './chords';
 import * as vocab from './vocab';
 
 const PARITY = join(import.meta.dirname, '../../out/parity');
@@ -69,6 +69,25 @@ describe.skipIf(variants.length === 0)('chords parity (Python dumps)', () => {
       expect(r.labelMatch).toBe(1);
       // Python's posterior is float64 in memory but stored as float32: the dump itself rounds by up to 6e-8.
       expect(r.postMax).toBeLessThan(1e-6);
+    });
+    it(`${v}: downbeatChords (margin, 1 col/beat) equals downbeat_chords_*`, () => {
+      const meta = readMeta(dir);
+      if (!meta.stages.downbeat_chords_root) return;
+      const bc = readStage(dir, 'beat_chroma', meta);
+      const nb = bc.shape[1];
+      const out = downbeatChords(bc.data, nb, cfg);
+      const qualities = meta.qualities as string[];
+      const root = readStage(dir, 'downbeat_chords_root', meta).data;
+      const qual = readStage(dir, 'downbeat_chords_quality', meta).data;
+      const conf = readStage(dir, 'downbeat_chords_confidence', meta).data;
+      let maxC = 0;
+      out.forEach((c, t) => {
+        expect(c.root).toBe(root[t] < 0 ? null : root[t]);
+        if (c.root !== null) expect(c.quality).toBe(qualities[qual[t]]);
+        maxC = Math.max(maxC, Math.abs(c.confidence - conf[t]));
+      });
+      console.log(`[T7b] ${v} downbeat chords n=${nb} confMaxDiff=${maxC.toExponential(2)}`);
+      expect(maxC).toBeLessThan(1e-6);
     });
     it(`${v}: pass 2 (given prior) labels identical`, () => {
       const meta = readMeta(dir);

@@ -31,7 +31,7 @@ export interface ChordsConfig extends vocab.VocabConfig {
   bass_root_weight: number;
   candidates: boolean;
   candidates_k: number;
-  confidence: 'posterior';
+  confidence: 'posterior' | 'margin';
   harmonics: 'none';
   low_confidence: number;
   merge_min_beats: number;
@@ -74,7 +74,7 @@ export function checkConfig(cfg: ChordsConfig): void {
     throw new Error(`chords.${k}=${String(v)} is not supported by the TS port (default path only)`);
   };
   if (cfg.smoothing !== 'viterbi') bad('smoothing', cfg.smoothing);
-  if (cfg.confidence !== 'posterior') bad('confidence', cfg.confidence);
+  if (cfg.confidence !== 'posterior' && cfg.confidence !== 'margin') bad('confidence', cfg.confidence);
   if (cfg.harmonics !== 'none') bad('harmonics', cfg.harmonics);
   if (cfg.bass_root !== 'none') bad('bass_root', cfg.bass_root);
   if (cfg.seventh_mode !== 'beat') bad('seventh_mode', cfg.seventh_mode);
@@ -272,7 +272,8 @@ export function estimateChords(
     for (let i = 0; i < s.length; i++) emis[i] = s[i] * emisW;
   }
   const path = viterbi(emis, k, n, stay, opts.prior ?? null, perBeat, nMove);
-  const post = chordPosterior(
+  const wantPost = cfg.confidence === 'posterior' || cfg.candidates;
+  const post = !wantPost ? null : chordPosterior(
     (() => {
       const e = new Float64Array(s.length);
       const f = perBeat > 1 ? BETA * emisW : BETA;
@@ -286,23 +287,42 @@ export function estimateChords(
   );
   const out: ColumnChord[] = [];
   for (let t = 0; t < n; t++) {
-    const col = new Float64Array(k);
-    for (let i = 0; i < k; i++) col[i] = post[i * n + t];
+    let col: Float64Array | null = null;
+    if (post && cfg.candidates) {
+      col = new Float64Array(k);
+      for (let i = 0; i < k; i++) col[i] = post[i * n + t];
+    }
     if (silent[t]) {
-      out.push({ root: null, quality: 'maj', confidence: 1.0, bass: null, posterior: cfg.candidates ? col : null });
+      out.push({ root: null, quality: 'maj', confidence: 1.0, bass: null, posterior: col });
       continue;
     }
     const st = sts[path[t]];
-    const conf = post[path[t] * n + t];
+    let conf: number;
+    if (post && cfg.confidence === 'posterior') conf = post[path[t] * n + t];
+    else {
+      // margin: chosen score minus the best score among states with a different root
+      let other = -Infinity;
+      for (let i = 0; i < k; i++) if (sts[i].root !== st.root) other = Math.max(other, s[i * n + t]);
+      conf = s[path[t] * n + t] - (other === -Infinity ? 0 : other);
+    }
     out.push({
       root: st.root,
       quality: st.quality,
       confidence: Math.min(Math.max(conf, 0), 1),
       bass: null,
-      posterior: cfg.candidates ? col : null,
+      posterior: col,
     });
   }
   return out;
+}
+
+/**
+ * The beat-level chords the downbeat rule sees (py downbeat.downbeat_chords, default config): a separate
+ * pass over the per-beat chroma `beat_chroma` [12, nBeats], 1 column per beat, MARGIN confidence, no
+ * posterior/candidates, other chord settings unchanged.
+ */
+export function downbeatChords(beatChroma: ArrayLike<number>, nBeats: number, cfg: ChordsConfig): ColumnChord[] {
+  return estimateChords(beatChroma, nBeats, { ...cfg, confidence: 'margin', candidates: false }, { perBeat: 1 });
 }
 
 /** The on-beat column of each beat (perBeat 1: as is). */
