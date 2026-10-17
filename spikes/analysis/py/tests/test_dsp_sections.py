@@ -314,6 +314,9 @@ class PickupTest(unittest.TestCase):
                 self.assertEqual(bounds(secs), [7, 15, 23])
                 self.assertEqual(secs[0].start_bar, 0)
                 r = build_result(feat, grid, [], db, secs, None, spike1_config())
+                self.assertNotIn('warnings', r['analyzer'])
+                w = build_result(feat, grid, [], db, secs, None, spike1_config(), warnings=['keytrack-not-converged'])
+                self.assertEqual(w['analyzer']['warnings'], ['keytrack-not-converged'])  # T17
                 bar = 4 * grid.times[1]
                 for got, song_bar in zip([s['start'] for s in r['sections'][1:]], (8, 16, 24)):
                     true_t = song_bar * bar - cut * grid.times[1]

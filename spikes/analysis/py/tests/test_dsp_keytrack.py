@@ -1,11 +1,13 @@
 """Spike 2 T22: per-bar key HMM (py/dsp/keytrack.py) and its table py/dsp/tables/key_fit.toml."""
 
+import copy
 import unittest
+from unittest import mock
 
 import numpy as np
 
 from py.dsp import keytrack
-from py.dsp.config import Config, apply_overrides
+from py.dsp.config import Config, apply_overrides, config_hash
 from py.dsp.types import BeatChord
 
 C, Db, D, Eb, E, F, Gb, G, Ab, A, Bb, B = range(12)
@@ -168,6 +170,28 @@ class EstimateTest(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 keys = keytrack.estimate(*bars(*phrase * 4, *tail), [0], CFG)
                 self.assertEqual({(k.tonic, k.mode) for k in keys}, {(A, 'minor')})
+
+    def test_convergence_reported(self):
+        # T17: the resolution re-passes report whether the key path became stable
+        chords, boc = bars(*C_PHRASE * 4)
+        info = {}
+        keytrack.estimate(chords, boc, [0], CFG, info=info)
+        self.assertTrue(info['converged'])
+        self.assertGreaterEqual(info['passes'], 1)
+        with mock.patch.object(keytrack, '_MAX_PASSES', 0):
+            info = {}
+            keys = keytrack.estimate(chords, boc, [0], CFG, info=info)
+        self.assertFalse(info['converged'])
+        self.assertEqual(len(keys), 16)  # the last path is still returned
+
+    def test_config_hash_uses_the_loaded_table(self):
+        # T17: the hash covers the table the analyzer uses (cached load_table), not a fresh read of the disk
+        h = config_hash(CFG)
+        t = copy.deepcopy(keytrack.load_table())
+        t['resolution']['min_bars'] += 1
+        with mock.patch.object(keytrack, 'load_table', lambda: t):
+            self.assertNotEqual(config_hash(CFG), h)
+        self.assertEqual(config_hash(CFG), h)
 
     def test_empty(self):
         self.assertEqual(keytrack.estimate([], np.zeros(0, int), [0], CFG), [])

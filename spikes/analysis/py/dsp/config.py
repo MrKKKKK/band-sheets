@@ -234,10 +234,21 @@ def spike1_config() -> Config:
 _TABLES_DIR = os.path.join(os.path.dirname(__file__), 'tables')
 
 
-def _table_digest(name: str) -> str:
-    """12 hex chars over the parsed content of tables/<name>.toml (comments do not count)."""
+def _loaded_table(name: str) -> dict:
+    """The table the analyzer actually uses (the module's cached load_table(), T17), not a fresh read of the disk."""
+    if name == 'key_fit':
+        from . import keytrack
+        return keytrack.load_table()
+    if name == 'harmony':
+        from . import harmony
+        return harmony.load_table()
     with open(os.path.join(_TABLES_DIR, name + '.toml'), 'rb') as f:
-        canon = json.dumps(tomllib.load(f), sort_keys=True, separators=(',', ':'))
+        return tomllib.load(f)
+
+
+def _table_digest(name: str) -> str:
+    """12 hex chars over the parsed content of the loaded table <name> (comments do not count)."""
+    canon = json.dumps(_loaded_table(name), sort_keys=True, separators=(',', ':'))
     return hashlib.sha256(canon.encode('utf-8')).hexdigest()[:12]
 
 

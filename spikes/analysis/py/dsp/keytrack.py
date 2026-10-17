@@ -318,7 +318,11 @@ def _viterbi(em: np.ndarray, trans) -> np.ndarray:
 
 
 def estimate(chords: list[BeatChord], bar_of_col: np.ndarray, section_bars: list[int], cfg: Config,
-             profile: str = 'theory') -> list[BarKey]:
+             profile: str = 'theory', info: dict | None = None) -> list[BarKey]:
+    """`info` (optional dict) receives 'passes' (resolution re-passes run) and 'converged' (False when the path
+    still changed after _MAX_PASSES re-passes: the last path is used; analyze records a warning)."""
+    info = {} if info is None else info
+    info.update(passes=0, converged=True)
     bar_of_col = np.asarray(bar_of_col, dtype=int)
     if len(chords) == 0 or len(bar_of_col) == 0 or int(bar_of_col.max()) < 0:
         return []
@@ -347,12 +351,15 @@ def estimate(chords: list[BeatChord], bar_of_col: np.ndarray, section_bars: list
         # bonus-free path is no guide to "the key before the cadence"); then test each one against the latest path
         base = em
         path = _viterbi(base + _resolution_bonus(chords, bar_of_col, n_bars, None, table, units), trans)
-        for _ in range(_MAX_PASSES):  # the "key before the cadence" comes from the previous pass
+        for i in range(_MAX_PASSES):  # the "key before the cadence" comes from the previous pass
             em = base + _resolution_bonus(chords, bar_of_col, n_bars, path, table, units)
             new = _viterbi(em, trans)
+            info['passes'] = i + 1
             if np.array_equal(new, path):
                 break
             path = new
+        else:
+            info['converged'] = False
     else:
         path = _viterbi(em, trans)
 

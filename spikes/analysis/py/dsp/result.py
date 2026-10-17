@@ -45,6 +45,7 @@ def build_result(
     cfg: Config,
     timings: dict[str, float] | None = None,
     bar_keys: list[BarKey] | None = None,
+    warnings: list[str] | None = None,
 ) -> dict:
     times = [float(t) for t in grid.times]
     n = len(times)
@@ -104,6 +105,8 @@ def build_result(
     }
     if timings is not None:
         analyzer['timingsSec'] = {k: round(float(v), 3) for k, v in timings.items()}
+    if warnings:
+        analyzer['warnings'] = list(warnings)  # T17: e.g. 'keytrack-not-converged' (absent = none)
 
     result = {
         'format': 'band-sheets-analysis',

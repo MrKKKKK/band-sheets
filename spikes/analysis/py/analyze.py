@@ -81,9 +81,14 @@ def analyze(wav_path: str, cfg: Config, timings: dict | None = None) -> dict:
 
     bar_of_col = (np.arange(chroma.shape[1]) - downbeats.phase) // downbeats.beats_per_bar
     bar_keys = None
+    warnings: list[str] = []
     if cfg.key.track == 'sections':
         section_bars = [s.start_bar for s in sections]
-        bar_keys = stage('keytrack', lambda: keytrack.estimate(beat_chords, bar_of_col, section_bars, cfg))
+        kt_info: dict = {}
+        bar_keys = stage('keytrack', lambda: keytrack.estimate(beat_chords, bar_of_col, section_bars, cfg,
+                                                               info=kt_info))
+        if not kt_info.get('converged', True):
+            warnings.append('keytrack-not-converged')
     if cfg.chords.theory_prior > 0:
         prior_keys = bar_keys if bar_keys is not None else _global_bar_keys(key, bar_of_col)
         prior = harmony.transition(vocab.states(cfg), prior_keys, bar_of_col, cfg)
@@ -92,7 +97,7 @@ def analyze(wav_path: str, cfg: Config, timings: dict | None = None) -> dict:
         if cfg.chords.power:
             segments = harmony.resolve_power(segments, prior_keys, bar_of_col, cfg)
     tm['total'] = sum(v for k, v in tm.items() if k != 'total')
-    return build_result(feat, grid, segments, downbeats, sections, key, cfg, tm, bar_keys)
+    return build_result(feat, grid, segments, downbeats, sections, key, cfg, tm, bar_keys, warnings)
 
 
 def main(argv=None):
