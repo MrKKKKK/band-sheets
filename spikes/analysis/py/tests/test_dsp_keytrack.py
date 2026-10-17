@@ -60,6 +60,9 @@ class TableTest(unittest.TestCase):
         self.assertIn('和声法ノート', head)
         self.assertIn('# weights:', head)
 
+    def test_phrase_edge_is_chord(self):
+        self.assertEqual(keytrack.load_table()['phrase']['edge'], 'chord')  # T17
+
     def test_fit_stages(self):
         t = keytrack.load_table()
         st = t['stage']
@@ -125,6 +128,32 @@ class EstimateTest(unittest.TestCase):
         units = keytrack.phrases(boc, [0], 6, 4)  # bars 0-3, 4-5
         got = {(r.tonic, r.mode): keytrack.frames_phrase(r, units) for r in keytrack.resolutions(chords, boc)}
         self.assertEqual(got, {(A, 'minor'): False, (C, 'major'): True})  # Am mid-phrase; C ends the last phrase
+
+    def test_phrase_edges_skip_no_chord_columns(self):
+        # T17: silence / decay at the end of the recording and a rest at a phrase start do not move the phrase edge
+        nc = BeatChord(None, 'maj', 0.0)
+        chords, boc = bars((A, 'min'), (D, 'min'), (E, '7'), (A, 'min'))
+        chords = [nc, nc] + chords[2:14] + [nc, nc]  # rest on beats 1-2 of bar 0, last 2 beats of bar 3 silent
+        voiced = np.array([c.root is not None for c in chords])
+        self.assertEqual(keytrack.phrases(boc, [0], 4, 4), [(0, 15)])
+        self.assertEqual(keytrack.phrases(boc, [0], 4, 4, voiced), [(2, 13)])
+        units = keytrack.phrases(boc, [0], 4, 4, voiced)
+        got = {(r.tonic, r.mode): keytrack.frames_phrase(r, units) for r in keytrack.resolutions(chords, boc)}
+        self.assertEqual(got, {(A, 'minor'): True})  # final V7 -> i still frames the phrase
+        old = keytrack.phrases(boc, [0], 4, 4)  # T14c (edge "column"): the silent tail hid the cadence
+        self.assertEqual([keytrack.frames_phrase(r, old) for r in keytrack.resolutions(chords, boc)], [False])
+        silent = np.zeros(len(chords), dtype=bool)
+        self.assertEqual(keytrack.phrases(boc, [0], 4, 4, silent), [])
+
+    def test_trailing_silence_keeps_the_final_cadence(self):
+        nc = BeatChord(None, 'maj', 0.0)
+        for phrase, key in (([(A, 'min'), (F, 'maj'), (G, 'maj'), (E, '7')] * 4 + [(A, 'min')], (A, 'minor')),
+                            (C_PHRASE * 4, (C, 'major'))):
+            with self.subTest(key=key):
+                chords, boc = bars(*phrase)
+                chords = chords[:-2] + [nc, nc]  # the final bar decays into 2 beats of no chord
+                keys = keytrack.estimate(chords, boc, [0], CFG)
+                self.assertEqual({(k.tonic, k.mode) for k in keys}, {key})
 
     def test_v7_of_vi_inside_major_phrases_keeps_the_major_key(self):
         # user 2026-10-17: C E7 Am F as one phrase unit is C major (E7 -> Am = V/vi, a tonicization of vi), even with

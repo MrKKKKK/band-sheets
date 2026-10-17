@@ -194,19 +194,26 @@ def resolutions(chords: list[BeatChord], bar_of_col: np.ndarray) -> list[Resolut
     return out
 
 
-def phrases(bar_of_col: np.ndarray, section_bars: list[int], n_bars: int, length: int) -> list[tuple[int, int]]:
+def phrases(bar_of_col: np.ndarray, section_bars: list[int], n_bars: int, length: int,
+            voiced: np.ndarray | None = None) -> list[tuple[int, int]]:
     """Phrase units [first column, last column] (inclusive): `length`-bar groups counted from bar 0 and restarted at
-    every detected section start (note §5.0 phrase framing). length <= 0 -> [] (framing off)."""
+    every detected section start (note §5.0 phrase framing). length <= 0 -> [] (framing off).
+
+    `voiced` (bool per column, optional): only columns with a chord count as a phrase's first / last column, so a
+    rest at a phrase start or silence / decay at the end of the recording does not hide the chord the phrase really
+    starts or ends on (note §5.0: the resolution target is the phrase's first or last *chord*). A unit with no voiced
+    column is dropped."""
     if length <= 0 or n_bars <= 0:
         return []
     bar_of_col = np.asarray(bar_of_col, dtype=int)
+    mask = np.ones(len(bar_of_col), dtype=bool) if voiced is None else np.asarray(voiced, dtype=bool)
     starts = sorted({0} | {int(b) for b in section_bars if 0 < int(b) < n_bars})
     bounds: list[int] = []
     for a, z in zip(starts, starts[1:] + [n_bars]):
         bounds += list(range(a, z, length))
     out = []
     for a, z in zip(bounds, bounds[1:] + [n_bars]):
-        cols = np.flatnonzero((bar_of_col >= a) & (bar_of_col < z))
+        cols = np.flatnonzero((bar_of_col >= a) & (bar_of_col < z) & mask)
         if len(cols):
             out.append((int(cols[0]), int(cols[-1])))
     return out
@@ -330,7 +337,12 @@ def estimate(chords: list[BeatChord], bar_of_col: np.ndarray, section_bars: list
         return -(bnd if b in boundaries else mid) * near
 
     if profile == 'theory':
-        units = phrases(bar_of_col, section_bars, n_bars, int(table.get('phrase', {}).get('bars', 0)))
+        ph = table.get('phrase', {})
+        edge = ph.get('edge', 'column')
+        if edge not in ('chord', 'column'):
+            raise ValueError(f'key_fit [phrase] edge must be "chord" or "column": {edge!r}')
+        voiced = np.array([c.root is not None for c in chords], dtype=bool) if edge == 'chord' else None
+        units = phrases(bar_of_col, section_bars, n_bars, int(ph.get('bars', 0)), voiced)
         # first guess: every dominant-7th-type resolution counts (relative keys share all chords, so the
         # bonus-free path is no guide to "the key before the cadence"); then test each one against the latest path
         base = em

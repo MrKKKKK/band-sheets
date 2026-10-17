@@ -20,7 +20,7 @@ from py.dsp.config import (
 from py.dsp.types import BarKey, BeatChord, BeatGrid, Downbeats, Features, Section
 
 SPIKE1_DEFAULT_HASH = '99f2c324b973'  # config_hash(Config()) before spike 2 = config_hash(spike1_config()) (results/ and baselines use it)
-T14_DEFAULT_HASH = '475ed8c95018'  # config_hash(Config()) since T14c (phrase framing; T14b ce49ca6ec435, T14 1f15f9825119)
+T14_DEFAULT_HASH = 'adec583eb3c6'  # config_hash(Config()) since T17 (phrase edge = chord; T14c 475ed8c95018, T14b ce49ca6ec435, T14 1f15f9825119)
 
 
 class ConfigTest(unittest.TestCase):

@@ -53,10 +53,13 @@ min_bars = 2       # T14: 2 / 3 / 4 flat, kept 2
 
 [phrase]  # phrase framing (note §5.0, T14c, user decision 2026-10-17): a phrase = `bars` bars from bar 0, restarted at
 # every detected section start. A resolution counts as key evidence only when its target chord frames a phrase (covers
-# its first or last beat: what a phrase / loop starts or ends on). C E7 Am F: E7 -> Am is mid-phrase = a tonicization
+# its first or last chord: what a phrase / loop starts or ends on). C E7 Am F: E7 -> Am is mid-phrase = a tonicization
 # of vi (V/vi), not A minor.
 bars = 8           # 0 = off (every resolution counts, T14b). T14c: 8 (4 .609, 8 .632, 16 .637 CH key/bar; 8 = a pop
                    # phrase / period; a phrase-edge tonic bonus was tried and lowered CH key/bar, so it is not used)
+edge = "chord"     # T17: a phrase's first / last column = its first / last column WITH a chord, so a rest at a phrase
+                   # start or silence / decay at the end of the recording does not hide the framing chord (note §5.0:
+                   # the target is the chord the phrase starts / ends on). "column" = any column (T14c behaviour).
 
 [confidence]  # tuning only (not theory): scores x scale before the per-bar posterior (forward-backward)
 scale = 5.0
