@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tomllib
 from dataclasses import asdict, dataclass, field, fields, is_dataclass, replace
 from typing import Any
 
@@ -229,19 +231,39 @@ def spike1_config() -> Config:
     return apply_overrides(Config(), spike1_overrides())
 
 
+_TABLES_DIR = os.path.join(os.path.dirname(__file__), 'tables')
+
+
+def _table_digest(name: str) -> str:
+    """12 hex chars over the parsed content of tables/<name>.toml (comments do not count)."""
+    with open(os.path.join(_TABLES_DIR, name + '.toml'), 'rb') as f:
+        canon = json.dumps(tomllib.load(f), sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(canon.encode('utf-8')).hexdigest()[:12]
+
+
 def _hash_dict(cfg: Config) -> dict[str, Any]:
     d = config_to_dict(cfg)
     for group, offs in SPIKE1_OFF_VALUES.items():
         for k, off in offs.items():
             if d[group][k] == off:
                 del d[group][k]
+    # The theory tables change the output too (T14b, note v3): their content is hashed when they are used, so a
+    # table edit gives a new hash. Spike 1 uses neither table, so its hash is kept.
+    tables = {}
+    if cfg.key.track == 'sections':
+        tables['key_fit'] = _table_digest('key_fit')
+    if cfg.chords.theory_prior > 0:
+        tables['harmony'] = _table_digest('harmony')
+    if tables:
+        d['tables'] = tables
     return d
 
 
 def config_hash(cfg: Config) -> str:
     """12 hex chars of SHA-256 over the canonical JSON of all values (name included).
 
-    Spike 2 fields at their off value (SPIKE1_OFF_VALUES) are left out, so spike 1 hashes are kept.
+    Spike 2 fields at their off value (SPIKE1_OFF_VALUES) are left out, so spike 1 hashes are kept. The content
+    of the theory tables (tables/key_fit.toml, harmony.toml) is included when the config uses them.
     """
     canon = json.dumps(_hash_dict(cfg), sort_keys=True, separators=(',', ':'))
     return hashlib.sha256(canon.encode('utf-8')).hexdigest()[:12]

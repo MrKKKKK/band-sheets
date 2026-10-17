@@ -20,7 +20,7 @@ from py.dsp.config import (
 from py.dsp.types import BarKey, BeatChord, BeatGrid, Downbeats, Features, Section
 
 SPIKE1_DEFAULT_HASH = '99f2c324b973'  # config_hash(Config()) before spike 2 = config_hash(spike1_config()) (results/ and baselines use it)
-T14_DEFAULT_HASH = '1f15f9825119'  # config_hash(Config()) since T14 (tuned defaults)
+T14_DEFAULT_HASH = 'ce49ca6ec435'  # config_hash(Config()) since T14b (note v3 tables, hashed; T14 was 1f15f9825119)
 
 
 class ConfigTest(unittest.TestCase):
@@ -106,6 +106,13 @@ class Spike2ConfigTest(unittest.TestCase):
             for k, v in offs.items():
                 self.assertEqual(d[group][k], v, f'{group}.{k}')
         self.assertEqual(d['chords']['low_confidence'], 0.1)
+
+    def test_hash_covers_the_theory_tables_when_used(self):
+        from unittest import mock
+        from py.dsp import config as config_mod
+        with mock.patch.object(config_mod, '_table_digest', side_effect=lambda n: 'edited-' + n):
+            self.assertNotEqual(config_hash(Config()), T14_DEFAULT_HASH)  # a table edit gives a new hash
+            self.assertEqual(config_hash(spike1_config()), SPIKE1_DEFAULT_HASH)  # spike 1 reads no table
 
     def test_spike1_config_keeps_the_spike1_hash(self):
         self.assertEqual(config_hash(spike1_config()), SPIKE1_DEFAULT_HASH)

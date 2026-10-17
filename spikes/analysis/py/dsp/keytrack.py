@@ -7,7 +7,9 @@ is the posterior probability (forward-backward) of the chosen key.
 
 - Emission (profile 'theory', the default): how well each first-pass chord fits the key, by the
   music-theory table tables/key_fit.toml (tonic / diatonic / borrowed / secondary / other), averaged
-  over the bar's columns (so beat and eighth resolution give the same scale). Profile 'kk' is the
+  over the bar's columns (so beat and eighth resolution give the same scale). The harmonic-minor V / vii°
+  ([minor] dominant) scores the same in the minor key and its relative major (V/vi there), and never
+  places a bar in either of them: only its resolution tells them apart (note §5.0, v3). Profile 'kk' is the
   spike 1 Krumhansl-Kessler correlation (keyest.key_scores) of the bar's chord-tone profile, kept only
   as a comparison (docs/audio-spike2-plan.md §3).
 - Transition: staying is free; a change costs key_fit [change] mid inside a section, boundary at a
@@ -64,8 +66,21 @@ def load_table() -> dict:
         return tomllib.load(f)
 
 
+def _relative_dominants(table: dict):
+    """(minor key, relative major key, root, quality index) for every chord of [minor] dominant (the harmonic-minor
+    V / vii° with the raised leading tone) in every key: in the relative major it is V/vi (E7 in C major)."""
+    for item in table['minor'].get('dominant', []):
+        deg, q = item.split()
+        for tonic in range(12):
+            yield (key_index(tonic, 'minor'), key_index(tonic + 3, 'major'), (tonic + int(deg)) % 12, QUAL_INDEX[q])
+
+
 def fit_matrix(table: dict) -> np.ndarray:
-    """(24 keys, 12 roots, len(QUALITIES)) fit score; a chord in several lists takes the highest stage."""
+    """(24 keys, 12 roots, len(QUALITIES)) fit score; a chord in several lists takes the highest stage.
+
+    The chords of [minor] dominant (harmonic-minor V / vii°) get the same score in the minor key and in its
+    relative major (where they are V/vi): max([stage] dominant, the relative major's own stage). So E7 alone
+    never tells A minor from C major (note §5.0: the key is decided by where the dominant resolves)."""
     st = table['stage']
     out = np.full((24, 12, len(QUALITIES)), float(st['other']))
     for mode in MODES:
@@ -75,6 +90,18 @@ def fit_matrix(table: dict) -> np.ndarray:
                 for tonic in range(12):
                     k, r, qi = key_index(tonic, mode), (tonic + int(deg)) % 12, QUAL_INDEX[q]
                     out[k, r, qi] = max(out[k, r, qi], float(st[stage]))
+    if 'dominant' in st:
+        for km, kr, r, qi in _relative_dominants(table):
+            out[km, r, qi] = out[kr, r, qi] = max(float(st['dominant']), out[kr, r, qi])
+    return out
+
+
+def neutral_matrix(table: dict) -> np.ndarray:
+    """(24, 12, len(QUALITIES)) bool: the chord is the harmonic-minor V / vii° of the minor key or V/vi of the
+    major key, so it never places a bar in that key or in its relative key (_bar_diatonic)."""
+    out = np.zeros((24, 12, len(QUALITIES)), dtype=bool)
+    for km, kr, r, qi in _relative_dominants(table):
+        out[km, r, qi] = out[kr, r, qi] = True
     return out
 
 
@@ -166,19 +193,22 @@ def resolutions(chords: list[BeatChord], bar_of_col: np.ndarray) -> list[Resolut
 
 
 def _bar_diatonic(chords: list[BeatChord], bar_of_col: np.ndarray, n_bars: int, fit: np.ndarray,
-                  diatonic: float) -> np.ndarray:
+                  diatonic: float, neutral: np.ndarray) -> np.ndarray:
     """(n_bars, 24) bool: the bar has stable chords (maj, maj7, min, min7) and all of them are diatonic (or
     tonic) to the key. Dominant-function chords point at another chord, so they never place a bar in a key
-    (they act through resolutions); bars without stable chords are False for every key."""
+    (they act through resolutions); bars without stable chords are False for every key. The same holds for a
+    plain triad that is the harmonic-minor V of the key or V/vi of the major key (`neutral`: E in C major /
+    A minor) — it is skipped for those two keys only (in E major it is still the tonic)."""
     ok = np.ones((n_bars, 24), dtype=bool)
-    seen = np.zeros(n_bars, dtype=bool)
+    seen = np.zeros((n_bars, 24), dtype=bool)
     for ch, b in zip(chords, bar_of_col):
         if b < 0 or ch.root is None or ch.quality not in _TARGET_MODE:
             continue
-        seen[b] = True
-        q = QUAL_INDEX.get(ch.quality)
-        ok[b] &= fit[:, ch.root % 12, q] >= diatonic if q is not None else False
-    return ok & seen[:, None]
+        q = QUAL_INDEX[ch.quality]
+        skip = neutral[:, ch.root % 12, q]
+        seen[b] |= ~skip
+        ok[b] &= (fit[:, ch.root % 12, q] >= diatonic) | skip
+    return ok & seen
 
 
 def _modulates(dia: np.ndarray, target_bar: int, new: int, prev: int, n_need: int, back_home: set[int],
@@ -208,7 +238,8 @@ def _resolution_bonus(chords, bar_of_col, n_bars, path0, table) -> np.ndarray:
     tonicization test (the first guess: plain triads are left out, since I -> IV looks like V -> I)."""
     res = table['resolution']
     n_need = int(res['min_bars'])
-    dia = _bar_diatonic(chords, bar_of_col, n_bars, fit_matrix(table), float(table['stage']['diatonic']))
+    dia = _bar_diatonic(chords, bar_of_col, n_bars, fit_matrix(table), float(table['stage']['diatonic']),
+                        neutral_matrix(table))
     bonus = np.zeros((n_bars, 24))
     res_list = resolutions(chords, bar_of_col)
     for r in res_list:

@@ -126,7 +126,7 @@ class TierTest(unittest.TestCase):
             ((G, 'maj'), (C, 'maj'), s),     # bVII -> bIII (5th down)
             ((E, '7'), (F, 'maj'), m),       # deceptive
             ((G, 'maj'), (A, 'min'), m),     # subtonic -> i
-            ((D, 'maj'), (A, 'min'), m),     # IV -> i (IV borrowed, pending user check)
+            ((D, 'maj'), (A, 'min'), m),     # IV -> i (IV borrowed, note v3)
             ((E, '7'), (A, 'maj'), m),       # Picardy third
             ((Bb, '7'), (A, 'min'), m),      # tritone substitute of V
             ((C, 'aug'), (A, 'min'), 0.0),
@@ -134,6 +134,22 @@ class TierTest(unittest.TestCase):
         for a, b, want in cases:
             with self.subTest(a=a, b=b):
                 self.assertAlmostEqual(tier(a, b, A_MIN), want)
+
+    def test_minor_in_key_set_v3(self):
+        # note v3 §2.3: natural minor + harmonic-minor V / vii°; melodic-minor / dorian chords are borrowed
+        t = H.load_table()
+        dia = H.parse_chords(t['minor']['diatonic'], t['family'])
+        bor = H.parse_chords(t['minor']['borrowed'], t['family'])
+        for c in [(0, 'min7'), (2, 'm7b5'), (3, 'maj7'), (5, 'min'), (7, 'min'), (7, '7'), (7, 'sus4'), (8, 'maj'),
+                  (10, '7'), (11, 'dim'), (11, 'dim7')]:
+            self.assertIn(c, dia)
+        for c in [(5, 'maj'), (5, '7'), (2, 'min'), (2, 'min7'), (9, 'dim'), (9, 'm7b5'), (11, 'm7b5')]:
+            self.assertNotIn(c, dia)
+            self.assertIn(c, bor)
+        tv = t['tier']
+        self.assertAlmostEqual(tier((Ab, 'dim'), (A, 'min'), A_MIN), tv['strong'])     # vii° -> i
+        self.assertAlmostEqual(tier((Ab, 'm7b5'), (A, 'min'), A_MIN), tv['medium'])    # viiø: passing, not D -> T
+        self.assertAlmostEqual(tier((A, 'min'), (B, 'min'), A_MIN), tv['weak'])        # i -> borrowed ii
 
     def test_same_table_in_every_key(self):
         d_maj = BarKey(0, D, 'major', 1.0)

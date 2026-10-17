@@ -7,21 +7,28 @@
 # weights: T14, tuned on synthetic incl. private chart set; see docs (docs/audio-spike2-plan.md 実績 T14).
 #          T14 changed [stage] tonic, [change] mid / boundary and [resolution] triad only; which chord belongs to
 #          which list is music theory — change it only after fixing the note.
+#          T14b (note v3, user decision 2026-10-17): [stage] dominant (new) and tonic; the rest flat, kept.
 #
 # A chord is written "<degree> <quality>": degree = semitones above the key's tonic (0-11),
 # quality = analyzer chord quality (maj min 7 maj7 min7 dim aug m7b5 dim7 sus4).
 # A chord in several lists takes the HIGHEST stage. A chord in no list is "other".
-# Minor keys use the union of natural, harmonic and melodic minor (note §2.3), except IV (borrowed).
+# Minor keys (note v3 §2.3, user decision 2026-10-17): "in key" = the natural-minor chords + the harmonic-minor
+# V (V, V7, Vsus4) and vii° (dim, dim7) with the raised leading tone. Melodic-minor / dorian chords (IV, ii, vi°,
+# viiø) are borrowed: the melodic minor shapes melodies, it is no strong criterion for harmony.
+# [minor] dominant lists the harmonic-minor V / vii°: they score the same in the minor key and in its relative
+# major (V/vi there, e.g. E7 in C major / A minor) and never place a bar in either key, so they are no evidence
+# for the minor key by themselves — only their resolution is ([resolution], note §5.0).
 #
 # PRIMARY CRITERION — where things resolve (user decision 2026-10-11, 「解決先で決める」): which key a passage
 # is in (tonicization vs. modulation, C major vs. A minor) is decided by its resolutions ([resolution]).
 # The stages below are the base evidence; the tonic stage is only a weak fallback when nothing resolves.
 
 [stage]  # score per bar (mean over the bar's beats) for each fit stage; other >= 0 (never forbids)
-tonic = 1.5      # I / i: fallback when nothing resolves (relative keys share their chords; [resolution] decides first). T14: 1.05 -> 1.5
+tonic = 1.35     # I / i: fallback when nothing resolves (relative keys share their chords; [resolution] decides first). T14: 1.05 -> 1.5; T14b (v3): 1.5 -> 1.35 (1.25-1.45 flat)
 diatonic = 1.0
 borrowed = 0.5
 secondary = 0.4
+dominant = 1.0   # [minor] dominant in the minor key AND its relative major (max with the major's own stage). T14b: 1.0 (0.4 / 0.7 lower)
 other = 0.0
 
 [change]  # key-change cost between two bars, in the same units as [stage] (one bar of a full fit = 1.0)
@@ -86,13 +93,20 @@ diatonic = [
   "3 maj", "3 maj7",              # bIII  T (substitute)
   "5 min", "5 min7",              # iv    S
   "7 min", "7 min7",              # v     D (natural, weak)
-  "7 maj", "7 7", "7 sus4",       # V     D (harmonic)
   "8 maj", "8 maj7",              # bVI   S
   "10 maj", "10 7",               # bVII  D-like (subtonic)
-  "11 dim", "11 dim7",            # vii°  D
+  "7 maj", "7 7", "7 sus4",       # V     D (harmonic minor)
+  "11 dim", "11 dim7",            # vii°  D (harmonic minor: V7(b9) without its root)
+]
+dominant = [                      # harmonic-minor V / vii° (also listed in diatonic): see the header
+  "7 maj", "7 7", "7 sus4",
+  "11 dim", "11 dim7",
 ]
 borrowed = [
   "5 maj", "5 7",                 # IV (dorian / melodic minor)
+  "2 min", "2 min7",              # ii (dorian / melodic minor)
+  "9 dim", "9 m7b5",              # vi° (melodic minor)
+  "11 m7b5",                      # viiø (melodic minor)
   "0 maj",                        # I (Picardy third)
   "1 maj", "1 maj7",              # bII (Neapolitan)
 ]

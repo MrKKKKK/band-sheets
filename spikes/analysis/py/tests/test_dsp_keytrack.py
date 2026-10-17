@@ -73,12 +73,47 @@ class TableTest(unittest.TestCase):
         self.assertEqual(fit[k_c, Db, keytrack.QUAL_INDEX['min']], st['other'])
         self.assertEqual(fit[k_c, Bb, keytrack.QUAL_INDEX['7']], st['borrowed'])  # bVII7: highest stage wins
         self.assertEqual(fit[k_am, A, keytrack.QUAL_INDEX['min']], st['tonic'])
-        self.assertEqual(fit[k_am, E, keytrack.QUAL_INDEX['7']], st['diatonic'])  # harmonic minor V
+        self.assertEqual(fit[k_am, E, keytrack.QUAL_INDEX['7']], st['dominant'])  # harmonic minor V
         # transposition invariance: G major fits D7 like C major fits G7
         self.assertEqual(fit[keytrack.key_index(G, 'major'), D, keytrack.QUAL_INDEX['7']], st['diatonic'])
 
 
 class EstimateTest(unittest.TestCase):
+    def test_minor_in_key_set_is_natural_plus_harmonic_dominant(self):
+        # note v3 §2.3: natural minor + harmonic-minor V / vii°; melodic-minor / dorian chords are borrowed
+        t = keytrack.load_table()
+        st, fit, Q = t['stage'], keytrack.fit_matrix(t), keytrack.QUAL_INDEX
+        k_am = keytrack.key_index(A, 'minor')
+        for root, q in [(B, 'm7b5'), (C, 'maj7'), (D, 'min'), (E, 'min'), (F, 'maj'), (G, '7')]:
+            self.assertEqual(fit[k_am, root, Q[q]], st['diatonic'], (root, q))
+        for root, q in [(E, 'maj'), (E, '7'), (E, 'sus4'), (Ab, 'dim'), (Ab, 'dim7')]:
+            self.assertGreaterEqual(fit[k_am, root, Q[q]], st['dominant'], (root, q))
+        for root, q in [(D, 'maj'), (D, '7'), (B, 'min'), (B, 'min7'), (Gb, 'dim'), (Gb, 'm7b5'), (Ab, 'm7b5')]:
+            self.assertEqual(fit[k_am, root, Q[q]], st['borrowed'], (root, q))
+        self.assertLessEqual(set(t['minor']['dominant']), set(t['minor']['diatonic']))
+
+    def test_harmonic_dominant_ties_the_relative_keys(self):
+        # E / E7 is V in A minor and V/vi in C major: alone it never tells the two apart (note §5.0)
+        t = keytrack.load_table()
+        fit, neutral, Q = keytrack.fit_matrix(t), keytrack.neutral_matrix(t), keytrack.QUAL_INDEX
+        k_c, k_am = keytrack.key_index(C, 'major'), keytrack.key_index(A, 'minor')
+        for root, q in [(E, 'maj'), (E, '7'), (E, 'sus4'), (Ab, 'dim'), (Ab, 'dim7')]:
+            self.assertEqual(fit[k_c, root, Q[q]], fit[k_am, root, Q[q]], (root, q))
+            self.assertTrue(neutral[k_c, root, Q[q]] and neutral[k_am, root, Q[q]], (root, q))
+        self.assertEqual(fit[keytrack.key_index(E, 'major'), E, Q['maj']], t['stage']['tonic'])  # still E major's I
+        self.assertFalse(neutral[keytrack.key_index(E, 'major'), E, Q['maj']])
+        chords, boc = bars((E, 'maj'), (A, 'min'), (C, 'maj'), (E, 'maj'))
+        dia = keytrack._bar_diatonic(chords, boc, 4, fit, t['stage']['diatonic'], neutral)
+        self.assertEqual(dia[:, k_c].tolist(), [False, True, True, False])  # an E-only bar is in neither key
+        self.assertEqual(dia[:, k_am].tolist(), [False, True, True, False])
+        self.assertTrue(dia[0, keytrack.key_index(A, 'major')])  # but it is V of A major
+
+    def test_secondary_dominant_of_vi_keeps_the_major_key(self):
+        # C major with V/vi -> vi (plain triads) and one V7 -> I: E -> Am alone does not make it A minor
+        keys = keytrack.estimate(*bars(*[(C, 'maj'), (E, 'maj'), (A, 'min'), (F, 'maj')] * 3, (G, '7'), (C, 'maj')),
+                                 [0], CFG)
+        self.assertEqual({(k.tonic, k.mode) for k in keys}, {(C, 'major')})
+
     def test_empty(self):
         self.assertEqual(keytrack.estimate([], np.zeros(0, int), [0], CFG), [])
 

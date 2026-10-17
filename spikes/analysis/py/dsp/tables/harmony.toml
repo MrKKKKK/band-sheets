@@ -8,6 +8,8 @@
 # weights: T14, tuned on synthetic incl. private chart set; see docs (docs/audio-spike2-plan.md 実績 T14):
 #          the [tier] values were kept (theory_prior 0-3 x three tier shapes all within 0.002 of the objective);
 #          which move belongs to which tier is music theory — change it only after fixing the note, note §6.6).
+# note v3 (user decision 2026-10-17): the [minor] in-key set is the natural minor + the harmonic-minor V / vii°;
+#          melodic-minor / dorian chords (IV, ii, vi°, viiø) moved to [minor] borrowed (note §2.3, §6.5).
 #
 # Only CHANGING moves (i != j) get a bonus; staying is never touched (note §1.1). A move matching several
 # rules takes the STRONGEST tier once (no sums, note §6.1). Anything not listed = base (0): never a ban.
@@ -87,12 +89,12 @@ weak = [
   { from = ["1 M"], to = ["7 D+s", "0 M"], src = "§3.4, §6.2 bII -> V, bII -> I" },
 ]
 
-[minor]  # note §2.3: union of natural, harmonic and melodic minor; IV counts as borrowed (pending user check)
-diatonic = ["0 m", "2 o", "3 M", "5 m", "7 m", "7 D+s", "8 M", "10 D", "11 o"]
-borrowed = ["5 D", "0 M", "1 M"]  # note §3.4: IV (dorian), I (Picardy), bII (Neapolitan)
+[minor]  # note v3 §2.3: natural minor + the harmonic-minor V (D+s) and vii° (dim, dim7); melodic / dorian = borrowed
+diatonic = ["0 m", "2 o", "3 M", "5 m", "7 m", "8 M", "10 D", "7 D+s", "11 dim+dim7"]
+borrowed = ["5 D", "2 m", "9 dim+m7b5", "11 m7b5", "0 M", "1 M"]  # note §3.4: IV, ii, vi°, viiø (dorian / melodic), I (Picardy), bII (Neapolitan)
 strong = [
-  { from = ["7 D+s", "11 o"], to = ["0 m"], src = "§2.4, §2.5, §6.2 D -> T" },
-  { from = ["5 m", "2 o", "8 M"], to = ["7 D+s", "11 o"], src = "§2.4, §6.2 S -> D" },
+  { from = ["7 D+s", "11 dim+dim7"], to = ["0 m"], src = "§2.4, §2.5, §6.2 D -> T" },
+  { from = ["5 m", "2 o", "8 M"], to = ["7 D+s", "11 dim+dim7"], src = "§2.4, §6.2 S -> D" },
   { from = ["0 m", "3 M"], to = ["5 m", "2 o", "8 M"], src = "§2.4, §6.2 T -> S" },
   { from = ["0 m"], to = ["5 m"], src = "§2.4, §6.2 root a 5th down" },
   { from = ["5 m"], to = ["10 D"], src = "§2.4, §6.2 root a 5th down" },
@@ -107,7 +109,7 @@ medium = [
   { from = ["10 D", "7 m", "5 m"], to = ["0 m"], src = "§2.3, §6.2 subtonic / weak D / plagal -> i" },
   { from = ["8 M"], to = ["10 D"], src = "§2.3, §6.2 bVI -> bVII" },
   { from = ["5 D"], to = ["0 m"], src = "§3.4, §6.2 IV -> i" },
-  { from = ["7 D+s", "11 o"], to = ["0 M"], src = "§3.4, §6.2 -> I (Picardy third, from D)" },
+  { from = ["7 D+s", "11 dim+dim7"], to = ["0 M"], src = "§3.4, §6.2 -> I (Picardy third, from D)" },
 ]
 weak = [
   { from = ["1 M"], to = ["7 D+s", "0 m"], src = "§3.4, §6.2 bII -> V, bII -> i (as in major)" },

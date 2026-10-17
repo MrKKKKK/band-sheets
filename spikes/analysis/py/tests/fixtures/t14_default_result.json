@@ -8,7 +8,7 @@
   },
   "analyzer": {
     "name": "dsp-v1",
-    "version": "1f15f9825119",
+    "version": "ce49ca6ec435",
     "methods": [
       "beats:ellis",
       "chroma:cqt",
@@ -16,9 +16,9 @@
       "downbeat:chord+bass+onset",
       "sections:novelty",
       "key:krumhansl-schmuckler",
-      "config:1f15f9825119"
+      "config:ce49ca6ec435"
     ],
-    "configHash": "1f15f9825119",
+    "configHash": "ce49ca6ec435",
     "config": {}
   },
   "beats": [
@@ -482,7 +482,7 @@
       "startBar": 0,
       "tonic": "C",
       "mode": "major",
-      "confidence": 0.9972647154431188
+      "confidence": 0.9973901080956138
     }
   ]
 }
