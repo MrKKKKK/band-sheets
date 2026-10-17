@@ -1,19 +1,26 @@
 /**
- * Resampling. This file currently holds only the 2:1 decimation the CQT needs (T6); T8 adds the
- * general windowed-sinc resampler for loading audio (plan decision 2).
+ * Resampling: the 2:1 decimation the CQT needs (T6) and, below, the general windowed-sinc resampler
+ * for loading audio (T8, plan decision 2).
  *
  * librosa's CQT decimates with soxr_hq (LGPL, never shipped). Our replacement is a zero-phase
- * Kaiser-windowed half-band FIR, designed to the spec in docs/audio-spike3-librosa-notes.md
- * section 7 ("TS の自前の半帯域フィルタへの条件"):
- *   - symmetric, centred (no delay): output k is aligned with input 2k,
- *   - passband 0 .. 0.5 x output Nyquist flat within +-1e-4 dB,
- *   - everything that folds onto it (>= 1.5 x output Nyquist) at -120 dB or below,
- *   - zero outside the signal, output length ceil(n / 2), scaled by sqrt(2)
- *     (librosa.resample(..., scale=True) for ratio 1/2).
- * 0.5 .. 1.5 x output Nyquist is a free transition band: the CQT never reads bins up there.
- * A 16:1 decimation (the bass CQT's single soxr step) is four of these in a row; the length
- * ceil(ceil(n/2)/2)... equals ceil(n/16) and the scale sqrt(2)^4 equals sqrt(16).
+ * Kaiser-windowed low-pass FIR with soxr_hq's documented band edges: passband to 0.913 x output
+ * Nyquist, stopband from the output Nyquist (cqtDecimator: 160 dB Kaiser, 489 taps). It meets the
+ * spec in docs/audio-spike3-librosa-notes.md section 7 (centred, no delay; flat passband; folding
+ * band at -120 dB or below; zero outside the signal; length ceil(n / 2); x sqrt(2)).
+ *
+ * Why soxr's edges and not the cheaper 47-tap half-band first used (still here as designHalfBand):
+ * the CQT never reads bins above 0.5 x output Nyquist, so in the middle of a signal both filters
+ * give the same chroma (+-0.2 %). But at an ABRUPT signal start (the trimmed level-M variants) the
+ * first ~10 frames carry the start transient, whose spectrum reaches the transition band; there the
+ * chroma depends on the transition-band shape (librosa itself moves by up to 1.3 % (full) / 16 %
+ * (bass) between soxr_hq and polyphase, out/t6/edge_ref.py). With soxr_hq's edges the TS chroma
+ * matches librosa's to <= 0.13 % on those frames (T6 follow-up).
+ *
+ * A 16:1 decimation (the bass CQT's early downsample) is four 2:1 stages (matches better than one
+ * 16:1 stage); the length ceil(ceil(n/2)/2)... equals ceil(n/16) and the scale sqrt(2)^4 = sqrt(16).
+ * The full and the bass CQT use the same chain of 2:1 stages, so DecimationChain shares it.
  */
+import { RealFft } from './fft';
 import type { MemTracker } from './mem';
 
 /** Modified Bessel function of the first kind, order 0 (power series). */
@@ -39,6 +46,31 @@ export interface HalfBand {
   taps: Float64Array;
   /** K: half length. */
   half: number;
+  /** Offsets from the centre that can be non-zero: 2 = odd only (half-band), 1 = all. Default 2. */
+  step?: 1 | 2;
+}
+
+/**
+ * General zero-phase Kaiser-windowed low-pass for 2:1 decimation, edges as fractions of the OUTPUT
+ * Nyquist (soxr_hq-like: pass 0.9, stop 1.0). Unit DC gain.
+ */
+export function designDecimator(pass = 0.9, stop = 1.0, atten = 140, factor = 2): HalfBand {
+  const ny = 0.5 / factor; // output Nyquist in cycles / input sample
+  const df = (stop - pass) * ny; // transition width
+  const fc = ((pass + stop) / 2) * ny; // cutoff
+  const half = Math.ceil((atten - 7.95) / (14.36 * df) / 2);
+  const beta = kaiserBeta(atten);
+  const i0b = besselI0(beta);
+  const taps = new Float64Array(2 * half + 1);
+  let sum = 0;
+  for (let j = -half; j <= half; j++) {
+    const h = j === 0 ? 2 * fc : Math.sin(2 * Math.PI * fc * j) / (Math.PI * j);
+    const r = j / half;
+    taps[j + half] = h * (besselI0(beta * Math.sqrt(Math.max(0, 1 - r * r))) / i0b);
+    sum += taps[j + half];
+  }
+  for (let i = 0; i < taps.length; i++) taps[i] /= sum;
+  return { taps, half, step: 1 };
 }
 
 /**
@@ -78,30 +110,43 @@ export function halfBandResponse(hb: HalfBand, w: number): number {
 
 let defaultHalfBand: HalfBand | null = null;
 
-/** The filter the CQT uses (designed once). */
+/** The 47-tap half-band (designed once); no longer the CQT default (see the header). */
 export function cqtHalfBand(): HalfBand {
   defaultHalfBand ??= designHalfBand();
   return defaultHalfBand;
 }
 
+let defaultDecimator: HalfBand | null = null;
+
+/** The CQT's 2:1 decimation filter: soxr_hq's band edges (pass 0.913, stop 1.0), 160 dB. */
+export function cqtDecimator(): HalfBand {
+  defaultDecimator ??= designDecimator(0.913, 1.0, 160);
+  return defaultDecimator;
+}
+
 /**
- * librosa.resample(x, orig_sr=2, target_sr=1, scale=True) with our half-band filter:
+ * librosa.resample(x, orig_sr=2, target_sr=1, scale=True) with our filter (default cqtDecimator):
  * out[k] = sqrt(2) * sum_j h[j] x[2k - j] (x = 0 outside), length ceil(n / 2), float32.
  */
-export function decimate2(x: Float32Array, mem?: MemTracker, hb: HalfBand = cqtHalfBand()): Float32Array {
+export function decimate2(x: Float32Array, mem?: MemTracker, hb: HalfBand = cqtDecimator()): Float32Array {
   const n = x.length;
   const m = Math.ceil(n / 2);
   const out = mem ? mem.f32(m) : new Float32Array(m);
   const { taps, half } = hb;
+  const step = hb.step ?? 2;
   const c = taps[half];
   for (let k = 0; k < m; k++) {
     const p = 2 * k;
     let s = c * x[p];
-    // only odd offsets are non-zero
-    for (let j = 1; j <= half; j += 2) {
-      const a = p - j >= 0 ? x[p - j] : 0;
-      const b = p + j < n ? x[p + j] : 0;
-      s += taps[half + j] * (a + b);
+    // half-band: only odd offsets are non-zero
+    if (p - half >= 0 && p + half < n) {
+      for (let j = 1; j <= half; j += step) s += taps[half + j] * (x[p - j] + x[p + j]);
+    } else {
+      for (let j = 1; j <= half; j += step) {
+        const a = p - j >= 0 ? x[p - j] : 0;
+        const b = p + j < n ? x[p + j] : 0;
+        s += taps[half + j] * (a + b);
+      }
     }
     out[k] = s * Math.SQRT2;
   }
@@ -109,13 +154,105 @@ export function decimate2(x: Float32Array, mem?: MemTracker, hb: HalfBand = cqtH
 }
 
 /**
- * 2^count : 1 decimation as `count` half-band stages (scale sqrt(2^count), length ceil(n / 2^count)).
+ * decimate2 via FFT overlap-save (same result up to float64 rounding; ~10x faster for long filters
+ * like cqtDecimator). Block size `nFft` (power of two, > 2 x filter length).
+ */
+export function decimate2Fft(x: Float32Array, mem?: MemTracker, hb: HalfBand = cqtDecimator(), nFft = 8192): Float32Array {
+  const n = x.length;
+  const m = Math.ceil(n / 2);
+  const out = mem ? mem.f32(m) : new Float32Array(m);
+  const { taps, half } = hb;
+  const M = taps.length; // 2 half + 1
+  if (nFft < 2 * M) throw new Error('decimate2Fft: nFft too small for the filter');
+  const fft = new RealFft(nFft);
+  const nb = nFft / 2 + 1;
+  const hRe = new Float64Array(nb);
+  const hIm = new Float64Array(nb);
+  const buf = new Float64Array(nFft);
+  buf.set(taps);
+  fft.rfft(buf, hRe, hIm);
+  const xRe = new Float64Array(nb);
+  const xIm = new Float64Array(nb);
+  const y = new Float64Array(nFft);
+  const valid = nFft - M + 1;
+  // c[q] = sum_i taps[i] x[q - i]; out[k] = sqrt(2) c[2k + half]
+  const qEnd = 2 * (m - 1) + half; // last q needed
+  for (let q0 = half; q0 <= qEnd; q0 += valid) {
+    const s0 = q0 - (M - 1);
+    for (let i = 0; i < nFft; i++) {
+      const j = s0 + i;
+      buf[i] = j >= 0 && j < n ? x[j] : 0;
+    }
+    fft.rfft(buf, xRe, xIm);
+    for (let k = 0; k < nb; k++) {
+      const a = xRe[k];
+      const b = xIm[k];
+      xRe[k] = a * hRe[k] - b * hIm[k];
+      xIm[k] = a * hIm[k] + b * hRe[k];
+    }
+    fft.irfft(xRe, xIm, y);
+    // q in [q0, q0 + valid): output index k with 2k + half = q
+    const qHi = Math.min(q0 + valid, qEnd + 1);
+    let q = q0 + ((q0 - half) % 2 === 0 ? 0 : 1);
+    for (; q < qHi; q += 2) out[(q - half) / 2] = y[q - q0 + M - 1] * Math.SQRT2;
+  }
+  return out;
+}
+
+/**
+ * The chain y, y/2, y/4, ... of 2:1 decimations (level k = k stages), computed lazily in order and
+ * shared between the full and the bass CQT. Levels below `keepFrom` are released as soon as the
+ * next level exists (the full CQT walks 1..6 once; the bass CQT then needs 4..6 again).
+ */
+export class DecimationChain {
+  private readonly levels: (Float32Array | null)[];
+
+  constructor(
+    y: Float32Array,
+    private readonly keepFrom = Infinity,
+    private readonly mem?: MemTracker,
+    private readonly hb: HalfBand = cqtDecimator(),
+  ) {
+    this.levels = [y];
+  }
+
+  get(k: number): Float32Array {
+    const have = this.levels[k];
+    if (have) return have;
+    let j = k - 1;
+    while (j > 0 && !this.levels[j]) j--;
+    let cur = this.levels[j];
+    if (!cur) throw new Error(`decimation level ${j} was released; keepFrom ${this.keepFrom} too high`);
+    for (let i = j + 1; i <= k; i++) {
+      const next = decimate2Fft(cur, this.mem, this.hb);
+      this.levels[i] = next;
+      if (i - 1 > 0 && i - 1 < this.keepFrom) {
+        this.mem?.release(cur);
+        this.levels[i - 1] = null;
+      }
+      cur = next;
+    }
+    return cur;
+  }
+
+  /** Release every level except the input. */
+  release(): void {
+    for (let i = 1; i < this.levels.length; i++) {
+      const a = this.levels[i];
+      if (a) this.mem?.release(a);
+      this.levels[i] = null;
+    }
+  }
+}
+
+/**
+ * 2^count : 1 decimation as `count` 2:1 stages (scale sqrt(2^count), length ceil(n / 2^count)).
  * Intermediate arrays are released from `mem`; the input is not.
  */
 export function decimatePow2(x: Float32Array, count: number, mem?: MemTracker, hb?: HalfBand): Float32Array {
   let y = x;
   for (let i = 0; i < count; i++) {
-    const next = decimate2(y, mem, hb);
+    const next = decimate2Fft(y, mem, hb);
     if (y !== x) mem?.release(y);
     y = next;
   }

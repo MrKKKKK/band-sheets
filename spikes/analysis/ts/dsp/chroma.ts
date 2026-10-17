@@ -9,7 +9,7 @@
  */
 import { cqtMagnitudeStream, cqtPlan, estimateTuning } from './core/cqt';
 import { MemTracker } from './core/mem';
-import type { HalfBand } from './core/resample';
+import { DecimationChain, type HalfBand } from './core/resample';
 
 /** Empirical: librosa CQT chroma (norm=None) of a unit-amplitude sine sums to ~80. */
 export const SCALE = 1.0 / 80.0;
@@ -66,6 +66,7 @@ export interface ChromaCqtOptions {
   /** Tuning in bins; estimated from y when omitted (librosa's tuning=None). */
   tuning?: number;
   halfBand?: HalfBand;
+  chain?: DecimationChain;
 }
 
 /**
@@ -80,7 +81,7 @@ export function chromaCqt(
   const tuning = opts.tuning ?? estimateTuning(y, { sr: opts.sr, bpo: opts.bpo }, mem);
   const nBins = opts.nOctaves * opts.bpo;
   const map = cqToChromaMap(nBins, opts.bpo, opts.fmin);
-  const cqtOpts = { sr: opts.sr, hop: opts.hop, fmin: opts.fmin, nBins, bpo: opts.bpo, tuning, halfBand: opts.halfBand };
+  const cqtOpts = { sr: opts.sr, hop: opts.hop, fmin: opts.fmin, nBins, bpo: opts.bpo, tuning, halfBand: opts.halfBand, chain: opts.chain };
   const cols = cqtPlan(y.length, cqtOpts).cols;
   const acc = mem.f64(12 * cols);
   cqtMagnitudeStream(
@@ -123,6 +124,7 @@ export interface FrameChromaOptions {
   tuningBass?: number;
   sr?: number;
   hop?: number;
+  /** Decimation filter override (default resample.ts cqtDecimator). */
   halfBand?: HalfBand;
 }
 
@@ -152,13 +154,25 @@ export function frameChroma(
     tFull ??= est;
     tBass ??= est;
   }
-  const base = { sr, hop, bpo: cfg.bins_per_octave, halfBand: opts.halfBand };
+  // One decimation chain for both CQTs (same input, same 2:1 stages); the bass needs the levels
+  // from its early-downsample count on again after the full CQT has walked past them.
+  const bassPlan = cqtPlan(yHarm.length, {
+    sr,
+    hop,
+    fmin: cfg.bass_fmin_hz,
+    nBins: cfg.bass_octaves * cfg.bins_per_octave,
+    bpo: cfg.bins_per_octave,
+    tuning: tBass,
+  });
+  const chain = new DecimationChain(yHarm, bassPlan.early, mem, opts.halfBand);
+  const base = { sr, hop, bpo: cfg.bins_per_octave, halfBand: opts.halfBand, chain };
   const f = chromaCqt(yHarm, { ...base, fmin: cfg.fmin_hz, nOctaves: cfg.n_octaves, tuning: tFull }, mem);
   const full = scaled(f.chroma, mem);
   mem.release(f.chroma);
   const b = chromaCqt(yHarm, { ...base, fmin: cfg.bass_fmin_hz, nOctaves: cfg.bass_octaves, tuning: tBass }, mem);
   const bass = scaled(b.chroma, mem);
   mem.release(b.chroma);
+  chain.release();
   return { full, bass, frames: f.cols, bassFrames: b.cols, tuningFull: tFull, tuningBass: tBass };
 }
 

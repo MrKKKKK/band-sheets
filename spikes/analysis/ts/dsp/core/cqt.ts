@@ -8,7 +8,7 @@
  * filter_scale 1, L1 norm, sparsity 0.01, Hann, scale=True, zero padding.
  *
  * Differences from librosa that the plan allows (notes section 7 "合わせ方"): soxr_hq decimation is
- * replaced by our own half-band filter (resample.ts; a 2^c:1 early downsample is c half-band stages),
+ * replaced by our own FIR with soxr_hq's band edges (resample.ts; a 2^c:1 early downsample is c 2:1 stages),
  * FFTs run in float64 (values are rounded to float32 where librosa stores complex64), the kernels are
  * dense-indexed rather than a scipy CSR matrix, and the unused decimation after the last octave is
  * skipped.
@@ -19,7 +19,7 @@
 import FFT from 'fft.js';
 import { RealFft } from './fft';
 import type { MemTracker } from './mem';
-import { decimate2, decimatePow2, type HalfBand } from './resample';
+import { decimate2Fft, decimatePow2, type DecimationChain, type HalfBand } from './resample';
 import { StftFramer } from './stft';
 
 /** filters.window_bandwidth('hann'). */
@@ -38,8 +38,10 @@ export interface CqtOptions {
   tuning: number;
   /** Sparsity quantile (librosa default 0.01). */
   sparsity?: number;
-  /** Decimation filter (default: resample.ts's cqtHalfBand). */
+  /** Decimation filter (default: resample.ts's cqtDecimator). Ignored when `chain` is given. */
   halfBand?: HalfBand;
+  /** Shared chain of 2:1 decimations of the same input (full + bass CQT); level k = 2^k : 1. */
+  chain?: DecimationChain;
 }
 
 /** interval_frequencies(..., intervals='equal') with fmin * 2^(tuning / bpo). */
@@ -275,7 +277,9 @@ export function cqtMagnitudeStream(y: Float32Array, opts: CqtOptions, sink: CqtS
   const { nBins, bpo } = opts;
   const nFilters = Math.min(bpo, nBins);
   const cols = plan.cols;
-  let cur = plan.early > 0 ? decimatePow2(y, plan.early, mem, opts.halfBand) : y;
+  const chain = opts.chain;
+  let level = plan.early;
+  let cur = chain ? chain.get(level) : plan.early > 0 ? decimatePow2(y, plan.early, mem, opts.halfBand) : y;
   const block = mem ? mem.f32(nFilters * cols) : new Float32Array(nFilters * cols);
   for (let o = 0; o < plan.nOctaves; o++) {
     const hi = nBins - nFilters * o;
@@ -287,12 +291,15 @@ export function cqtMagnitudeStream(y: Float32Array, opts: CqtOptions, sink: CqtS
     cqtResponse(cur, bank, oct.hop, cols, plan.scaleDiv.subarray(lo, hi), block, mem);
     sink(lo, nb, cols, nb === nFilters ? block : block.subarray(0, nb * cols));
     if (o < plan.nOctaves - 1 && oct.hop % 2 === 0) {
-      const next = decimate2(cur, mem, opts.halfBand);
-      if (cur !== y) mem?.release(cur);
-      cur = next;
+      if (chain) cur = chain.get(++level);
+      else {
+        const next = decimate2Fft(cur, mem, opts.halfBand);
+        if (cur !== y) mem?.release(cur);
+        cur = next;
+      }
     }
   }
-  if (cur !== y) mem?.release(cur);
+  if (!chain && cur !== y) mem?.release(cur);
   mem?.release(block);
   return plan;
 }
