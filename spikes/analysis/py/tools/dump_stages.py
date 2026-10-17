@@ -39,7 +39,12 @@ Stages (n = samples, F = STFT/CQT frames, nb = beats, nc = chord columns, S = ch
   sections    sections [s, 2] = start_bar, end_bar (labels in meta "sectionLabels")
   key         key_tonic [], key_mode [] (0 major, 1 minor), key_confidence []
   keytrack    bar_of_col [nb], bar_keys [K, 4] = bar, tonic, mode (0/1), confidence
-Not dumped: the CQT itself and its filter-bank internals (the plan compares chroma only), candidates (in the result
+  T1b      beat_times_tracked [nb_t] (after _refine, before the tempo rule), tempo_est [], tempo_score [W],
+           tempo_top2_{bin,bpm,score} [2] (feature.tempo, recomputed with librosa defaults), tuning_full /
+           tuning_bass [] (estimate_tuning inside each chroma_cqt), cqt_full_mag [216, F], cqt_bass_mag [108, F]
+           (|CQT| before the chroma fold), tempo_event_times [m] (tempo.event_times, only when the tempo rule
+           runs; meta tempoCandidateNames / tempoChosen).
+Not dumped: the CQT filter-bank internals, candidates (in the result
 JSON), per-stage timings.
 Also written: result.json (identical to `analyze.py -o`, timingsSec aside), config.json, and meta.json.
 """
@@ -62,7 +67,10 @@ import librosa  # noqa: E402
 import analyze as A  # noqa: E402
 import run_all  # noqa: E402
 from dsp import chroma as chroma_mod  # noqa: E402
-from dsp import harmony, keytrack, vocab  # noqa: E402
+from dsp import beats as beats_mod  # noqa: E402
+from dsp import harmony, keytrack, tempo as tempo_mod, vocab  # noqa: E402
+from librosa.core import constantq as constantq_mod  # noqa: E402
+from librosa.feature import spectral as spectral_mod  # noqa: E402
 from dsp.config import config_hash, config_to_dict, load_config  # noqa: E402
 from tools import common  # noqa: E402
 
@@ -121,7 +129,7 @@ def _hpss_internals(y, margin):
 
 def run_stages(wav, cfg):
     """analyze.analyze(wav, cfg) with recording wrappers. Returns (result, recorded dict)."""
-    rec = {'chords': [], 'beat_frames': None, 'frame_chroma': []}
+    rec = {'chords': [], 'beat_frames': None, 'frame_chroma': [], 'tuning': [], 'cqt': [], 'tempo_calls': []}
 
     def spy(owner, attr, key=None, many=False):
         orig = getattr(owner, attr)
@@ -145,6 +153,24 @@ def run_stages(wav, cfg):
         rec['frame_chroma'].append(out)
         return out
 
+    def estimate_tuning(*a, **k):
+        out = orig_tuning(*a, **k)
+        rec['tuning'].append(float(out))
+        return out
+
+    def cqt(*a, **k):
+        out = orig_cqt(*a, **k)
+        rec['cqt'].append(np.abs(out))
+        return out
+
+    def tempo_fn(*a, **k):
+        out = orig_tempo(*a, **k)
+        rec['tempo_calls'].append((a, k, np.asarray(out)))
+        return out
+
+    orig_tuning = constantq_mod.estimate_tuning
+    orig_cqt = spectral_mod.cqt
+    orig_tempo = librosa.beat._tempo
     orig_beat_track = librosa.beat.beat_track
     orig_frame_chroma = chroma_mod._frame_chroma
     with contextlib.ExitStack() as st:
@@ -153,13 +179,44 @@ def run_stages(wav, cfg):
             (A, 'estimate_chords', 'estimate_chords', True), (A, 'downbeat_chords', None, False),
             (A, 'choose_downbeats', None, False), (A, '_merge', 'merge', True), (A, 'find_sections', None, False),
             (A, 'estimate_key', None, False), (keytrack, 'estimate', 'keytrack', False),
-            (harmony, 'transition', 'prior', False),
+            (harmony, 'transition', 'prior', False), (beats_mod, '_track', 'tracked', False),
+            (tempo_mod, 'event_times', 'tempo_events', False), (tempo_mod, 'candidates', 'tempo_cands', False),
         ]:
             st.enter_context(spy(owner, attr, key, many))
         st.enter_context(mock.patch.object(librosa.beat, 'beat_track', beat_track))
         st.enter_context(mock.patch.object(chroma_mod, '_frame_chroma', frame_chroma))
+        st.enter_context(mock.patch.object(constantq_mod, 'estimate_tuning', estimate_tuning))
+        st.enter_context(mock.patch.object(spectral_mod, 'cqt', cqt))
+        st.enter_context(mock.patch.object(librosa.beat, '_tempo', tempo_fn))
         result = A.analyze(wav, cfg)
     return result, rec
+
+
+def _put_tempo(w, rec, grid, extras):
+    """feature.tempo (top-2 of log1p(1e6 tg) + logprior, recomputed with librosa's defaults) and the tempo rule."""
+    if rec['tempo_calls']:
+        _, k, est = rec['tempo_calls'][0]
+        env, sr, hop = k['onset_envelope'], k['sr'], k['hop_length']
+        w.put('tempo_est', est.reshape(-1)[0])
+        win = librosa.time_to_frames(8.0, sr=sr, hop_length=hop).item()  # ac_size default
+        tg = np.mean(librosa.feature.tempogram(onset_envelope=env, sr=sr, hop_length=hop, win_length=win),
+                     axis=-1, keepdims=True)[:, 0]
+        bpms = librosa.tempo_frequencies(win, hop_length=hop, sr=sr)
+        logprior = -0.5 * ((np.log2(bpms) - np.log2(k.get('start_bpm', 120.0))) / 1.0) ** 2
+        logprior[:int(np.argmax(bpms < 320.0))] = -np.inf  # max_tempo default
+        score = np.log1p(1e6 * tg) + logprior
+        top = np.argsort(-score, kind='stable')[:2]
+        w.put('tempo_score', score)
+        w.put('tempo_top2_bin', top, integer=True)
+        w.put('tempo_top2_bpm', bpms[top])
+        w.put('tempo_top2_score', score[top])
+        extras['tempoTop1MatchesLibrosa'] = bool(bpms[top[0]] == est.reshape(-1)[0])
+    if 'tempo_events' in rec:
+        w.put('tempo_event_times', rec['tempo_events'][2])
+        names = [n for n, _ in rec['tempo_cands'][2]]
+        final = np.asarray(grid.times)
+        extras['tempoCandidateNames'] = names
+        extras['tempoChosen'] = next((n for n, t in rec['tempo_cands'][2] if np.array_equal(np.asarray(t), final)), None)
 
 
 def write_stages(w, cfg, rec, extras):
@@ -194,6 +251,15 @@ def write_stages(w, cfg, rec, extras):
     if rec['beat_frames'] is not None:
         w.put('beat_frames_raw', rec['beat_frames'], integer=True)
     w.put('beat_times', grid.times)
+    if 'tracked' in rec:  # beats after _refine, before the tempo-octave rule
+        w.put('beat_times_tracked', rec['tracked'][2].times)
+    _put_tempo(w, rec, grid, extras)
+    for name, key in (('tuning_full', 0), ('tuning_bass', 1)):
+        if len(rec['tuning']) > key:
+            w.put(name, rec['tuning'][key])
+    for name, key in (('cqt_full_mag', 0), ('cqt_bass_mag', 1)):
+        if len(rec['cqt']) > key:
+            w.put(name, rec['cqt'][key])
     w.put('beat_tempo', grid.tempo)
 
     for name, arr in zip(('frame_chroma', 'frame_bass'), rec['frame_chroma']):

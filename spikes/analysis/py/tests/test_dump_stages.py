@@ -68,7 +68,9 @@ class DumpStagesTest(unittest.TestCase):
     def test_stage_files_match_meta(self):
         need = {'y', 'y_harm', 'y_perc', 'stft_re', 'stft_im', 'onset_env', 'beat_times', 'beat_chroma', 'col_chroma',
                 'chords1_root', 'chords1_posterior', 'chords2_root', 'downbeat_phase', 'segments', 'sections',
-                'key_tonic', 'bar_keys', 'chord_prior', 'frame_chroma', 'frame_bass'}
+                'key_tonic', 'bar_keys', 'chord_prior', 'frame_chroma', 'frame_bass', 'beat_times_tracked',
+                'tempo_est', 'tempo_score', 'tempo_top2_bpm', 'tempo_top2_bin', 'tuning_full', 'tuning_bass',
+                'cqt_full_mag', 'cqt_bass_mag', 'tempo_event_times'}
         self.assertLessEqual(need, set(self.meta['stages']))
         for name, s in self.meta['stages'].items():
             self.assertEqual(s['dtype'], 'float32')
@@ -81,6 +83,12 @@ class DumpStagesTest(unittest.TestCase):
         self.assertEqual(st['downbeat_phase']['shape'], [])
         self.assertEqual(st['chords1_posterior']['shape'], [len(self.meta['states']), st['col_chroma']['shape'][1]])
         self.assertLess(self.meta['hpssRecomputeMaxAbsDiff'], 1e-6)
+        self.assertEqual(st['cqt_full_mag']['shape'], [216, st['frame_chroma']['shape'][1]])
+        self.assertEqual(st['cqt_bass_mag']['shape'], [108, st['frame_chroma']['shape'][1]])
+        self.assertEqual(st['tuning_full']['shape'], [])
+        self.assertEqual(st['tempo_top2_bpm']['shape'], [2])
+        self.assertTrue(self.meta['tempoTop1MatchesLibrosa'])
+        self.assertIn(self.meta['tempoChosen'], self.meta['tempoCandidateNames'])
 
     def test_values_roundtrip(self):
         def read(name):
