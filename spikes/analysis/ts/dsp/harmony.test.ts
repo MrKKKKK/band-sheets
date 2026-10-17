@@ -4,7 +4,6 @@ import { MemTracker } from './core/mem';
 import {
   colKeys,
   estimateChordsPass2,
-  lazyPriorArray,
   NQ,
   normalizeRows,
   QUALITIES,
@@ -168,10 +167,7 @@ describe('TheoryPrior', () => {
       const row = p.row(t);
       for (let i = 0; i < S * S; i++) if (row[i] !== dense[t * S * S + i]) throw new Error(`t=${t} i=${i}`);
     }
-    const lazy = lazyPriorArray(p);
-    expect(lazy.length).toBe(nb * S * S);
-    expect(lazy[5 * S * S + 17]).toBe(dense[5 * S * S + 17]);
-    expect(() => (lazy as unknown as { slice: () => void }).slice()).toThrow();
+    expect(p.rows).toBe(nb);
   });
   it('is all zero with strength 0, no keys, one beat, or zero confidences', () => {
     const boc = barsOf(16, 0);
@@ -182,7 +178,7 @@ describe('TheoryPrior', () => {
     expect(new TheoryPrior(states, keys.map((k) => ({ ...k, confidence: 0 })), boc).isZero()).toBe(true);
     expect(new TheoryPrior(states, keys, boc).isZero()).toBe(false);
   });
-  it('estimateChordsPass2 equals estimateChords with the dense prior (lazy view feeds chords.ts unchanged)', () => {
+  it('estimateChordsPass2 equals estimateChords with the dense prior (TheoryPrior as chords.PriorRows)', () => {
     const nb = 160;
     const n = 2 * nb;
     const chroma = randomChroma(n, 11);
@@ -216,7 +212,7 @@ describe('memory and time', () => {
       return row(t);
     };
     const t0 = performance.now();
-    const out = estimateChords(chroma, n, cfg, { perBeat: 2, prior: lazyPriorArray(p) });
+    const out = estimateChords(chroma, n, cfg, { perBeat: 2, prior: p });
     const ms = performance.now() - t0;
     expect(out.length).toBe(n);
     console.log(
@@ -244,6 +240,6 @@ describe('memory and time', () => {
     t0 = performance.now();
     estimateChords(chroma, n, cfg, { perBeat: 2, prior: dense });
     const td = performance.now() - t0;
-    console.log(`[T13] 5 min (nb=${nb}, n=${n}): pass1=${t1.toFixed(0)} ms, pass2 lazy=${t2.toFixed(0)} ms, pass2 dense=${td.toFixed(0)} ms (+${tb.toFixed(0)} ms to build ${((dense.byteLength) / 1e6).toFixed(0)} MB)`);
+    console.log(`[T13] 5 min (nb=${nb}, n=${n}): pass1=${t1.toFixed(0)} ms, pass2 rows=${t2.toFixed(0)} ms, pass2 dense=${td.toFixed(0)} ms (+${tb.toFixed(0)} ms to build ${((dense.byteLength) / 1e6).toFixed(0)} MB)`);
   }, 120_000);
 });

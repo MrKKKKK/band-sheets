@@ -5,15 +5,13 @@
  *   tierMatrix(mode) -> Float64Array [132 * 132]   tier of (degree, quality) -> (degree, quality), tonic 0
  *   colKeys(barKeys, barOfBeat) -> BarKey[]          key of each beat (pickup -> first bar, gap -> earlier bar)
  *   new TheoryPrior(states, barKeys, barOfBeat, strength).row(t) -> Float64Array [k * k]   prior of beat t
- *   lazyPriorArray(prior) -> Float64Array-shaped view [nBeats * k * k] for chords.estimateChords' `opts.prior`
  *   estimateChordsPass2(colChroma, n, cfg, {perBeat, barKeys, barOfBeat}) -> ColumnChord[]   (analyze's chords2)
  *
  * Memory (plan section 2): Python's transition() builds the whole (n_beats, k, k) float64 array (5 minutes,
  * 120 states: ~70-140 MB). Here a row is computed when it is first read and kept in a small LRU keyed by the
  * same signature Python's `done` cache uses (key, confidence, [previous key, confidence]), so only a handful of
  * k * k rows exist at a time. Recomputing a row gives bit-identical values, so the LRU cannot change results.
- * The view handed to chords.ts is a Proxy over an empty Float64Array: chords.ts reads it strictly by index
- * (`prior.length`, `prior[i]`), one beat row after the other in the Viterbi, so the Proxy keeps the current row.
+ * TheoryPrior is a chords.PriorRows: the Viterbi fetches row(floor(t / perBeat)) once per column.
  *
  * The prior is per BEAT (bar_of_col in analyze.py is per beat, length n_beats); estimate_chords repeats each
  * beat row on the per_beat columns of that beat (np.repeat), which chords.ts does with rowDiv = perBeat.
@@ -22,7 +20,7 @@
  * shift = log(sum_j exp(b[i, j]) / (k - 1)) with numpy's pairwise row sum (posterior.numpySum).
  */
 import harmonyJson from '../tables/harmony.json' with { type: 'json' };
-import { estimateChords, type ChordsConfig, type ColumnChord } from './chords';
+import { estimateChords, type ChordsConfig, type ColumnChord, type PriorRows } from './chords';
 import type { MemTracker } from './core/mem';
 import type { Mode } from './keyest';
 import type { BarKey } from './keytrack';
@@ -223,7 +221,7 @@ export interface TheoryPriorOptions {
 }
 
 /** harmony.transition, one beat row at a time. Rows are shared and must not be modified. */
-export class TheoryPrior {
+export class TheoryPrior implements PriorRows {
   readonly k: number;
   readonly rows: number;
   /** Rows computed so far (cache misses), for tests. */
@@ -341,41 +339,6 @@ export class TheoryPrior {
   }
 }
 
-/**
- * A Float64Array-shaped, read-only view of the whole prior [rows * k * k] for chords.estimateChords'
- * `opts.prior`, computed row by row on access (no [rows, k, k] buffer). chords.ts only uses `length` and
- * integer indexing; any other use (methods, writes, iteration) throws so a future chords.ts change that
- * needs more cannot silently read garbage. Sequential row access hits the current-row fast path.
- */
-export function lazyPriorArray(prior: TheoryPrior): Float64Array {
-  const kk = prior.k * prior.k;
-  const length = prior.rows * kk;
-  let curRow = -1;
-  let cur: Float64Array = new Float64Array(0);
-  const handler: ProxyHandler<Float64Array> = {
-    get(_t, prop) {
-      if (prop === 'length') return length;
-      if (typeof prop === 'string') {
-        const i = +prop;
-        if (Number.isInteger(i) && i >= 0) {
-          if (i >= length) return undefined;
-          const r = (i / kk) | 0;
-          if (r !== curRow) {
-            curRow = r;
-            cur = prior.row(r);
-          }
-          return cur[i - r * kk];
-        }
-      }
-      throw new Error(`lazyPriorArray: unsupported access ${String(prop)} (chords.ts may only read length / [i])`);
-    },
-    set() {
-      throw new Error('lazyPriorArray is read-only');
-    },
-  };
-  return new Proxy(new Float64Array(0), handler);
-}
-
 export interface Pass2Options {
   perBeat?: number;
   /** Per-bar keys (keytrack.estimate(...).keys; analyze uses them when key.track == 'sections'). */
@@ -397,5 +360,5 @@ export function estimateChordsPass2(colChroma: ArrayLike<number>, n: number, cfg
     throw new Error(`barOfBeat has ${opts.barOfBeat.length} beats for ${n} columns at perBeat ${perBeat}`);
   }
   const p = new TheoryPrior(vocab.states(cfg), opts.barKeys, opts.barOfBeat, opts.strength ?? DEFAULT_THEORY_PRIOR, { mem: opts.mem });
-  return estimateChords(colChroma, n, cfg, { perBeat, prior: p.isZero() ? null : lazyPriorArray(p) });
+  return estimateChords(colChroma, n, cfg, { perBeat, prior: p.isZero() ? null : p });
 }
