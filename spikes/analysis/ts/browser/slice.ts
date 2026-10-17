@@ -8,10 +8,6 @@
  *     (Of the 17 dev parity variants Python keeps T on 16; etude-full-t90-straight-drift picks T/2a.)
  *   - no downbeat / sections / key / pass 2: chords are pass 1, so '?' marks and labels can differ
  *     from result.json (which is pass 2).
- *   - chroma: ts/dsp/chroma.ts frameChroma throws when the full (6-octave) and bass (3-octave) CQTs
- *     have different frame counts (e.g. exactly 60 s at 22050 Hz: 2584 vs 2585). Python does not
- *     require equal counts (chroma._columns clips the bounds to the full count and _aggregate clamps
- *     to each array's own count), so sliceColumns below follows Python with T6's exported pieces.
  * No network: this module and everything it imports only compute.
  */
 import { HOP, hpss, onsetStrength, SR } from '../dsp/audio';
@@ -24,8 +20,7 @@ import {
   mergeSegments,
   NOTE_NAMES,
 } from '../dsp/chords';
-import { aggregate, chromaCqt, columns, columnTimes, DEFAULT_CHROMA_CONFIG, SCALE, type Columns } from '../dsp/chroma';
-import { estimateTuning } from '../dsp/core/cqt';
+import { chordColumns, columnTimes } from '../dsp/chroma';
 import { MemTracker } from '../dsp/core/mem';
 import { resampleSinc, toMono } from '../dsp/core/resample';
 
@@ -82,43 +77,6 @@ export interface SliceHooks {
 function defaultHeap(): number | undefined {
   const m = (globalThis.performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
   return m ? m.usedJSHeapSize : undefined;
-}
-
-function scaled(c: Float32Array, mem: MemTracker): Float64Array {
-  const out = mem.f64(c.length);
-  for (let i = 0; i < c.length; i++) out[i] = c[i] * SCALE;
-  mem.release(c);
-  return out;
-}
-
-/**
- * py chroma.chord_columns (default config, per_beat 2) = ts chroma.chordColumns, except that the full
- * and bass frame counts may differ (see the header): bounds come from the full chroma's count and the
- * bass columns are aggregated over the bass's own count, as in Python.
- */
-export function sliceColumns(yHarm: Float32Array, times: Float64Array, duration: number, mem: MemTracker): Columns {
-  const cfg = DEFAULT_CHROMA_CONFIG;
-  const perBeat = 2;
-  if (times.length === 0) {
-    const z = new Float64Array(0);
-    const b0 = new Int32Array(1);
-    return { chroma: z, bass: z, bounds: b0, cChroma: z, cBounds: b0, perBeat };
-  }
-  const base = { sr: SR, hop: HOP, bpo: cfg.bins_per_octave };
-  const tuning = estimateTuning(yHarm, { sr: SR, bpo: cfg.bins_per_octave }, mem); // once, as frameChroma
-  const f = chromaCqt(yHarm, { ...base, fmin: cfg.fmin_hz, nOctaves: cfg.n_octaves, tuning }, mem);
-  const full = scaled(f.chroma, mem);
-  const b = chromaCqt(yHarm, { ...base, fmin: cfg.bass_fmin_hz, nOctaves: cfg.bass_octaves, tuning }, mem);
-  const bass = scaled(b.chroma, mem);
-  let cols: Columns;
-  if (f.cols === b.cols) {
-    cols = columns(full, bass, f.cols, times, duration, perBeat, cfg.aggregate, SR, HOP);
-  } else {
-    cols = columns(full, full, f.cols, times, duration, perBeat, cfg.aggregate, SR, HOP);
-    cols = { ...cols, bass: aggregate(bass, b.cols, cols.bounds, cfg.aggregate) };
-  }
-  mem.release(full, bass);
-  return cols;
 }
 
 export function runSlice(input: SliceInput, hooks: SliceHooks = {}): SliceResult {
@@ -180,7 +138,9 @@ export function runSlice(input: SliceInput, hooks: SliceHooks = {}): SliceResult
   mark('beats');
 
   // chroma: frame chroma (CQT, full + bass) -> beat / eighth columns
-  const cols = sliceColumns(yHarm as Float32Array, times, duration, mem);
+  // (full / bass frame counts may differ, as in Python; chordColumns handles it since T6 a6544c2)
+  const cols = chordColumns(yHarm as Float32Array, times, duration, {}, mem);
+  mem.release(cols.frames.full, cols.frames.bass);
   mem.release(yHarm);
   yHarm = null;
   mark('chroma');

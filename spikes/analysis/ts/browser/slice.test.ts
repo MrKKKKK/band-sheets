@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { chordColumns } from '../dsp/chroma';
-import { MemTracker } from '../dsp/core/mem';
 import { stubNoNetwork } from '../parity/noNetwork';
-import { runSlice, sliceColumns } from './slice';
+import { runSlice } from './slice';
 import { synthClip } from './synth';
 
 describe('runSlice (T8 vertical slice)', () => {
@@ -23,16 +21,6 @@ describe('runSlice (T8 vertical slice)', () => {
     for (const c of ['C', 'G', 'Am', 'F']) expect(texts.has(c)).toBe(true);
     expect(r.mem.peak).toBeGreaterThan(0);
   }, 120_000);
-
-  it('sliceColumns equals chordColumns when the frame counts agree', () => {
-    const y = synthClip(22050, 8);
-    const times = Float64Array.from({ length: 15 }, (_, i) => 0.25 + i * 0.5);
-    const a = sliceColumns(y, times, 8, new MemTracker());
-    const b = chordColumns(y, times, 8);
-    expect(Array.from(a.cChroma)).toEqual(Array.from(b.cChroma));
-    expect(Array.from(a.bass)).toEqual(Array.from(b.bass));
-    expect(Array.from(a.cBounds)).toEqual(Array.from(b.cBounds));
-  });
 
   it('empty input gives an empty result', () => {
     const r = runSlice({ channels: [new Float32Array(0)], sr: 44100 });
