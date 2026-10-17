@@ -41,15 +41,16 @@ def keys(n_bars, key=C_MAJ):
 
 
 class TableTest(unittest.TestCase):
-    def test_header_cites_note_and_leaves_books_empty(self):
+    def test_header_cites_note_and_no_books(self):
         with open(H.TABLE_PATH, encoding='utf-8') as f:
             head = f.read().split('\n[', 1)[0]
         self.assertIn('# source:', head)
-        self.assertIn('和声法ノート', head)
+        self.assertIn('「和声法ノート v3（band-sheets 音声解析用）」', head)
         self.assertIn('§6.4', head)
         books = [ln for ln in head.splitlines() if ln.startswith('# books:')]
         self.assertEqual(len(books), 1)
-        self.assertIn('to be filled in', books[0])  # user has not confirmed the books yet
+        # user 2026-10-17: no books at hand; the note's sections are the only source
+        self.assertTrue(books[0].split(':', 1)[1].strip().startswith('なし（手元の文献なし'), books[0])
         self.assertIn('# weights:', head)
 
     def test_every_rule_cites_a_section(self):

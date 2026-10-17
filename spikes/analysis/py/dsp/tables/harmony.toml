@@ -1,10 +1,11 @@
 # harmony.toml — theory prior on chord transitions for the 2nd chord pass (spike 2 T26, harmony.py).
 #
-# source: the user's knowledge note 「和声法ノート」 §1.3–1.4 (strength, degree notation, quality families),
+# source: the user's knowledge note 「和声法ノート v3（band-sheets 音声解析用）」
+#         §1.3–1.4 (strength, degree notation, quality families),
 #         §2.2–2.5 (diatonic chords, T・S・D, typical progressions, cadences), §3.1–3.5, §3.7 (secondary
 #         dominants, II–V, tritone substitute, borrowing, passing diminished 7th, sus4 resolution),
 #         §6.1 (tiers), §6.2 (transition classes), §6.3 (key-change boundary), §6.4 (row normalization).
-# books:  (to be filled in once the user confirms which books of the note §7 were checked)
+# books:  なし（手元の文献なし。根拠は和声法ノート v3 の § のみ。一般的な和声・ポピュラー音楽理論を自分たちの言葉でまとめたもの）
 # weights: T14, tuned on synthetic incl. private chart set; see docs (docs/audio-spike2-plan.md 実績 T14):
 #          the [tier] values were kept (theory_prior 0-3 x three tier shapes all within 0.002 of the objective);
 #          which move belongs to which tier is music theory — change it only after fixing the note, note §6.6).

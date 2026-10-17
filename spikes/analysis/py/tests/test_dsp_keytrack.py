@@ -59,7 +59,10 @@ class TableTest(unittest.TestCase):
         with open(keytrack.TABLE_PATH, encoding='utf-8') as f:
             head = f.read().split('\n[', 1)[0]
         self.assertIn('# source:', head)
-        self.assertIn('和声法ノート', head)
+        self.assertIn('「和声法ノート v3（band-sheets 音声解析用）」', head)
+        books = [ln for ln in head.splitlines() if ln.startswith('# books:')]
+        self.assertEqual(len(books), 1)
+        self.assertTrue(books[0].split(':', 1)[1].strip().startswith('なし（手元の文献なし'), books[0])
         self.assertIn('# weights:', head)
 
     def test_phrase_edge_is_chord(self):

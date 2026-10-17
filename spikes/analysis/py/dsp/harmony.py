@@ -5,7 +5,7 @@
     tier_matrix(mode) -> (12 * len(QUALITIES),) * 2 tier value of each move in degree space (tonic 0)
 
 Entry [t, i, j] is a log-domain bonus added to the move from state i (column t-1) to state j (column t).
-Source of every rule: tables/harmony.toml (the user's note 「和声法ノート」 §6.1-6.4). Steps per column t:
+Source of every rule: tables/harmony.toml (the user's note 「和声法ノート v3（band-sheets 音声解析用）」 §6.1-6.4). Steps per column t:
 
 1. Key of the column = the BarKey of its bar (pickup columns: the first bar; bars past the end: the last).
 2. Raw bonus b[i, j] = theory_prior x key confidence x tier(i -> j), tier from the degrees of i and j

@@ -1,9 +1,10 @@
 # key_fit.toml — how well a chord fits a key, for the per-bar key HMM (spike 2 T22, keytrack.py).
 #
-# source: the user's knowledge note 「和声法ノート」 §2.1–2.3 (diatonic chords, T・S・D), §3.1 (secondary
+# source: the user's knowledge note 「和声法ノート v3（band-sheets 音声解析用）」
+#         §2.1–2.3 (diatonic chords, T・S・D), §3.1 (secondary
 #         dominants), §3.3 (tritone substitutes), §3.4 (borrowing from the parallel key), §3.5 (passing
 #         diminished 7th), §5.1–5.4 (modulation vs. tonicization, near keys, ambiguity), §6.5 (this table).
-# books:  (to be filled in once the user confirms which books of the note §7 were checked)
+# books:  なし（手元の文献なし。根拠は和声法ノート v3 の § のみ。一般的な和声・ポピュラー音楽理論を自分たちの言葉でまとめたもの）
 # weights: T14, tuned on synthetic incl. private chart set; see docs (docs/audio-spike2-plan.md 実績 T14).
 #          T14 changed [stage] tonic, [change] mid / boundary and [resolution] triad only; which chord belongs to
 #          which list is music theory — change it only after fixing the note.
