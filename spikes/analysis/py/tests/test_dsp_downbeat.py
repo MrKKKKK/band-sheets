@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from py.dsp.config import Config, DownbeatConfig, apply_overrides
+from py.dsp.config import Config, DownbeatConfig, apply_overrides, spike1_config
 from py.dsp.downbeat import (
     bass_change_strength,
     beat_onset_strength,
@@ -214,15 +214,15 @@ class ChooseDownbeatsTest(unittest.TestCase):
         y = np.zeros(10)
         feat = Features(sr=sr, hop=hop, duration=float(times[-1] + 1), y=y, y_harm=y, y_perc=y, onset_env=env)
         down = set(range(k, n, 4))
-        db = choose_downbeats(feat, grid, chords, bass_chroma(roots, down), Config())
+        db = choose_downbeats(feat, grid, chords, bass_chroma(roots, down), spike1_config())
         self.assertEqual(db.phase, k)
         self.assertGreater(db.confidence, 0.3)
         # Missing pieces are tolerated.
-        self.assertEqual(choose_downbeats(None, grid, chords, None, Config()).phase, k)
-        self.assertEqual(choose_downbeats(feat, grid, None, None, Config()).phase, k)
+        self.assertEqual(choose_downbeats(None, grid, chords, None, spike1_config()).phase, k)
+        self.assertEqual(choose_downbeats(feat, grid, None, None, spike1_config()).phase, k)
 
     def test_config_override(self):
-        cfg = apply_overrides(Config(), {'downbeat': {'w_bass': 0.0, 'anticipation_shift': 0.5}})
+        cfg = apply_overrides(spike1_config(), {'downbeat': {'w_bass': 0.0, 'anticipation_shift': 0.5}})
         self.assertEqual(cfg.downbeat.w_bass, 0.0)
 
     def test_beat_onset_strength(self):
@@ -260,7 +260,7 @@ class DownbeatChordsTest(unittest.TestCase):
     def _phase(self, ov, fixed: bool):
         from py.dsp.chords import beat_level, estimate_chords
         from py.dsp.downbeat import downbeat_chords
-        cfg = apply_overrides(Config(), ov)
+        cfg = apply_overrides(spike1_config(), ov)
         pb = 2 if cfg.chords.resolution == 'eighth' else 1
         chroma = self.z['chroma'].astype(float)
         cols = estimate_chords((self.z['cc'] if pb == 2 else self.z['chroma']).astype(float), cfg, per_beat=pb)
@@ -283,5 +283,5 @@ class DownbeatChordsTest(unittest.TestCase):
     def test_default_path_returns_the_chords_unchanged(self):
         from py.dsp.chords import estimate_chords
         from py.dsp.downbeat import downbeat_chords
-        cols = estimate_chords(self.z['chroma'].astype(float), Config())
-        self.assertIs(downbeat_chords(cols, self.z['chroma'].astype(float), Config(), 1), cols)
+        cols = estimate_chords(self.z['chroma'].astype(float), spike1_config())
+        self.assertIs(downbeat_chords(cols, self.z['chroma'].astype(float), spike1_config(), 1), cols)

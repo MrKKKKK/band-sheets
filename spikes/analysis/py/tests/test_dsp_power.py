@@ -8,7 +8,7 @@ import numpy as np
 from py.dsp import bassroot, posterior, vocab
 from py.dsp.chords import ChordSegment, _BETA, chord_name, estimate_chords, merge_chords
 from py.dsp.chroma import beat_chroma
-from py.dsp.config import Config, apply_overrides, config_hash
+from py.dsp.config import Config, apply_overrides, config_hash, spike1_config
 from py.dsp.types import BeatChord, BeatGrid, Features
 
 SR = 22050
@@ -18,7 +18,7 @@ C, E, EB, G, D = 0, 4, 3, 7, 2
 
 
 def cfg(**chords):
-    return apply_overrides(Config(), {'chords': chords})
+    return apply_overrides(spike1_config(), {'chords': chords})
 
 
 POWER = cfg(power=True)
@@ -55,9 +55,9 @@ def chords_of(midis, c, beats=4):
 
 class ConfigTest(unittest.TestCase):
     def test_off_values_keep_spike1_hash(self):
-        self.assertEqual(config_hash(Config()), '99f2c324b973')
-        self.assertNotEqual(config_hash(POWER), config_hash(Config()))
-        self.assertNotEqual(config_hash(cfg(candidates=True)), config_hash(Config()))
+        self.assertEqual(config_hash(spike1_config()), '99f2c324b973')
+        self.assertNotEqual(config_hash(POWER), config_hash(spike1_config()))
+        self.assertNotEqual(config_hash(cfg(candidates=True)), config_hash(spike1_config()))
 
     def test_bad_values_raise(self):
         for c in (cfg(candidates=True, candidates_k=0), cfg(power=True, power_third_max=-0.1)):
@@ -67,13 +67,13 @@ class ConfigTest(unittest.TestCase):
 
 class VocabTest(unittest.TestCase):
     def test_power_states_appended(self):
-        base = vocab.states(Config())
+        base = vocab.states(spike1_config())
         st = vocab.states(POWER)
         self.assertEqual(st[:len(base)], base)
         self.assertEqual(st[len(base):], [(r, '5') for r in range(12)])
         self.assertEqual(vocab.intervals('5'), (0, 7))
         self.assertEqual(chord_name(0, '5'), 'C5')
-        self.assertEqual(vocab.move_states(POWER), vocab.move_states(Config()))
+        self.assertEqual(vocab.move_states(POWER), vocab.move_states(spike1_config()))
         v2p = vocab.states(cfg(vocab='v2', power=True))
         self.assertEqual(v2p[-12:], [(r, '5') for r in range(12)])
 
@@ -102,13 +102,13 @@ class PowerChordTest(unittest.TestCase):
         self.assertEqual(self._one(col(C=1, E=1, G=1)), (C, 'maj'))
 
     def test_off_never_outputs_power(self):
-        self.assertEqual(self._one(col(C=1, G=1), Config())[0], C)
-        self.assertNotEqual(self._one(col(C=1, G=1), Config())[1], '5')
+        self.assertEqual(self._one(col(C=1, G=1), spike1_config())[0], C)
+        self.assertNotEqual(self._one(col(C=1, G=1), spike1_config())[1], '5')
 
     def test_power_gate_off_by_default_bit_identical(self):
         rng = np.random.default_rng(1)
         chroma = rng.random((12, 20))
-        a = estimate_chords(chroma, Config())
+        a = estimate_chords(chroma, spike1_config())
         b = estimate_chords(chroma, cfg(power=True, power_third_max=0.0))  # nothing passes a zero gate
         self.assertEqual([(x.root, x.quality) for x in a], [(x.root, x.quality) for x in b])
 
@@ -145,7 +145,7 @@ class InvertedFifthTest(unittest.TestCase):
         self.assertEqual({(c.root, c.quality) for c in got}, {(C, 'maj')})
 
     def test_root_without_power_switch_is_c(self):
-        got, _ = chords_of([43, 48, 55], Config())
+        got, _ = chords_of([43, 48, 55], spike1_config())
         self.assertEqual({c.root for c in got}, {C})
 
     def test_bass_evidence_ignored_on_power_columns(self):
@@ -192,7 +192,7 @@ class PowerSegmentTest(unittest.TestCase):
         chroma = np.zeros((12, 6))
         chroma[[C, G], :] = 1.0
         segs = [seg(0, 2, C, '5', 0.4), seg(2, 4, C, 'maj', 0.8), seg(4, 6, C, '7')]
-        self.assertIs(vocab.decide_power_segments(segs, chroma, Config()), segs)
+        self.assertIs(vocab.decide_power_segments(segs, chroma, spike1_config()), segs)
         out = vocab.decide_power_segments(segs, chroma, POWER)
         self.assertEqual([(s.start_beat, s.end_beat, s.quality) for s in out], [(0, 4, '5'), (4, 6, '7')])
         self.assertAlmostEqual(out[0].confidence, 0.6)
@@ -224,10 +224,10 @@ class PosteriorMoveTest(unittest.TestCase):
 class CandidatesTest(unittest.TestCase):
     def test_beat_posteriors_only_with_switch(self):
         chroma = np.repeat(col(C=1, E=1, G=1), 3, axis=1)
-        self.assertEqual({b.posterior is None for b in estimate_chords(chroma, Config())}, {True})
+        self.assertEqual({b.posterior is None for b in estimate_chords(chroma, spike1_config())}, {True})
         got = estimate_chords(chroma, cfg(candidates=True))
         self.assertEqual(got[0].posterior.shape, (60,))
-        self.assertEqual([b.confidence for b in got], [b.confidence for b in estimate_chords(chroma, Config())])  # margin kept
+        self.assertEqual([b.confidence for b in got], [b.confidence for b in estimate_chords(chroma, spike1_config())])  # margin kept
 
     def test_segment_candidates_ranked(self):
         post = np.zeros((4, 4))
@@ -253,7 +253,7 @@ class CandidatesTest(unittest.TestCase):
             self.assertEqual(len(s.candidates), 2)
             self.assertEqual(s.candidates[0][:2], (s.root, s.quality))
             self.assertGreaterEqual(s.candidates[0][2], s.candidates[1][2])
-        self.assertEqual(posterior.attach_candidates(segs, beats, Config()), segs)
+        self.assertEqual(posterior.attach_candidates(segs, beats, spike1_config()), segs)
 
     def test_beat_chord_equality_ignores_posterior(self):
         self.assertEqual(BeatChord(0, 'maj', 1.0, posterior=np.ones(3)), BeatChord(0, 'maj', 1.0))

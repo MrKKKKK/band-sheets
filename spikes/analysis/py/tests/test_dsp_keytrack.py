@@ -98,12 +98,24 @@ class EstimateTest(unittest.TestCase):
         self.assertLessEqual(abs(ch[0] - 16), 1)
 
     def test_boundary_off_by_four_bars_follows_the_chords(self):
+        # T22 change costs (mid 0.75, boundary 0.25): the change follows the chords, not the boundary
+        t22 = apply_overrides(CFG, {'key': {'change_cost_mid': 0.75, 'change_cost_boundary': 0.25}})
         chords, boc = bars(*C_PHRASE * 4, *G_PHRASE * 4)
         for sections in ([0, 20], [0, 12]):
             with self.subTest(sections=sections):
-                ch = change_bars(keytrack.estimate(chords, boc, sections, CFG))
+                ch = change_bars(keytrack.estimate(chords, boc, sections, t22))
                 self.assertEqual(len(ch), 1)
                 self.assertLessEqual(abs(ch[0] - 16), 1)
+
+    def test_t14_costs_change_once_between_chords_and_boundary(self):
+        # T14 table costs (mid 4.0, boundary 2.0, deliberately less jumpy): still exactly one change, and it
+        # lands between the chord change (16) and the detected boundary when the boundary comes late
+        chords, boc = bars(*C_PHRASE * 4, *G_PHRASE * 4)
+        for sections, lo, hi in (([0, 20], 15, 20), ([0, 12], 15, 17), ([0, 16], 15, 17)):
+            with self.subTest(sections=sections):
+                ch = change_bars(keytrack.estimate(chords, boc, sections, CFG))
+                self.assertEqual(len(ch), 1)
+                self.assertTrue(lo <= ch[0] <= hi, ch)
 
     def test_one_borrowed_bar_keeps_the_key(self):
         phrase = C_PHRASE * 2 + [(C, 'maj'), (F, 'maj'), (F, 'min'), (C, 'maj')] + C_PHRASE

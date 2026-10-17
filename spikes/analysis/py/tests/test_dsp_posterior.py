@@ -6,7 +6,7 @@ import numpy as np
 
 from py.dsp import chords as chords_mod
 from py.dsp import vocab
-from py.dsp.config import Config, apply_overrides
+from py.dsp.config import Config, apply_overrides, spike1_config
 from py.dsp.posterior import chord_posterior
 
 BETA = chords_mod._BETA
@@ -61,7 +61,7 @@ class PosteriorTest(unittest.TestCase):
     def test_estimate_chords_uses_posterior(self):
         chroma = np.zeros((12, 6))
         chroma[[0, 4, 7], :] = 1.0
-        cfg = apply_overrides(Config(), {'chords': {'confidence': 'posterior', 'use_seventh': False}})
+        cfg = apply_overrides(spike1_config(), {'chords': {'confidence': 'posterior', 'use_seventh': False}})
         got = chords_mod.estimate_chords(chroma, cfg)
         self.assertTrue(all(c.confidence > 0.9 and (c.root, c.quality) == (0, 'maj') for c in got))
         self.assertEqual(len(vocab.states(cfg)), 24)

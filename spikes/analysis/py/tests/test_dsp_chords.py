@@ -5,7 +5,7 @@ import numpy as np
 
 from py.dsp.chords import beat_level, chord_name, chord_text, estimate_chords, merge_chords
 from py.dsp.chroma import beat_chroma, chord_columns, column_times
-from py.dsp.config import ChordsConfig, Config
+from py.dsp.config import ChordsConfig, Config, spike1_config
 from py.dsp.types import BeatChord, BeatGrid, Features
 
 SR = 22050
@@ -58,7 +58,7 @@ def make(seq, silent=False, n_extra_tail=0.0):
 
 
 def cfg_with(**kw):
-    c = Config()
+    c = spike1_config()
     return replace(c, chords=replace(c.chords, **kw))
 
 
@@ -78,7 +78,7 @@ class ChromaTest(unittest.TestCase):
     def test_columns_equal_beats_and_shapes(self):
         feat, grid = make(SEQ)
         for kind in ('cqt', 'cens'):
-            cfg = replace(Config(), chroma=replace(Config().chroma, kind=kind))
+            cfg = replace(spike1_config(), chroma=replace(spike1_config().chroma, kind=kind))
             ch, bass = beat_chroma(feat, grid, cfg)
             self.assertEqual(ch.shape, (12, len(grid.times)))
             self.assertEqual(bass.shape, (12, len(grid.times)))
@@ -86,24 +86,24 @@ class ChromaTest(unittest.TestCase):
     def test_leading_gap_and_late_first_beat(self):
         feat, grid = make([('C', 4)])
         grid = BeatGrid(times=grid.times + 0.7, tempo=120.0, method='test')
-        ch, bass = beat_chroma(feat, grid, Config())
+        ch, bass = beat_chroma(feat, grid, spike1_config())
         self.assertEqual(ch.shape[1], 4)
 
     def test_bass_chroma_is_root(self):
         feat, grid = make([('G7', 4)])
-        _, bass = beat_chroma(feat, grid, Config())
+        _, bass = beat_chroma(feat, grid, spike1_config())
         self.assertEqual(int(np.argmax(bass[:, 1])), 7)
 
     def test_last_beat_ignores_decay_tail(self):
         # R8: the last beat's span ends one beat interval after it, not at the audio end
         feat, grid = make([('C', 4)], n_extra_tail=2.0)
-        self.assertEqual(names(est(feat, grid, Config())), ['C'] * 4)
+        self.assertEqual(names(est(feat, grid, spike1_config())), ['C'] * 4)
         feat, grid = make([('C', 3), ('G', 2)], n_extra_tail=2.0)
         self.assertEqual(names(est(feat, grid, cfg_with(smoothing='none'))), ['C'] * 3 + ['G'] * 2)
 
     def test_mean_aggregate(self):
         feat, grid = make(SEQ)
-        cfg = replace(Config(), chroma=replace(Config().chroma, aggregate='mean'))
+        cfg = replace(spike1_config(), chroma=replace(spike1_config().chroma, aggregate='mean'))
         ch, _ = beat_chroma(feat, grid, cfg)
         self.assertEqual(ch.shape[1], 16)
 
@@ -132,7 +132,7 @@ class ChordsTest(unittest.TestCase):
     def test_default_viterbi_keeps_clear_one_beat_change(self):
         # documents the T12 default (self_transition 0.6): a clear single-beat chord is kept
         feat, grid = make([('C', 4), ('F', 1), ('C', 4)])
-        self.assertEqual(names(est(feat, grid, Config())), ['C'] * 4 + ['F'] + ['C'] * 4)
+        self.assertEqual(names(est(feat, grid, spike1_config())), ['C'] * 4 + ['F'] + ['C'] * 4)
 
     def test_seventh_only_when_conditions_met(self):
         feat, grid = make([('C', 3), ('Cmaj7', 6)])
@@ -152,7 +152,7 @@ class ChordsTest(unittest.TestCase):
 
     def test_silence_is_no_chord(self):
         feat, grid = make([('C', 4)], silent=True)
-        got = est(feat, grid, Config())
+        got = est(feat, grid, spike1_config())
         self.assertEqual(len(got), 4)
         self.assertTrue(all(c.root is None for c in got))
         self.assertEqual(names(got), ['N'] * 4)
@@ -164,13 +164,13 @@ class ChordsTest(unittest.TestCase):
         feat = replace(feat, y=y, y_harm=y, y_perc=np.zeros_like(y), duration=len(y) / SR)
         grid = BeatGrid(times=np.arange(6) * BEAT, tempo=120.0, method='test')
         # the beat right after the chord still holds CQT smear (low-note filters are long)
-        got = names(est(feat, grid, Config()))
+        got = names(est(feat, grid, spike1_config()))
         self.assertEqual(got[:3], ['C'] * 3)
         self.assertEqual(got[4:], ['N'] * 2)
 
     def test_confidence_and_question_mark(self):
         feat, grid = make([('C', 4)])
-        cfg = Config()
+        cfg = spike1_config()
         got = est(feat, grid, cfg)
         self.assertTrue(all(0.0 <= c.confidence <= 1.0 for c in got))
         self.assertTrue(all(c.confidence > cfg.chords.low_confidence for c in got))
@@ -181,7 +181,7 @@ class ChordsTest(unittest.TestCase):
         self.assertEqual(chord_name(2, 'min7'), 'Dm7')
 
     def test_empty(self):
-        self.assertEqual(estimate_chords(np.zeros((12, 0)), Config()), [])
+        self.assertEqual(estimate_chords(np.zeros((12, 0)), spike1_config()), [])
 
     def test_bad_smoothing(self):
         with self.assertRaises(ValueError):
@@ -194,7 +194,7 @@ class MergeTest(unittest.TestCase):
 
     def test_merge_runs(self):
         seq = [self.bc(0)] * 4 + [self.bc(9, 'min')] * 2 + [self.bc(None)] * 2
-        segs = merge_chords(seq, Config())
+        segs = merge_chords(seq, spike1_config())
         self.assertEqual([(s.start_beat, s.end_beat, s.root) for s in segs], [(0, 4, 0), (4, 6, 9), (6, 8, None)])
 
     def test_min_beats_absorbs_short_runs(self):
@@ -203,7 +203,7 @@ class MergeTest(unittest.TestCase):
         self.assertEqual([(s.start_beat, s.end_beat, s.root) for s in segs], [(0, 8, 0)])
 
     def test_low_confidence_flag(self):
-        segs = merge_chords([self.bc(0, conf=0.01)] * 2, Config())
+        segs = merge_chords([self.bc(0, conf=0.01)] * 2, spike1_config())
         self.assertTrue(segs[0].low_confidence)
 
 
@@ -242,7 +242,7 @@ class EighthTest(unittest.TestCase):
 
     def test_beat_resolution_returns_beat_columns(self):
         feat, grid = make(SEQ)
-        ch, _, bounds, cc, cb, pb = chord_columns(feat, grid, Config())
+        ch, _, bounds, cc, cb, pb = chord_columns(feat, grid, spike1_config())
         self.assertEqual(pb, 1)
         self.assertIs(cc, ch)
         self.assertIs(cb, bounds)
@@ -273,10 +273,10 @@ class EighthTest(unittest.TestCase):
 
     def test_beat_only_song_same_as_beat(self):
         feat, grid = make(SEQ)
-        beat = est(feat, grid, Config())
+        beat = est(feat, grid, spike1_config())
         got, pb = est8(feat, grid)
         self.assertEqual(names(beat_level(got, pb)), names(beat))
-        segs_b = merge_chords(beat, Config())
+        segs_b = merge_chords(beat, spike1_config())
         segs_e = merge_chords(got, EIGHTH, per_beat=pb)
         self.assertEqual([(s.start_beat * 2, s.end_beat * 2, s.root, s.quality) for s in segs_b],
                          [(s.start_beat, s.end_beat, s.root, s.quality) for s in segs_e])

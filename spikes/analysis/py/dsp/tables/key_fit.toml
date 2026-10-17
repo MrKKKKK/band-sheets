@@ -4,8 +4,9 @@
 #         dominants), §3.3 (tritone substitutes), §3.4 (borrowing from the parallel key), §3.5 (passing
 #         diminished 7th), §5.1–5.4 (modulation vs. tonicization, near keys, ambiguity), §6.5 (this table).
 # books:  (to be filled in once the user confirms which books of the note §7 were checked)
-# weights: initial order only, not tuned (T14 may change the numbers in [stage] and [change];
-#          which chord belongs to which list is music theory — change it only after fixing the note).
+# weights: T14, tuned on synthetic incl. private chart set; see docs (docs/audio-spike2-plan.md 実績 T14).
+#          T14 changed [stage] tonic, [change] mid / boundary and [resolution] triad only; which chord belongs to
+#          which list is music theory — change it only after fixing the note.
 #
 # A chord is written "<degree> <quality>": degree = semitones above the key's tonic (0-11),
 # quality = analyzer chord quality (maj min 7 maj7 min7 dim aug m7b5 dim7 sus4).
@@ -17,15 +18,15 @@
 # The stages below are the base evidence; the tonic stage is only a weak fallback when nothing resolves.
 
 [stage]  # score per bar (mean over the bar's beats) for each fit stage; other >= 0 (never forbids)
-tonic = 1.05     # I / i: weak fallback only (relative keys share their chords; [resolution] decides first)
+tonic = 1.5      # I / i: fallback when nothing resolves (relative keys share their chords; [resolution] decides first). T14: 1.05 -> 1.5
 diatonic = 1.0
 borrowed = 0.5
 secondary = 0.4
 other = 0.0
 
 [change]  # key-change cost between two bars, in the same units as [stage] (one bar of a full fit = 1.0)
-mid = 0.75         # inside a detected section (expensive: tonicization is not modulation, note §5.1)
-boundary = 0.25    # at a detected section start (cheap but not free: boundaries are soft, note §5.3)
+mid = 4.0          # inside a detected section (expensive: tonicization is not modulation, note §5.1). T14: 0.75 -> 4.0
+boundary = 2.0     # at a detected section start (cheaper, not free: boundaries are soft, note §5.3). T14: 0.25 -> 2.0
 near_factor = 0.75 # multiplier for near keys: dominant, subdominant, relative, parallel (note §5.2, §5.3)
 
 [resolution]  # a dominant-function chord followed by its target = evidence for the key whose tonic is the target
@@ -39,8 +40,8 @@ near_factor = 0.75 # multiplier for near keys: dominant, subdominant, relative, 
 # of the song counts, except after a plain-triad dominant) before the music returns to the old key — a bar that resolves to the old key, or is
 # diatonic to the old key only (modulation); otherwise it is a tonicization and the key stays (note §5.1).
 dominant7 = 0.6    # bonus added to the target key's score on the dominant's bar and the target's bar
-triad = 0.3        # same for a plain major triad as the dominant (weaker: also plain I -> IV motion)
-min_bars = 2       # provisional (T14 may tune)
+triad = 0.6        # same for a plain major triad as the dominant (also plain I -> IV motion). T14: 0.3 -> 0.6 (0.3-1.0 flat)
+min_bars = 2       # T14: 2 / 3 / 4 flat, kept 2
 
 [confidence]  # tuning only (not theory): scores x scale before the per-bar posterior (forward-backward)
 scale = 5.0

@@ -1,7 +1,9 @@
 """Spike 2 T0: the do-nothing hooks and the two-pass flow keep the spike 1 output.
 
 fixtures/t0_default_result.json was written by the spike 1 analyzer (the code before T0) from
-hooks_synth.synth(); `analyzer.timingsSec` removed. Regenerate it ONLY with the spike 1 analyzer.
+hooks_synth.synth(); `analyzer.timingsSec` removed. Regenerate it ONLY with the spike 1 analyzer. Since T14 the
+defaults are tuned: the spike 1 output is reached with spike1_config(); fixtures/t14_default_result.json pins the
+T14 default output (same synth).
 """
 
 import json
@@ -17,12 +19,13 @@ import soundfile as sf
 import py.analyze as A
 from py.dsp import bassroot, harmonics, harmony, keytrack, posterior, seventh, tempo, vocab, voicing
 from py.dsp.chords import _viterbi, _viterbi_full, chord_name, estimate_chords, merge_chords
-from py.dsp.config import Config, apply_overrides
+from py.dsp.config import Config, apply_overrides, config_summary, spike1_config
 from py.dsp.result import key_runs
 from py.dsp.types import BarKey, BeatChord, BeatGrid, Features
 from py.tests.hooks_synth import BI, PROG, SR, TRIADS, _tone, synth
 
-GOLDEN = os.path.join(os.path.dirname(__file__), 'fixtures', 't0_default_result.json')
+GOLDEN = os.path.join(os.path.dirname(__file__), 'fixtures', 't0_default_result.json')  # spike 1 (= spike1_config())
+GOLDEN_T14 = os.path.join(os.path.dirname(__file__), 'fixtures', 't14_default_result.json')  # T14 defaults
 
 # Every spike 2 switch on (one at a time and all together). With the T0 stubs none changes the result.  (T9: 'confidence' left out, it is real now)
 SWITCHES = [
@@ -89,8 +92,8 @@ class AnalyzeHooksTest(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.wav = os.path.join(cls.tmp.name, 'a.wav')
         sf.write(cls.wav, synth(), SR)
-        cls.feat = A.load_features(cls.wav, Config())  # same audio config in every run below
-        cls.default = cls._analyze(Config())
+        cls.feat = A.load_features(cls.wav, spike1_config())  # same audio config in every run below
+        cls.default = cls._analyze(spike1_config())
 
     @classmethod
     def tearDownClass(cls):
@@ -103,23 +106,38 @@ class AnalyzeHooksTest(unittest.TestCase):
         r['analyzer'].pop('timingsSec')
         return r
 
-    def test_default_matches_spike1_golden(self):
+    def test_spike1_config_matches_spike1_golden(self):
+        # T14 changed the defaults; the spike 1 analyzer stays reachable by spike1_config() (configs/spike1.json).
+        # analyzer.config records the values that differ from the CURRENT defaults, so it is no longer empty.
         with open(GOLDEN, encoding='utf-8') as f:
             golden = json.load(f)
-        self.assertIsNone(_close(golden, self.default))
+        mine = json.loads(json.dumps(self.default))
+        self.assertEqual(golden['analyzer'].pop('config'), {})
+        self.assertEqual(mine['analyzer'].pop('config'), config_summary(spike1_config()))
+        self.assertIsNone(_close(golden, mine))
         self.assertEqual(self.default['analyzer']['configHash'], golden['analyzer']['configHash'])
         self.assertNotIn('keys', self.default)
+
+    def test_t14_default_matches_t14_golden(self):
+        # T14 tuned defaults: a deliberate output change, pinned by its own fixture (regenerate only on purpose,
+        # with the tuned defaults: py/tests/fixtures/t14_default_result.json, analyzer.timingsSec removed)
+        with open(GOLDEN_T14, encoding='utf-8') as f:
+            golden = json.load(f)
+        mine = self._analyze(Config())
+        self.assertIsNone(_close(golden, mine))
+        self.assertEqual(mine['analyzer']['configHash'], golden['analyzer']['configHash'])
+        self.assertIn('keys', mine)
 
     def test_each_switch_with_stubs_keeps_result(self):
         base = _strip(self.default)
         for sw in SWITCHES + [ALL_ON]:
             with self.subTest(sw=sw):
-                r = self._analyze(apply_overrides(Config(), sw))
+                r = self._analyze(apply_overrides(spike1_config(), sw))
                 self.assertEqual(_strip(r), base)  # same machine: exactly equal
                 self.assertNotEqual(r['analyzer']['configHash'], self.default['analyzer']['configHash'])
 
     def test_candidates_only_add_a_field(self):
-        r = self._analyze(apply_overrides(Config(), {'chords': {'candidates': True}}))
+        r = self._analyze(apply_overrides(spike1_config(), {'chords': {'candidates': True}}))
         self.assertTrue(r['chords'])
         for c in r['chords']:
             cands = c.pop('candidates')
@@ -132,7 +150,7 @@ class AnalyzeHooksTest(unittest.TestCase):
     def test_second_pass_runs_and_matches_first(self):
         for sw in ({'chords': {'theory_prior': 1.0}}, {'key': {'track': 'sections'}, 'chords': {'theory_prior': 0.5}}):
             with self.subTest(sw=sw):
-                cfg = apply_overrides(Config(), sw)
+                cfg = apply_overrides(spike1_config(), sw)
                 with mock.patch.object(A, 'estimate_chords', wraps=A.estimate_chords) as est, \
                         mock.patch.object(A.harmony, 'transition', wraps=A.harmony.transition) as tr:
                     r = self._analyze(cfg)
@@ -142,7 +160,7 @@ class AnalyzeHooksTest(unittest.TestCase):
                 self.assertEqual(_strip(r), _strip(self.default))
 
     def test_global_key_feeds_prior_when_not_tracking(self):
-        cfg = apply_overrides(Config(), {'chords': {'theory_prior': 1.0}})
+        cfg = apply_overrides(spike1_config(), {'chords': {'theory_prior': 1.0}})
         with mock.patch.object(A.harmony, 'transition', wraps=A.harmony.transition) as tr:
             self._analyze(cfg)
         bar_keys = tr.call_args.args[1]
@@ -152,9 +170,9 @@ class AnalyzeHooksTest(unittest.TestCase):
 
     def test_keytrack_only_with_sections(self):
         with mock.patch.object(A.keytrack, 'estimate', wraps=A.keytrack.estimate) as kt:
-            self._analyze(Config())
+            self._analyze(spike1_config())
             self.assertEqual(kt.call_count, 0)
-            r = self._analyze(apply_overrides(Config(), {'key': {'track': 'sections'}}))
+            r = self._analyze(apply_overrides(spike1_config(), {'key': {'track': 'sections'}}))
             self.assertEqual(kt.call_count, 1)
         chords, bar_of_col, section_bars, _ = kt.call_args.args
         self.assertEqual(len(chords), len(bar_of_col))
@@ -164,7 +182,7 @@ class AnalyzeHooksTest(unittest.TestCase):
 
     def test_keys_in_result_from_tracker(self):
         fake = [BarKey(0, 0, 'major', 0.8), BarKey(1, 0, 'major', 0.6), BarKey(2, 7, 'major', 0.5)]
-        cfg = apply_overrides(Config(), {'key': {'track': 'sections'}})
+        cfg = apply_overrides(spike1_config(), {'key': {'track': 'sections'}})
         with mock.patch.object(A.keytrack, 'estimate', return_value=fake):
             r = self._analyze(cfg)
         self.assertEqual(r['keys'], [
@@ -176,7 +194,7 @@ class AnalyzeHooksTest(unittest.TestCase):
         for sw in ({'key': {'track': 'bars'}}, {'chords': {'vocab': 'v3'}}, {'beats': {'tempo_octave': 'x'}},
                    {'chords': {'harmonics': 'all'}}, {'beats': {'tempo_hint': -1.0}}):
             with self.subTest(sw=sw), self.assertRaises(ValueError):
-                self._analyze(apply_overrides(Config(), sw))
+                self._analyze(apply_overrides(spike1_config(), sw))
 
 
 def synth_anticipated() -> np.ndarray:
@@ -212,7 +230,7 @@ class EighthAnalyzeTest(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.wav = os.path.join(cls.tmp.name, 'push.wav')
         sf.write(cls.wav, synth_anticipated(), SR)
-        cls.feat = A.load_features(cls.wav, Config())
+        cls.feat = A.load_features(cls.wav, spike1_config())
 
     @classmethod
     def tearDownClass(cls):
@@ -220,7 +238,7 @@ class EighthAnalyzeTest(unittest.TestCase):
 
     def _analyze(self, sw):
         with mock.patch.object(A, 'load_features', return_value=self.feat):
-            return A.analyze(self.wav, apply_overrides(Config(), sw))
+            return A.analyze(self.wav, apply_overrides(spike1_config(), sw))
 
     def _changes(self, r):
         return [(c['start'], c['text']) for c in r['chords']]
@@ -274,7 +292,7 @@ class StubShapesTest(unittest.TestCase):
     def setUp(self):
         z = np.zeros(8)
         self.feat = Features(SR, 512, 1.0, z, z, z, z)
-        self.cfg = Config()
+        self.cfg = spike1_config()
         self.bounds = np.array([0, 2, 4, 6])
 
     def test_vocab_v1(self):
@@ -329,7 +347,7 @@ class ChordPlumbingTest(unittest.TestCase):
     def test_slash_plumbing(self):
         chroma = np.zeros((12, 4))
         chroma[[0, 4, 7], :] = 1.0
-        cfg = apply_overrides(Config(), {'chords': {'slash': True}})
+        cfg = apply_overrides(spike1_config(), {'chords': {'slash': True}})
         with mock.patch.object(bassroot, 'bass_notes', return_value=[None, None, 4, 0]):
             got = estimate_chords(chroma, cfg)
         self.assertEqual([c.bass for c in got], [None, None, 4, None])  # bass == root -> None
@@ -339,17 +357,17 @@ class ChordPlumbingTest(unittest.TestCase):
         self.assertEqual(chord_name(9, 'min', 9), 'Am')
         # without slash the bass never reaches the chords
         with mock.patch.object(bassroot, 'bass_notes', return_value=[4] * 4) as bn:
-            got = estimate_chords(chroma, Config())
+            got = estimate_chords(chroma, spike1_config())
         bn.assert_not_called()
         self.assertEqual({c.bass for c in got}, {None})
-        self.assertEqual(len(merge_chords(got, Config())), 1)
+        self.assertEqual(len(merge_chords(got, spike1_config())), 1)
 
     def test_bass_root_evidence_added(self):
         chroma = np.zeros((12, 2))
         chroma[[0, 4, 7, 9], :] = 1.0  # C6 = Am7 tones: C vs Am close
         ev = np.zeros((12, 2))
         ev[9] = 1.0  # strong A in the bass
-        cfg = apply_overrides(Config(), {'chords': {'bass_root': 'lowest', 'bass_root_weight': 1.0, 'use_seventh': False}})
+        cfg = apply_overrides(spike1_config(), {'chords': {'bass_root': 'lowest', 'bass_root_weight': 1.0, 'use_seventh': False}})
         with mock.patch.object(bassroot, 'root_evidence', return_value=ev):
             got = estimate_chords(chroma, cfg)
         self.assertEqual({(c.root, c.quality) for c in got}, {(9, 'min')})
@@ -357,7 +375,7 @@ class ChordPlumbingTest(unittest.TestCase):
     def test_posterior_confidence_used(self):
         chroma = np.zeros((12, 2))
         chroma[[0, 4, 7], :] = 1.0
-        cfg = apply_overrides(Config(), {'chords': {'confidence': 'posterior', 'use_seventh': False}})
+        cfg = apply_overrides(spike1_config(), {'chords': {'confidence': 'posterior', 'use_seventh': False}})
         post = np.full((24, 2), 0.01)
         post[0] = 0.42
         with mock.patch.object(posterior, 'chord_posterior', return_value=post):

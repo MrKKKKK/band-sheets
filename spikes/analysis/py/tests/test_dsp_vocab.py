@@ -9,7 +9,7 @@ import py.score as S
 from py.dsp import vocab
 from py.dsp.chords import _viterbi, chord_name, estimate_chords
 from py.dsp.chroma import beat_chroma
-from py.dsp.config import Config, apply_overrides
+from py.dsp.config import Config, apply_overrides, spike1_config
 from py.dsp.types import BeatGrid, Features
 
 SR = 22050
@@ -21,7 +21,7 @@ NEW_QUALS = ('dim', 'aug', 'sus4', 'm7b5', 'dim7')
 
 
 def v2(**chords):
-    c = apply_overrides(Config(), {'chords': {'vocab': 'v2'}})
+    c = apply_overrides(spike1_config(), {'chords': {'vocab': 'v2'}})
     return replace(c, chords=replace(c.chords, **chords)) if chords else c
 
 
@@ -45,13 +45,13 @@ def analyze_notes(midis, cfg, beats=4):
 class StatesTest(unittest.TestCase):
     def test_v1_unchanged(self):
         want = [(r, q) for q in V1_QUALS for r in range(12)]
-        self.assertEqual(vocab.states(Config()), want)
-        no7 = apply_overrides(Config(), {'chords': {'use_seventh': False}})
+        self.assertEqual(vocab.states(spike1_config()), want)
+        no7 = apply_overrides(spike1_config(), {'chords': {'use_seventh': False}})
         self.assertEqual(vocab.states(no7), want[:24])
 
     def test_v2_adds_the_new_qualities_after_v1(self):
         st = vocab.states(v2())
-        self.assertEqual(st[:60], vocab.states(Config()))
+        self.assertEqual(st[:60], vocab.states(spike1_config()))
         self.assertEqual(st[60:], [(r, q) for q in NEW_QUALS for r in range(12)])
         self.assertEqual(len(set(st)), len(st))
 
@@ -78,15 +78,15 @@ class StatesTest(unittest.TestCase):
 
     def test_unknown_vocab_raises(self):
         with self.assertRaises(ValueError):
-            vocab.states(apply_overrides(Config(), {'chords': {'vocab': 'v3'}}))
+            vocab.states(apply_overrides(spike1_config(), {'chords': {'vocab': 'v3'}}))
 
 
 class GateTest(unittest.TestCase):
     def test_v1_returns_scores_untouched(self):
-        st = vocab.states(Config())
+        st = vocab.states(spike1_config())
         s = np.random.default_rng(0).random((len(st), 5))
         unit = np.ones((12, 5)) / np.sqrt(12)
-        out, masked = vocab.gate_scores(s, unit, st, Config())
+        out, masked = vocab.gate_scores(s, unit, st, spike1_config())
         self.assertIs(out, s)
         self.assertFalse(masked.any())
 
@@ -123,7 +123,7 @@ class GateTest(unittest.TestCase):
 
 class MoveCostTest(unittest.TestCase):
     def test_move_states_is_the_v1_count(self):
-        self.assertEqual(vocab.move_states(Config()), 60)
+        self.assertEqual(vocab.move_states(spike1_config()), 60)
         self.assertEqual(vocab.move_states(v2()), 60)
         self.assertEqual(vocab.move_states(v2(use_seventh=False)), 24)
 
@@ -161,7 +161,7 @@ class SineTest(unittest.TestCase):
 
     def test_plain_triads_unchanged_by_v2(self):
         for notes in ([36, 48, 52, 55], [45, 57, 60, 64], [43, 55, 59, 62]):
-            self.assertEqual(analyze_notes(notes, v2()), analyze_notes(notes, Config()))
+            self.assertEqual(analyze_notes(notes, v2()), analyze_notes(notes, spike1_config()))
 
 
 if __name__ == '__main__':

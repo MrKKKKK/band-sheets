@@ -5,8 +5,9 @@
 #         dominants, II–V, tritone substitute, borrowing, passing diminished 7th, sus4 resolution),
 #         §6.1 (tiers), §6.2 (transition classes), §6.3 (key-change boundary), §6.4 (row normalization).
 # books:  (to be filled in once the user confirms which books of the note §7 were checked)
-# weights: initial order only, not tuned (T14 may change the numbers in [tier] only; which move belongs to
-#          which tier is music theory — change it only after fixing the note, note §6.6).
+# weights: T14, tuned on synthetic incl. private chart set; see docs (docs/audio-spike2-plan.md 実績 T14):
+#          the [tier] values were kept (theory_prior 0-3 x three tier shapes all within 0.002 of the objective);
+#          which move belongs to which tier is music theory — change it only after fixing the note, note §6.6).
 #
 # Only CHANGING moves (i != j) get a bonus; staying is never touched (note §1.1). A move matching several
 # rules takes the STRONGEST tier once (no sums, note §6.1). Anything not listed = base (0): never a ban.
@@ -17,7 +18,7 @@
 # are a family name of [family] or a single analyzer quality (maj min 7 maj7 min7 dim aug sus4 m7b5 dim7).
 # aug is in no family: every move to / from aug stays base (note §6.2 note on aug; pending user check).
 
-[tier]  # log bonus per tier (note §6.1 initial values; T14 tunes). base is 0 and is never negative.
+[tier]  # log bonus per tier (note §6.1 initial values; T14: kept, flat). base is 0 and is never negative.
 strong = 1.0
 medium = 0.6
 weak = 0.3

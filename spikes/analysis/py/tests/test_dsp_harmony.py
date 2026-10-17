@@ -8,14 +8,14 @@ import numpy as np
 from py.dsp import harmony as H
 from py.dsp import vocab
 from py.dsp.chords import ChordSegment, estimate_chords
-from py.dsp.config import Config, apply_overrides
+from py.dsp.config import Config, apply_overrides, spike1_config
 from py.dsp.types import BarKey
 
 C, Db, D, Eb, E, F, Gb, G, Ab, A, Bb, B = range(12)
 
 
 def cfg(**chords):
-    return apply_overrides(Config(), {'chords': chords})
+    return apply_overrides(spike1_config(), {'chords': chords})
 
 
 PRIOR = cfg(theory_prior=1.0)

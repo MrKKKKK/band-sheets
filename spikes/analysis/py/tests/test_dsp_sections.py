@@ -3,7 +3,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from py.dsp.config import Config, SectionsConfig
+from py.dsp.config import Config, SectionsConfig, spike1_config
 from py.dsp.result import build_result
 from py.dsp.sections import (
     PERC_BANDS_HZ,
@@ -74,7 +74,7 @@ def check_cover(tc, secs, n, min_len):
         tc.assertGreaterEqual(s.end_bar - s.start_bar, min_len, secs)
 
 
-SC = SectionsConfig()
+SC = SectionsConfig(percussive_weight=0.0)  # spike 1 sections (T14 made 0.5 the default)
 
 
 class SegmentTest(unittest.TestCase):
@@ -241,7 +241,7 @@ class BeatLevelTest(unittest.TestCase):
 
     def test_find_sections_end_to_end(self):
         chroma, grid, db, feat, bass = self._inputs()
-        secs = find_sections(chroma, grid, db, feat, Config(), bass=bass)
+        secs = find_sections(chroma, grid, db, feat, spike1_config(), bass=bass)
         self.assertEqual(bounds(secs), [8, 16, 24])
         self.assertEqual(labels(secs), ['A', 'B', 'A', 'B'])
         self.assertEqual(secs[-1].end_bar, 32)
@@ -253,7 +253,7 @@ class BeatLevelTest(unittest.TestCase):
 
     def test_without_feat_or_bass(self):
         chroma, grid, db, _, _ = self._inputs()
-        secs = find_sections(chroma, grid, db, None, Config())
+        secs = find_sections(chroma, grid, db, None, spike1_config())
         self.assertEqual(bounds(secs), [8, 16, 24])
 
 
@@ -309,11 +309,11 @@ class PickupTest(unittest.TestCase):
         for cut in (1, 2, 3):
             with self.subTest(cut=cut):
                 chroma, grid, db, feat, bass = beat_inputs(prog, cut)
-                secs = find_sections(chroma, grid, db, feat, Config(), bass=bass)
+                secs = find_sections(chroma, grid, db, feat, spike1_config(), bass=bass)
                 # bars counted from the phase: song bar b is bar b - 1
                 self.assertEqual(bounds(secs), [7, 15, 23])
                 self.assertEqual(secs[0].start_bar, 0)
-                r = build_result(feat, grid, [], db, secs, None, Config())
+                r = build_result(feat, grid, [], db, secs, None, spike1_config())
                 bar = 4 * grid.times[1]
                 for got, song_bar in zip([s['start'] for s in r['sections'][1:]], (8, 16, 24)):
                     true_t = song_bar * bar - cut * grid.times[1]
@@ -326,7 +326,7 @@ class PickupTest(unittest.TestCase):
             for cut in (1, 3):
                 with self.subTest(song_seed=es, cut=cut):
                     chroma, grid, db, feat, bass = beat_inputs(random_etude(es), cut)
-                    secs = find_sections(chroma, grid, db, None, Config(), bass=bass)
+                    secs = find_sections(chroma, grid, db, None, spike1_config(), bass=bass)
                     self.assertIn(15, bounds(secs))
                     self.assertNotIn(16, bounds(secs))
 
@@ -334,7 +334,7 @@ class PickupTest(unittest.TestCase):
         # a 1-beat anacrusis whose bars are counted from the first full bar (the existing phase-1 case)
         prog = (LOOP_A * 2 + LOOP_B * 2) * 2
         chroma, grid, db, feat, bass = beat_inputs([(G, False)] + prog, cut=3)  # pickup bar: one G beat
-        secs = find_sections(chroma, grid, db, feat, Config(), bass=bass)
+        secs = find_sections(chroma, grid, db, feat, spike1_config(), bass=bass)
         self.assertEqual(bounds(secs), [8, 16, 24])
 
     def test_phase0_unchanged(self):
@@ -343,7 +343,7 @@ class PickupTest(unittest.TestCase):
         self.assertEqual(db.phase, 0)
         bc, bb, bl = bar_features(chroma, bass, None, 0, 4, pickup_bar=True)
         self.assertEqual(bc.shape, (32, 12))  # no extra bar without a pickup
-        self.assertEqual(bounds(find_sections(chroma, grid, db, feat, Config(), bass=bass)), [8, 16, 24])
+        self.assertEqual(bounds(find_sections(chroma, grid, db, feat, spike1_config(), bass=bass)), [8, 16, 24])
 
     def test_bar_features_pickup_bar(self):
         nb = 1 + 4 * 3 + 2
