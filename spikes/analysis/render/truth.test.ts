@@ -4,6 +4,7 @@ import { saintsSampleText } from '../../../src/lib/saintsSample';
 import type { Song } from '../../../src/lib/song';
 import { chordsPerBeat, chordTimeline } from './chordTimeline';
 import {
+  applyPickup,
   applyTempoCurve,
   buildScoreTex,
   buildTruth,
@@ -465,5 +466,40 @@ describe('tempo drift (variant.tempoCurve)', () => {
     expect(() => buildTruth({ ...input(tex, v), score, midi: generateMidi(score) })).toThrow(
       /11 小節目.*テンポ/,
     );
+  });
+});
+
+describe('applyPickup (spike 2, T4)', () => {
+  // 4/4 at 120 BPM (beat 0.5 s), bar 0 = pickup bar whose last beat sounds; cut 1.49 s (10 ms before beat 3).
+  const beats = Array.from({ length: 12 }, (_, i) => ({ t: i * 0.5, downbeat: i % 4 === 0, bar: Math.floor(i / 4), beat: i % 4 }));
+  const truth = {
+    format: 'band-sheets-analysis',
+    version: 1,
+    source: { kind: 'synthetic', durationSec: 6, click: false, leadInSec: 0, audioSec: 8 },
+    analyzer: { name: 'ground-truth', version: '0.1.0', methods: [] },
+    beats,
+    sections: [{ start: 0, end: 6, label: 'A1' }],
+    chords: [
+      { start: 0, end: 3, root: 'C', quality: 'maj', bass: null, text: 'C', confidence: 1 },
+      { start: 3, end: 6, root: 'F', quality: 'maj', bass: null, text: 'F', confidence: 1 },
+    ],
+    melody: { notes: [{ start: 1.5, end: 2, midi: 72, confidence: 1 }] },
+  } as unknown as Parameters<typeof applyPickup>[0];
+  const t = applyPickup(truth, 1.49, 1);
+
+  it('shifts every time, drops beats before the cut, keeps bar numbers', () => {
+    expect(t.beats![0]).toEqual({ t: 0.01, downbeat: false, bar: 0, beat: 3 });
+    expect(t.beats![1]).toEqual({ t: 0.51, downbeat: true, bar: 1, beat: 0 });
+    expect(t.beats).toHaveLength(9);
+    expect(t.melody!.notes[0]).toMatchObject({ start: 0.01, end: 0.51 });
+    expect(t.sections).toEqual([{ start: 0, end: 4.51, label: 'A1' }]);
+    expect(t.source).toMatchObject({ durationSec: 4.51, audioSec: 6.51, pickup: { beats: 1, cutSec: 1.49 } });
+  });
+  it('gives the pickup no chord: the first chord starts on bar 1', () => {
+    expect(t.chords!.map((c) => [c.text, c.start, c.end])).toEqual([['C', 0.51, 1.51], ['F', 1.51, 4.51]]);
+  });
+  it('leaves the input untouched', () => {
+    expect(truth.beats![0].t).toBe(0);
+    expect(truth.chords![0].start).toBe(0);
   });
 });

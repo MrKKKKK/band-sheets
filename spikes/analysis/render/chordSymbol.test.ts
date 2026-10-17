@@ -75,7 +75,8 @@ describe('parseChordSymbol', () => {
     'H',
     'c',
     'cm',
-    'Cm7b5',
+    'Cm7-5',
+    'Cdim9',
     'C9',
     'Cadd9',
     'C6',
@@ -97,5 +98,11 @@ describe('parseChordSymbol', () => {
     'C(7)',
   ])('rejects %j', (text) => {
     expect(() => parseChordSymbol(text)).toThrow(Error);
+  });
+
+  it('reads m7b5 and dim7 (spike 2, T4)', () => {
+    expect(parseChordSymbol('Bm7b5')).toEqual({ text: 'Bm7b5', root: 11, rootName: 'B', quality: 'm7b5', bass: null });
+    expect(parseChordSymbol('Cdim7')).toEqual({ text: 'Cdim7', root: 0, rootName: 'C', quality: 'dim7', bass: null });
+    expect(parseChordSymbol('F#m7b5/C').bass).toBe(0);
   });
 });

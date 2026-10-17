@@ -2,10 +2,11 @@
 
 Classical templates + hand-set HMM/Viterbi only (no learned models).
 
-    estimate_chords(chroma, cfg) -> list[BeatChord]       one per beat (column)
-    chord_name(root, quality) -> 'C', 'Am', 'G7', 'Cmaj7', 'Dm7', 'N'
+    estimate_chords(chroma, cfg, feat=None, bounds=None, prior=None, per_beat=1) -> list[BeatChord]   one per column
+    beat_level(chords, per_beat) -> list[BeatChord]      the on-beat column of each beat (T13)
+    chord_name(root, quality, bass=None) -> 'C', 'Am', 'G7', 'Cmaj7', 'Dm7', 'C/E', 'N'
     chord_text(bc, cfg) -> name, plus '?' when confidence < cfg.chords.low_confidence
-    merge_chords(chords, cfg) -> list[ChordSegment]       consecutive beats merged
+    merge_chords(chords, cfg, per_beat=1) -> list[ChordSegment]       consecutive columns merged
 
 Rules:
   * score = cosine(beat chroma, binary template). 24 triads; with use_seventh also
@@ -18,6 +19,30 @@ Rules:
     beats, then argmax), 'none' (argmax).
   * confidence = chosen score - best score among states with a different root, clipped
     to 0-1 (so C vs Cmaj7 closeness does not count as ambiguity).
+
+Spike 2 hooks (docs/audio-spike2-plan.md §5; every default = spike 1 behaviour, bit-identical):
+  * states from vocab.states(cfg), templates from harmonics.templates(states, feat, cfg); a quality
+    with 4 tones counts as a seventh. vocab.gate_scores weights / gates the 'v2'-only qualities first.
+  * bass_root != 'none': scores += bass_root_weight x bassroot.root_evidence (masked sevenths stay 0).
+  * slash: BeatChord.bass from bassroot.bass_notes (None when equal to the root).
+  * confidence == 'posterior': posterior.chord_posterior(_BETA * scores, stay, n_move=vocab.move_states);
+    None keeps 'margin'.
+  * power (T27): '5' states gated by vocab.gate_power (after gate_scores); on columns read as a power chord
+    (vocab.power_columns) the bass root evidence is ignored (a 4th with no 3rd: the upper note is the root).
+  * margin confidence ignores other roots' '5' states (power on): two tones of the column are not root
+    ambiguity; otherwise power on lowers triad confidences, which the downbeat rule weights (integration fix).
+  * candidates (T27): the posterior is computed and each BeatChord carries its column (BeatChord.posterior);
+    posterior.attach_candidates turns them into segment candidates.
+  * prior (n_cols, n_states, n_states), log bonus per move (harmony.transition, 2nd pass): Viterbi
+    with full per-column transition matrices; an all-zero prior takes the spike 1 fast path.
+  * per_beat (T13, chords.resolution 'eighth' -> 2; chroma.chord_columns): columns are half beats, so a
+    chord may change on the beat or on its "and". The HMM is matched to the half beat: stay probability
+    sqrt(self_transition) per column (same chance to keep the chord over a whole beat) and emissions
+    x _EIGHTH_EMIS (0.5 would weigh a beat like one beat column; that let a short 2-beat chord be
+    swallowed, 1.0 let half-beat arpeggio fragments win; T13 sweep). A beat-level prior
+    (n_beats rows) is repeated per column. merge_chords(per_beat=2) gives segments in half-beat
+    columns (ChordSegment.per_beat; result.py turns them into times); beat_level() picks the on-beat
+    half for the beat-level consumers (downbeat, keytrack). per_beat 1 = the spike 1 code path.
 """
 
 from __future__ import annotations
@@ -26,69 +51,88 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from . import bassroot, harmonics, posterior, vocab
 from .config import Config
-from .types import BeatChord
+from .types import BeatChord, Features
 
 NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-_SUFFIX = {'maj': '', 'min': 'm', '7': '7', 'maj7': 'maj7', 'min7': 'm7'}
-_QUALITIES = {
-    'maj': (0, 4, 7),
-    'min': (0, 3, 7),
-    '7': (0, 4, 7, 10),
-    'maj7': (0, 4, 7, 11),
-    'min7': (0, 3, 7, 10),
-}
-_TRIADS = ('maj', 'min')
-_SEVENTHS = ('7', 'maj7', 'min7')
 _BETA = 20.0  # emission sharpness for Viterbi (hand-set)
+_EIGHTH_EMIS = 0.75  # T13: emission weight per half-beat column (sweep 0.5 / 0.75 / 1 on L0-L3, LR, M: 0.75 best, no level drops)
+
+_CHOICES = {
+    'resolution': ('beat', 'eighth'),
+    'confidence': ('margin', 'posterior'),
+    'harmonics': ('none', 'fixed', 'profile'),
+    'bass_root': ('none', 'lowest', 'first', 'octave'),
+    'seventh_mode': ('beat', 'segment'),
+    'vocab': ('v1', 'v2'),
+}
 
 
-def chord_name(root: int | None, quality: str) -> str:
+def check_config(cfg: Config) -> None:
+    """ValueError for an unknown value of a spike 2 switch (typos never pass silently)."""
+    for key, allowed in _CHOICES.items():
+        v = getattr(cfg.chords, key)
+        if v not in allowed:
+            raise ValueError(f'unknown chords.{key}: {v!r} (expected one of {allowed})')
+    if cfg.chords.candidates_k < 1:
+        raise ValueError(f'chords.candidates_k must be >= 1, got {cfg.chords.candidates_k}')
+    if cfg.chords.power_third_max < 0:
+        raise ValueError(f'chords.power_third_max must be >= 0, got {cfg.chords.power_third_max}')
+
+
+def chord_name(root: int | None, quality: str, bass: int | None = None) -> str:
     if root is None:
         return 'N'
-    return NOTE_NAMES[root % 12] + _SUFFIX[quality]
+    name = NOTE_NAMES[root % 12] + vocab.suffix(quality)
+    if bass is not None and bass % 12 != root % 12:
+        name += '/' + NOTE_NAMES[bass % 12]
+    return name
 
 
 def chord_text(bc: BeatChord, cfg: Config) -> str:
-    name = chord_name(bc.root, bc.quality)
+    name = chord_name(bc.root, bc.quality, bc.bass)
     if bc.root is not None and bc.confidence < cfg.chords.low_confidence:
         name += '?'
     return name
 
 
-def _states(use_seventh: bool) -> list[tuple[int, str]]:
-    quals = _TRIADS + (_SEVENTHS if use_seventh else ())
-    return [(r, q) for q in quals for r in range(12)]
+def _is_seventh(quality: str) -> bool:
+    return len(vocab.intervals(quality)) == 4
 
 
-def _templates(states: list[tuple[int, str]]) -> np.ndarray:
-    t = np.zeros((len(states), 12))
-    for k, (r, q) in enumerate(states):
-        for iv in _QUALITIES[q]:
-            t[k, (r + iv) % 12] = 1.0
-    return t / np.linalg.norm(t, axis=1, keepdims=True)
-
-
-def _scores(chroma: np.ndarray, states, cfg: Config) -> np.ndarray:
-    """(n_states, N) weighted cosine scores with disallowed sevenths masked to 0."""
+def _scores(chroma: np.ndarray, states, cfg: Config, feat: Features | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """(n_states, N) weighted cosine scores with disallowed sevenths masked to 0, and that mask."""
     cc = cfg.chords
-    tpl = _templates(states)
+    tpl = harmonics.templates(states, feat, cfg)
     norm = np.linalg.norm(chroma, axis=0)
     unit = chroma / np.where(norm > 0, norm, 1.0)
     s = tpl @ unit
-    is_seventh = np.array([q in _SEVENTHS for _, q in states])
+    s, masked = vocab.gate_scores(s, unit, states, cfg)  # 'v1': s untouched, nothing masked
+    if cc.power:
+        s, pm = vocab.gate_power(s, unit, states, cfg)
+        masked |= pm
+    is_seventh = np.array([_is_seventh(q) for _, q in states])
     if is_seventh.any():
         best_triad = s[~is_seventh].max(axis=0)
         s7 = s[is_seventh] * cc.seventh_weight
-        s[is_seventh] = np.where(s7 >= best_triad + cc.seventh_margin, s7, 0.0)
-    return s
+        ok = s7 >= best_triad + cc.seventh_margin
+        s[is_seventh] = np.where(ok, s7, 0.0)
+        masked[is_seventh] = ~ok
+    return s, masked
 
 
-def _viterbi(emis: np.ndarray, stay: float) -> np.ndarray:
+def _viterbi(emis: np.ndarray, stay: float, prior: np.ndarray | None = None, n_move: int | None = None) -> np.ndarray:
+    """Best path. `prior` (n, k, k): log bonus per move; None / all zero -> spike 1 fast path.
+    `n_move`: the state count the move probability is split over (None = k; vocab.move_states keeps
+    the v1 count for 'v2', so extra states do not make every chord change dearer)."""
+    if prior is not None and np.any(prior):
+        return _viterbi_full(emis, stay, prior, n_move)
     k, n = emis.shape
-    stay = min(max(stay, 1.0 / k + 1e-9), 1 - 1e-9)
+    m = k if n_move is None else n_move
+    stay = min(max(stay, 1.0 / m + 1e-9), 1 - 1e-9)
     l_stay = np.log(stay)
-    l_move = np.log((1 - stay) / (k - 1))
+    l_move = np.log((1 - stay) / (m - 1))
     logp = _BETA * emis
     delta = logp[:, 0].copy()
     back = np.zeros((k, n), dtype=int)
@@ -106,6 +150,36 @@ def _viterbi(emis: np.ndarray, stay: float) -> np.ndarray:
     return path
 
 
+def _viterbi_full(emis: np.ndarray, stay: float, prior: np.ndarray, n_move: int | None = None) -> np.ndarray:
+    """Viterbi with a full transition matrix per column (uniform move + prior[t]).
+
+    Ties are broken like the fast path (stay first, then the lowest previous state), so a zero
+    prior gives the same path as _viterbi.
+    """
+    k, n = emis.shape
+    if prior.shape != (n, k, k):
+        raise ValueError(f'prior shape {prior.shape} != {(n, k, k)}')
+    m = k if n_move is None else n_move
+    stay = min(max(stay, 1.0 / m + 1e-9), 1 - 1e-9)
+    trans = np.full((k, k), np.log((1 - stay) / (m - 1)))
+    np.fill_diagonal(trans, np.log(stay))
+    logp = _BETA * emis
+    delta = logp[:, 0].copy()
+    back = np.zeros((k, n), dtype=int)
+    cols = np.arange(k)
+    for t in range(1, n):
+        cand = delta[:, None] + trans + prior[t]  # [i, j]: from i to j
+        best_i = np.argmax(cand, axis=0)
+        use_stay = cand[cols, cols] >= cand[best_i, cols]
+        back[:, t] = np.where(use_stay, cols, best_i)
+        delta = cand[back[:, t], cols] + logp[:, t]
+    path = np.zeros(n, dtype=int)
+    path[-1] = int(np.argmax(delta))
+    for t in range(n - 1, 0, -1):
+        path[t - 1] = back[path[t], t]
+    return path
+
+
 def _median_filter(m: np.ndarray, width: int) -> np.ndarray:
     width = max(1, width | 1)
     if width == 1 or m.shape[1] == 0:
@@ -115,34 +189,69 @@ def _median_filter(m: np.ndarray, width: int) -> np.ndarray:
     return np.stack([np.median(padded[:, t : t + width], axis=1) for t in range(m.shape[1])], axis=1)
 
 
-def estimate_chords(chroma: np.ndarray, cfg: Config) -> list[BeatChord]:
+def estimate_chords(
+    chroma: np.ndarray,
+    cfg: Config,
+    feat: Features | None = None,
+    bounds: np.ndarray | None = None,
+    prior: np.ndarray | None = None,
+    per_beat: int = 1,
+) -> list[BeatChord]:
+    """One BeatChord per chroma column. `feat` / `bounds` (column frame boundaries, length n + 1)
+    feed the spike 2 hooks (harmonics, bassroot); `prior` is the 2nd-pass theory prior (Viterbi only)."""
     cc = cfg.chords
     if cc.smoothing not in ('viterbi', 'median', 'none'):
         raise ValueError(f'unknown chord smoothing: {cc.smoothing!r}')
+    check_config(cfg)
     n = chroma.shape[1]
     if n == 0:
         return []
-    states = _states(cc.use_seventh)
-    s = _scores(np.asarray(chroma, dtype=float), states, cfg)
+    if bounds is None:
+        bounds = np.arange(n + 1)
+    if per_beat < 1 or n % per_beat:
+        raise ValueError(f'{n} columns is not a multiple of per_beat {per_beat}')
+    stay = cc.self_transition if per_beat == 1 else cc.self_transition ** (1.0 / per_beat)
+    emis_w = 1.0 if per_beat == 1 else _EIGHTH_EMIS
+    if prior is not None and per_beat > 1 and prior.shape[0] * per_beat == n:
+        prior = np.repeat(prior, per_beat, axis=0)  # beat-level prior: the bar's bonus on every column
+    states = vocab.states(cfg)
+    s, masked = _scores(np.asarray(chroma, dtype=float), states, cfg, feat)
+    roots = np.array([r for r, _ in states])
+    rival = np.array([q != vocab.POWER for _, q in states], dtype=bool)  # margin competitors (no '5', see doc)
+    if cc.bass_root != 'none':
+        ev = bassroot.root_evidence(feat, bounds, cfg)
+        if cc.power:  # rule C: no 3rd -> the bass does not name the root (G under C is C5's 5th)
+            ev = np.where(vocab.power_columns(s, states)[None, :], 0.0, ev)
+        s = np.where(masked, 0.0, s + cc.bass_root_weight * ev[roots])
     energy = chroma.sum(axis=0)
     silent = energy < cc.no_chord_energy
     s[:, silent] = 0.0
     if cc.smoothing == 'viterbi':
-        path = _viterbi(s, cc.self_transition)
+        path = _viterbi(s * emis_w if per_beat > 1 else s, stay, prior, vocab.move_states(cfg))
     elif cc.smoothing == 'median':
         path = np.argmax(_median_filter(s, cc.median_width), axis=0)
     else:
         path = np.argmax(s, axis=0)
-    roots = np.array([r for r, _ in states])
+    want_post = cc.confidence == 'posterior' or cc.candidates
+    post = posterior.chord_posterior(_BETA * emis_w * s if per_beat > 1 else _BETA * s, stay,
+                                     n_move=vocab.move_states(cfg)) if want_post else None
+    basses = bassroot.bass_notes(feat, bounds, cfg) if cc.slash else [None] * n
     out: list[BeatChord] = []
     for t in range(n):
         if silent[t]:
-            out.append(BeatChord(root=None, quality='maj', confidence=1.0))
+            out.append(BeatChord(root=None, quality='maj', confidence=1.0,
+                                 posterior=post[:, t] if cc.candidates else None))
             continue
         r, q = states[int(path[t])]
-        others = s[roots != r, t]
-        gap = float(s[int(path[t]), t] - (others.max() if others.size else 0.0))
-        out.append(BeatChord(root=r, quality=q, confidence=float(min(max(gap, 0.0), 1.0))))
+        if post is not None and cc.confidence == 'posterior':
+            conf = float(post[int(path[t]), t])
+        else:
+            others = s[(roots != r) & rival, t]
+            conf = float(s[int(path[t]), t] - (others.max() if others.size else 0.0))
+        b = basses[t]
+        bass = None if b is None or b % 12 == r else int(b) % 12
+        out.append(BeatChord(root=r, quality=q, confidence=float(min(max(conf, 0.0), 1.0)), bass=bass,
+                             posterior=post[:, t] if cc.candidates else None))
     return out
 
 
@@ -154,16 +263,31 @@ class ChordSegment:
     quality: str
     confidence: float  # mean over the segment's beats
     low_confidence: bool
+    bass: int | None = None  # slash-chord bass (only with chords.slash)
+    candidates: tuple = ()  # T27: ((root, quality, prob), ...) top-k of the posterior (chords.candidates)
+    per_beat: int = 1  # T13: columns per beat of start_beat / end_beat (2 = half-beat columns, chords.resolution 'eighth')
 
 
-def merge_chords(chords: list[BeatChord], cfg: Config) -> list[ChordSegment]:
+def beat_level(chords: list[BeatChord], per_beat: int = 1) -> list[BeatChord]:
+    """One chord per beat from per-column chords: the on-beat column of each beat (T13). per_beat 1 -> as is."""
+    if per_beat == 1:
+        return chords
+    if len(chords) % per_beat:
+        raise ValueError(f'{len(chords)} columns is not a multiple of per_beat {per_beat}')
+    return list(chords[::per_beat])
+
+
+def merge_chords(chords: list[BeatChord], cfg: Config, per_beat: int = 1) -> list[ChordSegment]:
     """Merge consecutive equal chords; runs shorter than merge_min_beats are absorbed
-    into the longer neighbour (previous on a tie), then equal neighbours re-merged."""
+    into the longer neighbour (previous on a tie), then equal neighbours re-merged.
+    With chords.slash the bass is part of the chord identity (C and C/E are different runs)."""
     if not chords:
         return []
     runs: list[list] = []  # [start, end, key]
     for i, c in enumerate(chords):
         key = (c.root, c.quality if c.root is not None else 'maj')
+        if cfg.chords.slash:
+            key += (c.bass if c.root is not None else None,)
         if runs and runs[-1][2] == key:
             runs[-1][1] = i + 1
         else:
@@ -188,7 +312,10 @@ def merge_chords(chords: list[BeatChord], cfg: Config) -> list[ChordSegment]:
                 merged.append(r)
         runs = merged
     out = []
-    for a, b, (root, q) in runs:
+    for a, b, key in runs:
+        root, q = key[0], key[1]
+        bass = key[2] if len(key) > 2 else None
         conf = float(np.mean([chords[i].confidence for i in range(a, b)]))
-        out.append(ChordSegment(a, b, root, q, conf, root is not None and conf < cfg.chords.low_confidence))
+        out.append(ChordSegment(a, b, root, q, conf, root is not None and conf < cfg.chords.low_confidence, bass,
+                                per_beat=per_beat))
     return out

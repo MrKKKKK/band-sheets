@@ -1,17 +1,24 @@
 """Assemble the AnalysisResult dict (render/types.ts) from the stage outputs.
 
 Decisions: root names use sharps (score.note_to_pc accepts both); chord segments with no chord (root None)
-are omitted (gaps = no chord); bass is always None; chord text carries '?' for low confidence;
-beats carry bar/beat only from the first downbeat on.
+are omitted (gaps = no chord); bass is None unless chords.slash finds a slash-chord bass (then the
+text is 'C/E'); with chords.candidates each chord carries `candidates` [{name, root, quality, prob}] (T27,
+top-k of the posterior over the segment, prob descending); chord text carries '?' for low confidence; beats carry bar/beat only from the first
+downbeat on. `keys` (per-bar key runs: startBar, tonic, mode, confidence) is written only when
+`bar_keys` is given (key.track == 'sections'), so the spike 1 output is unchanged.
+Chord times: segment bounds are columns of `seg.per_beat` per beat (T13: 2 = half beats, the off-beat
+column starts at the midpoint of the beat span, chroma.column_times); a bound past the last column is the
+audio end (as for beats).
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from .chords import ChordSegment, chord_text
+from .chords import ChordSegment, chord_name, chord_text
+from .chroma import column_times
 from .config import Config, config_hash, config_summary
-from .types import BeatChord, BeatGrid, Downbeats, Features, Section
+from .types import BarKey, BeatChord, BeatGrid, Downbeats, Features, Section
 
 NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
@@ -37,6 +44,8 @@ def build_result(
     key: tuple[str, str, float] | None,
     cfg: Config,
     timings: dict[str, float] | None = None,
+    bar_keys: list[BarKey] | None = None,
+    warnings: list[str] | None = None,
 ) -> dict:
     times = [float(t) for t in grid.times]
     n = len(times)
@@ -55,20 +64,32 @@ def build_result(
             b['beat'] = (i - phase) % bpb
         beats.append(b)
 
+    col_times: dict[int, np.ndarray] = {}
+
+    def col_time(c: int, pb: int) -> float:
+        if pb not in col_times:
+            col_times[pb] = column_times(times, dur, pb)
+        ct = col_times[pb]
+        return float(ct[c]) if 0 <= c < len(ct) else dur
+
     chords = []
     for s in segments:
         if s.root is None:
             continue
-        bc = BeatChord(root=s.root, quality=s.quality, confidence=s.confidence)
-        chords.append({
-            'start': beat_time(s.start_beat),
-            'end': beat_time(s.end_beat),
+        bc = BeatChord(root=s.root, quality=s.quality, confidence=s.confidence, bass=s.bass)
+        entry = {
+            'start': beat_time(s.start_beat) if s.per_beat == 1 else col_time(s.start_beat, s.per_beat),
+            'end': beat_time(s.end_beat) if s.per_beat == 1 else col_time(s.end_beat, s.per_beat),
             'root': NOTE_NAMES[s.root % 12],
             'quality': s.quality,
-            'bass': None,
+            'bass': NOTE_NAMES[s.bass % 12] if s.bass is not None else None,
             'text': chord_text(bc, cfg),
             'confidence': float(s.confidence),
-        })
+        }
+        if cfg.chords.candidates:
+            entry['candidates'] = [{'name': chord_name(r, q), 'root': NOTE_NAMES[r % 12], 'quality': q, 'prob': float(p)}
+                                   for r, q, p in s.candidates]
+        chords.append(entry)
 
     secs = [
         {'start': beat_time(phase + s.start_bar * bpb), 'end': beat_time(phase + s.end_bar * bpb), 'label': s.label}
@@ -84,6 +105,8 @@ def build_result(
     }
     if timings is not None:
         analyzer['timingsSec'] = {k: round(float(v), 3) for k, v in timings.items()}
+    if warnings:
+        analyzer['warnings'] = list(warnings)  # T17: e.g. 'keytrack-not-converged' (absent = none)
 
     result = {
         'format': 'band-sheets-analysis',
@@ -97,4 +120,22 @@ def build_result(
     }
     if key is not None:
         result['key'] = {'tonic': key[0], 'mode': key[1], 'confidence': float(key[2])}
+    if bar_keys is not None:
+        result['keys'] = key_runs(bar_keys)
     return result
+
+
+def key_runs(bar_keys: list[BarKey]) -> list[dict]:
+    """Consecutive bars with the same key -> one run {startBar, tonic, mode, confidence (mean)}."""
+    runs: list[dict] = []
+    confs: list[list[float]] = []
+    for bk in sorted(bar_keys, key=lambda k: k.bar):
+        tonic = NOTE_NAMES[bk.tonic % 12]
+        if runs and runs[-1]['tonic'] == tonic and runs[-1]['mode'] == bk.mode:
+            confs[-1].append(float(bk.confidence))
+            continue
+        runs.append({'startBar': int(bk.bar), 'tonic': tonic, 'mode': bk.mode, 'confidence': 0.0})
+        confs.append([float(bk.confidence)])
+    for r, c in zip(runs, confs):
+        r['confidence'] = float(np.mean(c))
+    return runs

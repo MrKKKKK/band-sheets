@@ -23,6 +23,9 @@ Chord rules (decision 8):
   result has root+class right AND a 7th; precision = of scored beats where the result has a 7th, the share
   where root+class is right AND the truth has a 7th. 7 vs maj7 is not distinguished. A constant triad
   analyzer gets recall 0.0 and precision None (no result 7ths).
+- Split (T27, chords.split, record only): root per beat, quality (triad class) per beat over samples whose result is
+  not a power chord '5' (nBeatsPower / powerShare report those), and top-k (truth root + triad class among the
+  result chord's `candidates`). See _score_split. A '5' result stays a miss in every metric above.
 """
 import argparse
 import bisect
@@ -73,6 +76,74 @@ def has_seventh(quality):
     return quality in SEVENTH_QUALITIES
 
 
+POWER = "5"  # T27: power chord (root + 5th, no 3rd); its own triad class, so it never matches maj / min
+VOCAB_QUALITIES = ("maj", "min", "7", "maj7", "min7", "dim", "aug", "sus4", "m7b5", "dim7", POWER)
+_TRIAD_OF = {"maj": "maj", "7": "maj", "maj7": "maj", "min": "min", "min7": "min",
+             "dim": "dim", "m7b5": "dim", "dim7": "dim", "aug": "aug", "sus4": "sus4", POWER: POWER}
+_ALTERED_FIFTH = re.compile(r"b5|#5|\+5|-5|aug|\+")
+_HAS_EXT = re.compile(r"(7|9|11|13)")
+
+
+def map_vocab(quality):
+    """The single place for the vocabulary mapping rule (plan decision 8; applied to the truth side only).
+
+    Returns one of VOCAB_QUALITIES, or None for a form outside the vocabulary that is dropped and counted
+    (7(b5), 7(#5), aug7, mM7, sus2, or anything unparseable). Tensions (9 11 13 and their alterations), 6 and
+    add9 are dropped down to the underlying chord (C6, Cadd9 -> maj; G7(#9), G9, G13 -> 7; CM9 -> maj7;
+    Dm9, Dm11 -> min7; Dm6 -> min); 7sus4 -> sus4; m7b5 / m9b5 -> m7b5.
+    '5' (power chord, T27) stays '5': a result '5' is root-only (quality unknown), so it is a vocab miss against
+    any truth triad; a truth '5' (rare in charts) is matched only by a result '5'."""
+    if quality is None:
+        return None
+    q = str(quality).strip()
+    if q in VOCAB_QUALITIES:
+        return q
+    s = re.sub(r"[(),\s]", "", q)
+    if "sus2" in s:
+        return None
+    if "sus" in s:
+        return "sus4"
+    if re.match(r"(mM|mmaj|minmaj|minM|m\^|m\u0394)", s):
+        return None  # minor-major seventh
+    if s[:3] == "dim" or s[:1] == "\u00b0":
+        rest = s[3:] if s[:3] == "dim" else s[1:]
+        return "dim7" if _HAS_EXT.match(rest) else "dim"
+    if s[:1] == "\u00f8":
+        return "m7b5"
+    if s[:3] == "aug" or s[:1] == "+":
+        rest = s[3:] if s[:3] == "aug" else s[1:]
+        return "aug" if rest == "" else None  # aug7 etc.
+    if s[:3] in ("maj", "Maj") or s[:1] in ("M", "\u0394", "^"):
+        rest = re.sub(r"^(maj|Maj|M|\u0394|\^)", "", s)
+        if _ALTERED_FIFTH.search(rest):
+            return None
+        return "maj7" if _HAS_EXT.match(rest) else "maj"
+    if s[:3] == "min" or s[:1] in ("m", "-"):
+        rest = re.sub(r"^(min|m|-)", "", s)
+        if "b5" in rest:
+            return "m7b5" if _HAS_EXT.match(rest) else "dim"
+        if "#5" in rest:
+            return None
+        return "min7" if _HAS_EXT.match(rest) else "min"
+    if s == "" or re.match(r"add\d+", s):
+        return "maj"
+    m = re.match(r"(\d+)", s)
+    if m:
+        if _ALTERED_FIFTH.search(s):
+            return None
+        n = int(m.group(1))
+        if n in (7, 9, 11, 13):
+            return "7"
+        if n in (2, 5, 6):
+            return "maj"
+    return None
+
+
+def vocab_triad(vq):
+    """Triad class of a vocabulary quality: maj/min/dim/aug/sus4 (7, maj7 -> maj; min7 -> min; m7b5, dim7 -> dim)."""
+    return _TRIAD_OF[vq]
+
+
 def _f(x):
     return None if x is None else float(x)
 
@@ -93,7 +164,10 @@ def _beats(truth, result):
     lo, hi = _beat_window(ref)
     clip = lambda ts: np.array([t for t in sorted(ts) if lo <= t <= hi], dtype=float)
     est = clip(b["t"] for b in rb)
-    out = {"f": _beat_f(ref, est), "nRef": int(len(ref)), "nEst": int(len(est))}
+    out = {"f": _beat_f(ref, est), "nRef": int(len(ref)), "nEst": int(len(est)),
+           # Q7: beats outside the scored window are not errors in `f`, but they are visible to the user
+           "nEstOutsideBefore": int(sum(1 for b in rb if b["t"] < lo)),
+           "nEstOutsideAfter": int(sum(1 for b in rb if b["t"] > hi))}
     ref_d = np.array(sorted(b["t"] for b in tb if b.get("downbeat")), dtype=float)
     if len(ref_d) == 0:
         return out, None
@@ -214,6 +288,8 @@ def _chords(truth, result):
         "nSeventhResult": seventh_result,
         "nSeventhHit": seventh_hit_r,
         "majminWeighted": _majmin_weighted(tc, rc),
+        "vocab": _score_vocab(eighth_pts, ttrack, rtrack),
+        "split": _score_split(eighth_pts, ttrack, rtrack),
         "nBeatsScored": scored,
         "nBeatsHit": hit,
         "nBeatsExcluded": excluded,
@@ -221,6 +297,111 @@ def _chords(truth, result):
         "nBeatsUnknownQualityResult": unknown_result,
         "nBarsScored": bars_scored,
         "nBarsHit": bars_hit,
+    }
+
+
+def _bass_pc(c):
+    b = c.get("bass")
+    if b is None or str(b).strip() == "":
+        return None
+    try:
+        return note_to_pc(b)
+    except ValueError:
+        return None
+
+
+def _score_vocab(points, ttrack, rtrack):
+    """Vocabulary scoring at [(time, weight)] points (T20). Truth quality goes through map_vocab; a truth form it
+    drops is counted in nBeatsDropped, not scored. Result qualities go through map_vocab too (the identity on
+    vocabulary names; an unmappable result quality is a miss).
+    Slash-chord bass (record only): of scored samples whose truth chord has a bass, the share where the result's bass
+    pitch class is equal (a result with no bass is a miss); independent of the chord hit."""
+    acc = dict(scored=0.0, hit=0.0, triadHit=0.0, dropped=0.0, bassScored=0.0, bassHit=0.0)
+    for tm, w in points:
+        t = ttrack.at(tm)
+        if t is None:
+            continue
+        tq = map_vocab(t["quality"])
+        if tq is None:
+            acc["dropped"] += w
+            continue
+        acc["scored"] += w
+        r = rtrack.at(tm)
+        rq = None if r is None else map_vocab(r["quality"])
+        root_ok = rq is not None and note_to_pc(r["root"]) == note_to_pc(t["root"])
+        if root_ok and rq == tq:
+            acc["hit"] += w
+        if root_ok and vocab_triad(rq) == vocab_triad(tq):
+            acc["triadHit"] += w
+        tb = _bass_pc(t)
+        if tb is not None:
+            acc["bassScored"] += w
+            if r is not None and _bass_pc(r) == tb:
+                acc["bassHit"] += w
+    n = {k: (int(v) if float(v).is_integer() else v) for k, v in acc.items()}
+    return {
+        "perBeat": acc["hit"] / acc["scored"] if acc["scored"] else None,
+        "triadPerBeat": acc["triadHit"] / acc["scored"] if acc["scored"] else None,
+        "bassPerBeat": acc["bassHit"] / acc["bassScored"] if acc["bassScored"] else None,
+        "nBeatsScored": n["scored"], "nBeatsHit": n["hit"], "nBeatsTriadHit": n["triadHit"],
+        "nBeatsDropped": n["dropped"], "nBassScored": n["bassScored"], "nBassHit": n["bassHit"],
+    }
+
+
+def _cand_keys(r):
+    """[(root_pc, triad class)] of a result chord's candidates (T27); the chord itself when it has none.
+    A candidate whose quality is outside the vocabulary has class None (never matches)."""
+    cands = r.get("candidates")
+    if not cands:
+        cands = [r]
+    out = []
+    for c in cands:
+        vq = map_vocab(c.get("quality"))
+        out.append((note_to_pc(c["root"]), None if vq is None else vocab_triad(vq)))
+    return out
+
+
+def _score_split(points, ttrack, rtrack):
+    """Root / quality split and top-k at [(time, weight)] points (T27). Truth goes through map_vocab (dropped forms
+    are not scored), like _score_vocab.
+    - root: result root pitch class == truth root (any result quality, '5' included); no result chord = miss.
+    - quality: triad class equal (vocab_triad, so C vs Cmaj7 counts; root not required), counted only where the
+      result quality is not '5' (nBeatsPower = scored samples whose result is '5'; a missing result is a miss).
+    - top-k: the truth (root, triad class) is among the result chord's candidates (the chord itself when it has
+      no candidates); topKPerBeat is None when no result chord carries candidates."""
+    acc = dict(scored=0.0, rootHit=0.0, power=0.0, qualScored=0.0, qualHit=0.0, topkHit=0.0)
+    has_cands = any(c.get("candidates") for c in rtrack.chords)
+    for tm, w in points:
+        t = ttrack.at(tm)
+        if t is None:
+            continue
+        tq = map_vocab(t["quality"])
+        if tq is None:
+            continue
+        tr, tcls = note_to_pc(t["root"]), vocab_triad(tq)
+        acc["scored"] += w
+        r = rtrack.at(tm)
+        if r is not None and note_to_pc(r["root"]) == tr:
+            acc["rootHit"] += w
+        rq = None if r is None else map_vocab(r["quality"])
+        if rq == POWER:
+            acc["power"] += w
+        else:
+            acc["qualScored"] += w
+            if rq is not None and vocab_triad(rq) == tcls:
+                acc["qualHit"] += w
+        if r is not None and (tr, tcls) in _cand_keys(r):
+            acc["topkHit"] += w
+    n = {k: (int(v) if float(v).is_integer() else v) for k, v in acc.items()}
+    sc = acc["scored"]
+    return {
+        "rootPerBeat": acc["rootHit"] / sc if sc else None,
+        "qualityPerBeat": acc["qualHit"] / acc["qualScored"] if acc["qualScored"] else None,
+        "topKPerBeat": (acc["topkHit"] / sc if sc else None) if has_cands else None,
+        "powerShare": acc["power"] / sc if sc else None,
+        "nBeatsScored": n["scored"], "nBeatsRootHit": n["rootHit"], "nBeatsPower": n["power"],
+        "nBeatsQualityScored": n["qualScored"], "nBeatsQualityHit": n["qualHit"],
+        "nBeatsTopKHit": n["topkHit"] if has_cands else None,
     }
 
 
@@ -338,6 +519,201 @@ def _sections(truth, result):
     return out
 
 
+# ---------------- keys (T20) ----------------
+
+def parse_key(text):
+    """'G' -> (7, 'major'); 'F#m' -> (6, 'minor'). Raises ValueError."""
+    m = re.fullmatch(r"([A-G][#b]?)(m?)", str(text).strip())
+    if not m:
+        raise ValueError(f"bad key: {text!r}")
+    return note_to_pc(m.group(1)), "minor" if m.group(2) else "major"
+
+
+def keys_near(a, b):
+    """True when key b is closely related to key a: equal, relative, parallel, or a fifth away in the same mode.
+    Keys are (tonic_pc, mode)."""
+    (ta, ma), (tb, mb) = a, b
+    if ma == mb:
+        return (tb - ta) % 12 in (0, 5, 7)
+    major_t, minor_t = (ta, tb) if ma == "major" else (tb, ta)
+    return minor_t == major_t or minor_t == (major_t + 9) % 12
+
+
+def _bar_spans(beats):
+    """[(start, end)] per bar, bars delimited by truth downbeats (bar 0 = first downbeat; pickup beats are not a bar)."""
+    bs = sorted(beats, key=lambda b: b["t"])
+    ts = [b["t"] for b in bs]
+    med = _median_interval(ts)
+    downs = [b["t"] for b in bs if b.get("downbeat")]
+    if med is None or not downs:
+        return []
+    end = ts[-1] + med
+    return [(d, downs[i + 1] if i + 1 < len(downs) else end) for i, d in enumerate(downs)]
+
+
+def _run_at(runs, i):
+    """The entry of `runs` (sorted by startBar) in force at bar i, or None before the first."""
+    cur = None
+    for r in runs:
+        if r["startBar"] <= i:
+            cur = r
+    return cur
+
+
+def _key_entry(k):
+    """(startBar, tonic_pc, mode) from a result entry {startBar, tonic, mode} or a truth-style {startBar, key: "Am"}."""
+    if "tonic" in k:
+        return int(k["startBar"]), note_to_pc(k["tonic"]), k["mode"]
+    tonic, mode = parse_key(k["key"])
+    return int(k["startBar"]), tonic, mode
+
+
+def _result_key_runs(result):
+    ks = result.get("keys")
+    if ks:
+        return sorted(_key_entry(k) for k in ks)
+    k = result.get("key")
+    if k:
+        return [(0, note_to_pc(k["tonic"]), k["mode"])]
+    return None
+
+
+def _match_changes(ref, est, tol=1):
+    """One-to-one greedy match of change bars within +-tol; returns the number of matches."""
+    free = sorted(est)
+    n = 0
+    for r in sorted(ref):
+        for e in free:
+            if abs(e - r) <= tol:
+                free.remove(e)
+                n += 1
+                break
+    return n
+
+
+def _score_keys(truth, result):
+    """Per-bar key scoring when the truth has `keys` (optional): key per bar (tonic + mode equal), near key per
+    bar (record), and key-change F (+-1 bar). Result bars are placed in time by the result's own downbeats
+    (bar index when it has none). None when the truth has no keys or the result has no key at all."""
+    tk, tb = truth.get("keys"), truth.get("beats")
+    if not tk or not tb:
+        return None
+    rk = _result_key_runs(result)
+    spans = _bar_spans(tb)
+    if rk is None or not spans:
+        return None
+    truns = sorted(({"startBar": int(k["startBar"]), "key": parse_key(k["key"])} for k in tk),
+                   key=lambda r: r["startBar"])
+    rdowns = sorted(b["t"] for b in result.get("beats") or [] if b.get("downbeat"))
+
+    def result_key(i, t0, t1):
+        j = max(bisect.bisect_right(rdowns, (t0 + t1) / 2) - 1, 0) if rdowns else i
+        cur = (rk[0][1], rk[0][2])
+        for s, tonic, mode in rk:
+            if s <= j:
+                cur = (tonic, mode)
+        return cur
+
+    scored = hit = near = 0
+    tkeys, rkeys = [], []
+    for i, (t0, t1) in enumerate(spans):
+        run = _run_at(truns, i)
+        if run is None:
+            tkeys.append(None)
+            rkeys.append(None)
+            continue
+        tkey, rkey = run["key"], result_key(i, t0, t1)
+        tkeys.append(tkey)
+        rkeys.append(rkey)
+        scored += 1
+        hit += tkey == rkey
+        near += keys_near(tkey, rkey)
+
+    def changes(ks):
+        return [i for i in range(1, len(ks)) if ks[i] is not None and ks[i - 1] is not None and ks[i] != ks[i - 1]]
+
+    cref, cest = changes(tkeys), changes(rkeys)
+    cm = _match_changes(cref, cest)
+    f = None
+    if cref:
+        f = 0.0 if not cm else 2 * cm / (len(cref) + len(cest))  # = 2PR/(P+R) with P = cm/|est|, R = cm/|ref|
+    return {"perBar": hit / scored if scored else None, "nearPerBar": near / scored if scored else None,
+            "changeF": f, "nBars": scored, "nBarsHit": hit, "nBarsNear": near,
+            "nChangeRef": len(cref), "nChangeEst": len(cest), "nChangeHit": cm}
+
+
+# ---------------- sequence-only truth (no timing) ----------------
+
+def _collapse(seq):
+    out = []
+    for x in seq:
+        if not out or out[-1] != x:
+            out.append(x)
+    return out
+
+
+def _lcs(a, b):
+    prev = [0] * (len(b) + 1)
+    for x in a:
+        cur = [0]
+        for j, y in enumerate(b):
+            cur.append(prev[j] + 1 if x == y else max(prev[j + 1], cur[j]))
+        prev = cur
+    return prev[-1]
+
+
+def _edit(a, b):
+    prev = list(range(len(b) + 1))
+    for i, x in enumerate(a, 1):
+        cur = [i]
+        for j, y in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x != y)))
+        prev = cur
+    return prev[-1]
+
+
+def _seq_stats(t, r):
+    n, m = len(t), len(r)
+    lcs = _lcs(t, r)
+    lev = _edit(t, r)
+    d = max(n, m)
+    return {"nTruth": n, "nResult": m, "lcs": lcs, "edit": lev,
+            "lcsRecall": lcs / n if n else None, "lcsPrecision": lcs / m if m else None,
+            "similarity": 1.0 - lev / d if d else None}
+
+
+def _sequence(truth, result):
+    """Chord-order accuracy for a truth with "timing": "sequence" (T3: lyric charts without bar timing), else None.
+    Both sequences go through map_vocab (a truth form it drops is skipped and counted), no-chord entries are skipped,
+    consecutive duplicates collapse; the result is ordered by start. Exact roots (no transposition). `full` compares
+    (root, vocab quality); `root` compares roots only. similarity = 1 - editDistance / max(len)."""
+    if truth.get("timing") != "sequence" or result.get("chords") is None:
+        return None
+    tfull, troot, dropped = [], [], 0
+    for c in truth.get("chordSequence") or []:
+        if is_no_chord(c):
+            continue
+        q = map_vocab(c.get("quality"))
+        if q is None:
+            dropped += 1
+            continue
+        tfull.append((note_to_pc(c["root"]), q))
+        troot.append(note_to_pc(c["root"]))
+    rfull, rroot = [], []
+    for c in sorted(result["chords"], key=lambda c: c.get("start", 0)):
+        if is_no_chord(c):
+            continue
+        try:
+            pc = note_to_pc(c["root"])
+        except ValueError:
+            continue
+        rfull.append((pc, map_vocab(c.get("quality"))))
+        rroot.append(pc)
+    out = {"full": _seq_stats(_collapse(tfull), _collapse(rfull)),
+           "root": _seq_stats(_collapse(troot), _collapse(rroot)), "nDropped": dropped}
+    return out
+
+
 # ---------------- entry points ----------------
 
 def score(truth, result):
@@ -349,6 +725,8 @@ def score(truth, result):
         "chords": _chords(truth, result),
         "melody": _melody(truth, result, _median_interval(sorted(tbeats))),
         "sections": _sections(truth, result),
+        "keys": _score_keys(truth, result),
+        "sequence": _sequence(truth, result),
     }
 
 

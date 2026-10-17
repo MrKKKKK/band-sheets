@@ -12,15 +12,22 @@ Checks (ENFORCED ones set the exit code; the rest are only reported):
           all beats found. ENFORCED. A missing partner/wav is SKIPped, not failed.
   onset   non-click variants: librosa onset_detect vs the nearest truth beat: |signed median| < 20 ms.
           ENFORCED for mix == "piano", reported for others. comp == "whole" (one chord per bar, so most beats
-          have no onset) is compared the other way round: each detected onset vs its nearest truth beat (R9).
+          have no onset) is compared on the truth STRIKE times instead (spike 2 T4, Q4): every downbeat and
+          every truth chord start is a struck chord, each is compared with its nearest detected onset. Unlike
+          the spike 1 rule (each onset vs its nearest beat), this also catches a whole-beat offset.
+          comp == "rec" uses backtracked onsets (librosa backtrack=True, the energy minimum before the
+          peak): most of its beats start with one soft left-hand note, whose onset-strength peak comes
+          late. Measured on the LR wavs (T4): peak-picked median +16..+21 ms, backtracked -6..-10 ms,
+          sample-level first sound +0.1..+7 ms (the truth is aligned; the detector lags). Only for this
+          median: 'edge' keeps the peak-picked onsets.
   edge    first sound (first sample above 2 % of the peak) vs the first truth event, and the last
           librosa onset vs the nearest truth event (beat, melody note start, chord start, drum hit): |diff| < 30 ms. ENFORCED for piano, reported for others.
   chord   chroma_cqt averaged over the central 80 % of each truth beat; the share of beats whose truth
           chord (maj/min class of 7/maj7/min7 too) is the best of the 24 triad templates >= 90 %.
           ENFORCED for piano, reported for others. dim/aug/sus4/no-chord beats are skipped.
-          comp == "arp8" (broken chords: one beat holds only part of the chord) is compared over the whole
-          truth chord span instead of per beat; a variant with pianoGainDb < 0 uses the lower limit
-          CHORD_MIN_SHARE_QUIET (the piano is buried in the mix) (R9).
+          comp == "arp8" / "rec" (broken chords: one beat holds only part of the chord; "rec" also moves
+          changes to eighth positions) is compared over the whole truth chord span instead of per beat; a
+          variant with pianoGainDb < 0 uses the lower limit CHORD_MIN_SHARE_QUIET (R9; see its comment).
 Exit code policy (R9): only ENFORCED checks (mix == "piano") turn into FAIL and exit 1; everything else
 is WARN (printed, exit 0), so a chained `&&` is safe unless a piano variant is really off.
 Exit 1 if an enforced check fails, a piano wav is missing, or there is no piano variant.
@@ -39,7 +46,11 @@ ONSET_MEDIAN_MS = 20.0
 EDGE_MS = 30.0
 CLICK_MS = 5.0
 CHORD_MIN_SHARE = 0.90
-CHORD_MIN_SHARE_QUIET = 0.80
+# pianoGainDb < 0 variants (piano -9 dB under drums + bass, mix "full", never ENFORCED): the drums and
+# bass leak into the chroma, so the share is lower by nature. Observed 89.8 % and 100 % (spike 1 T15);
+# 0.85 keeps ~5 points of margin below the lowest observed value while still noticing a drop to the low
+# 80s (spike 2 T4, Q4: was 0.80 with no stated reason).
+CHORD_MIN_SHARE_QUIET = 0.85
 CLICK_WINDOW_S = 0.05
 CLICK_LEVEL = 0.02
 FIRST_LEVEL = 0.02
@@ -60,19 +71,33 @@ def _truth_path(v):
     return v.get("truth") or os.path.splitext(v["wav"])[0] + ".truth.json"
 
 
-def onset_times(y, sr):
+def onset_times(y, sr, backtrack=False):
     import librosa
-    return np.sort(librosa.onset.onset_detect(y=y, sr=sr, backtrack=False, units="time"))
+    return np.sort(librosa.onset.onset_detect(y=y, sr=sr, backtrack=backtrack, units="time"))
 
 
-def onset_offsets(onsets, beats, comp=None):
-    """Signed (onset - truth beat) in seconds used by the 'onset' check.
+BROKEN_COMPS = ("arp8", "rec")
+
+
+def strike_times(truth):
+    """Times a 'whole' accompaniment strikes a chord: every downbeat and every truth chord start."""
+    t = {b["t"] for b in truth.get("beats") or [] if b.get("downbeat")}
+    t |= {c["start"] for c in truth.get("chords") or [] if not S.is_no_chord(c)}
+    return np.array(sorted(t))
+
+
+def onset_offsets(onsets, beats, comp=None, truth=None):
+    """Signed (onset - truth time) in seconds used by the 'onset' check.
 
     Normally per truth beat (nearest onset). For comp == 'whole' the onsets are sparser than the
-    beats, so it is per detected onset (nearest truth beat) instead (R9).
+    beats, so it is per truth strike time (downbeats + chord starts, `strike_times(truth)`), nearest
+    onset (Q4); a whole-beat offset of the audio then shows up as a full beat. Without `truth` it falls
+    back to the spike 1 rule (each detected onset vs its nearest truth beat; misses whole-beat offsets).
     """
     if comp == "whole":
-        return -signed_nearest(np.asarray(beats, dtype=float), onsets)
+        if truth is None:
+            return -signed_nearest(np.asarray(beats, dtype=float), onsets)
+        return signed_nearest(onsets, strike_times(truth))
     return signed_nearest(onsets, beats)
 
 
@@ -220,7 +245,10 @@ def check_variant(out_dir, v, items):
     onsets = onset_times(y, sr)
     if len(onsets) == 0 or not beats:
         return name, [_chk("onset", None, None, False, enforced, "no onsets detected")], False
-    d = onset_offsets(onsets, beats, v.get("comp"))
+    # comp 'rec': backtracked onsets for the median only; 'edge' keeps the peak-picked ones (backtracking
+    # the final chord lands in the previous note's decay, ~45 ms early).
+    d = onset_offsets(onset_times(y, sr, backtrack=True) if v.get("comp") == "rec" else onsets,
+                      beats, v.get("comp"), truth)
     med = float(np.median(d))
     checks.append(_chk("onset", med, ONSET_MEDIAN_MS, abs(med) * 1000 < ONSET_MEDIAN_MS, enforced,
                        f"onset signed median {_ms(med)} ms (|median abs| {np.median(np.abs(d)) * 1000:.1f}, "
@@ -229,7 +257,7 @@ def check_variant(out_dir, v, items):
                              | {n["start"] for n in (truth.get("melody") or {}).get("notes", [])}
                              | {c["start"] for c in truth.get("chords") or []}
                              | {n["t"] for n in truth.get("drums") or []}))
-    if v.get("comp") == "arp8":  # arpeggio notes sit on every eighth, not only on beats / chord starts
+    if v.get("comp") in BROKEN_COMPS:  # arpeggio notes sit on every eighth, not only on beats / chord starts
         med_b = float(np.median(np.diff(beats))) if len(beats) > 1 else 0.5
         events = np.array(sorted(set(events) | {b + med_b / 2 for b in beats}))
     # first: sample-level (librosa onset_detect is biased at the very start of a file)
@@ -240,7 +268,7 @@ def check_variant(out_dir, v, items):
     checks.append(_chk("edge", max(abs(first), abs(last)), EDGE_MS, ok, enforced,
                        f"first onset {_ms(first)} ms, last onset {_ms(last)} ms vs nearest truth event "
                        f"(limit {EDGE_MS} ms)"))
-    by_span = v.get("comp") == "arp8"
+    by_span = v.get("comp") in BROKEN_COMPS
     min_share = chord_min_share(v)
     n_ok, n = chord_share(y, sr, truth, by_span=by_span)
     share = n_ok / n if n else None

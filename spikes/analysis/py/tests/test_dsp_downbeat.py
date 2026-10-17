@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from py.dsp.config import Config, DownbeatConfig, apply_overrides
+from py.dsp.config import Config, DownbeatConfig, apply_overrides, spike1_config
 from py.dsp.downbeat import (
     bass_change_strength,
     beat_onset_strength,
@@ -214,15 +214,15 @@ class ChooseDownbeatsTest(unittest.TestCase):
         y = np.zeros(10)
         feat = Features(sr=sr, hop=hop, duration=float(times[-1] + 1), y=y, y_harm=y, y_perc=y, onset_env=env)
         down = set(range(k, n, 4))
-        db = choose_downbeats(feat, grid, chords, bass_chroma(roots, down), Config())
+        db = choose_downbeats(feat, grid, chords, bass_chroma(roots, down), spike1_config())
         self.assertEqual(db.phase, k)
         self.assertGreater(db.confidence, 0.3)
         # Missing pieces are tolerated.
-        self.assertEqual(choose_downbeats(None, grid, chords, None, Config()).phase, k)
-        self.assertEqual(choose_downbeats(feat, grid, None, None, Config()).phase, k)
+        self.assertEqual(choose_downbeats(None, grid, chords, None, spike1_config()).phase, k)
+        self.assertEqual(choose_downbeats(feat, grid, None, None, spike1_config()).phase, k)
 
     def test_config_override(self):
-        cfg = apply_overrides(Config(), {'downbeat': {'w_bass': 0.0, 'anticipation_shift': 0.5}})
+        cfg = apply_overrides(spike1_config(), {'downbeat': {'w_bass': 0.0, 'anticipation_shift': 0.5}})
         self.assertEqual(cfg.downbeat.w_bass, 0.0)
 
     def test_beat_onset_strength(self):
@@ -235,3 +235,53 @@ class ChooseDownbeatsTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DownbeatChordsTest(unittest.TestCase):
+    """The downbeat rule reads beat-level chords with margin confidence whatever chords.resolution /
+    chords.confidence / chords.candidates say (R2 fix). Fixture: the downbeat inputs of the synthetic LR-hard
+    variant piano-t124-straight-rec-hard (song saints) -- beat and half-beat chord chroma, bass chroma, onset
+    envelope, beat times. Under eighth + posterior the on-beat posterior column weighted spurious mid-bar
+    changes ~1 and phase 2 beat phase 0 by 0.003 (truth: phase 0, which every switch alone still finds)."""
+
+    FIX = __import__('os').path.join(__import__('os').path.dirname(__file__), 'fixtures', 'downbeat_lrhard_saints.npz')
+    B = {'chords': {'resolution': 'eighth', 'theory_prior': 1.0, 'confidence': 'posterior', 'low_confidence': 0.93,
+                    'candidates': True, 'candidates_k': 3},
+         'key': {'track': 'sections'}, 'beats': {'tempo_octave': 'rule'}, 'sections': {'percussive_weight': 0.5}}
+
+    @classmethod
+    def setUpClass(cls):
+        z = np.load(cls.FIX)
+        cls.z = {k: z[k] for k in z.files}
+        cls.feat = Features(int(z['sr']), int(z['hop']), float(z['duration']), np.zeros(0), np.zeros(0), np.zeros(0),
+                            z['onset_env'].astype(float))
+        cls.grid = BeatGrid(z['times'], 124.0, 'fixture')
+
+    def _phase(self, ov, fixed: bool):
+        from py.dsp.chords import beat_level, estimate_chords
+        from py.dsp.downbeat import downbeat_chords
+        cfg = apply_overrides(spike1_config(), ov)
+        pb = 2 if cfg.chords.resolution == 'eighth' else 1
+        chroma = self.z['chroma'].astype(float)
+        cols = estimate_chords((self.z['cc'] if pb == 2 else self.z['chroma']).astype(float), cfg, per_beat=pb)
+        chords = downbeat_chords(cols, chroma, cfg, pb) if fixed else beat_level(cols, pb)
+        return choose_downbeats(self.feat, self.grid, chords, self.z['bass'].astype(float), cfg)
+
+    def test_combined_config_flip_reproduces_without_the_fix(self):
+        self.assertEqual(self._phase(self.B, fixed=False).phase, 2)  # guards that the fixture still shows the bug
+
+    def test_combined_config_keeps_the_true_downbeat(self):
+        self.assertEqual(self._phase(self.B, fixed=True).phase, 0)
+
+    def test_same_downbeat_as_all_off_under_any_chord_switch(self):
+        ref = self._phase({}, fixed=True)
+        for ov in ({'chords': {'resolution': 'eighth'}}, {'chords': {'confidence': 'posterior'}},
+                   {'chords': {'candidates': True}}, self.B):
+            d = self._phase(ov, fixed=True)
+            self.assertEqual((d.phase, d.scores, d.confidence), (ref.phase, ref.scores, ref.confidence), ov)
+
+    def test_default_path_returns_the_chords_unchanged(self):
+        from py.dsp.chords import estimate_chords
+        from py.dsp.downbeat import downbeat_chords
+        cols = estimate_chords(self.z['chroma'].astype(float), spike1_config())
+        self.assertIs(downbeat_chords(cols, self.z['chroma'].astype(float), spike1_config(), 1), cols)

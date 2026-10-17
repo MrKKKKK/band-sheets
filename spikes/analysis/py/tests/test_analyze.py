@@ -9,7 +9,7 @@ import numpy as np
 import soundfile as sf
 
 from py.analyze import analyze
-from py.dsp.config import Config
+from py.dsp.config import Config, spike1_config
 from py.dsp.keyest import estimate_key
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -68,7 +68,7 @@ class AnalyzeTest(unittest.TestCase):
             return real_open(file, *a, **k)
 
         with mock.patch('builtins.open', spy), mock.patch('io.open', spy):
-            cls.result = analyze(cls.wav, Config())
+            cls.result = analyze(cls.wav, spike1_config())
 
     @classmethod
     def tearDownClass(cls):
@@ -114,7 +114,7 @@ class AnalyzeTest(unittest.TestCase):
         pcp = np.zeros((12, 8))
         for i, pc in enumerate([0, 2, 4, 5, 7, 9, 11, 0]):
             pcp[pc, i] = 1.0
-        tonic, mode, conf = estimate_key(pcp, Config())
+        tonic, mode, conf = estimate_key(pcp, spike1_config())
         self.assertEqual((tonic, mode), ('C', 'major'))
         self.assertGreater(conf, 0.0)
 
@@ -122,8 +122,8 @@ class AnalyzeTest(unittest.TestCase):
         pcp = np.zeros((12, 3))
         for pc, w in [(9, 3), (0, 2), (4, 2.5), (2, 1), (5, 1), (7, 1), (11, 0.5), (8, 0.8)]:
             pcp[pc, 0] = w
-        self.assertEqual(estimate_key(pcp, Config())[:2], ('A', 'minor'))
-        self.assertEqual(estimate_key(np.zeros((12, 4)), Config()), ('C', 'major', 0.0))
+        self.assertEqual(estimate_key(pcp, spike1_config())[:2], ('A', 'minor'))
+        self.assertEqual(estimate_key(np.zeros((12, 4)), spike1_config()), ('C', 'major', 0.0))
 
 
 if __name__ == '__main__':

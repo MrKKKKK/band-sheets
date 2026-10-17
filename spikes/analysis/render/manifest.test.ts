@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildManifest, cleanGenerated, gitCommit, peakStats, variantExtras } from './manifest';
+import { buildManifest, cleanGenerated, gitCommit, mergeManifestVariants, peakStats, variantExtras } from './manifest';
 
 describe('cleanGenerated', () => {
   it('removes only generated files from the given dirs', () => {
@@ -48,5 +48,26 @@ describe('variantExtras', () => {
     expect(variantExtras({ ...base, level: 2, heldOut: true, comp: 'whole', etudeSeed: 2 })).toMatchObject({
       level: 2, heldOut: true, comp: 'whole', etudeSeed: 2,
     });
+  });
+});
+
+describe('variantExtras (spike 2)', () => {
+  const base = { song: 'etude', mix: 'piano', tempo: 124, swing: 'none', click: false, name: 'x' } as const;
+  it('adds the spike 2 fields only when set', () => {
+    expect(Object.keys(variantExtras({ ...base })).sort()).toEqual(['comp', 'heldOut', 'level', 'pianoGainDb', 'soundFont']);
+    expect(
+      variantExtras({ ...base, level: 'LR', lrGrade: 0, comp: 'rec', recSeed: 3, etudeForm: 'aaba', pickupBeats: 1, vocabShare: 0.2 }),
+    ).toMatchObject({ level: 'LR', lrGrade: 0, comp: 'rec', recSeed: 3, etudeForm: 'aaba', pickupBeats: 1, vocabShare: 0.2 });
+  });
+});
+
+describe('mergeManifestVariants', () => {
+  it('keeps the variant order, prefers fresh entries, keeps old ones, drops unknown names', () => {
+    const out = mergeManifestVariants(
+      ['a', 'b', 'c', 'd'],
+      [{ name: 'c', v: 2 }],
+      [{ name: 'a', v: 1 }, { name: 'c', v: 1 }, { name: 'z', v: 1 }],
+    );
+    expect(out).toEqual([{ name: 'a', v: 1 }, { name: 'c', v: 2 }]);
   });
 });

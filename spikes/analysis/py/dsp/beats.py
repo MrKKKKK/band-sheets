@@ -1,12 +1,19 @@
-"""Beat tracking (stage 2 of dsp-v1): Ellis DP or PLP. No half/double tempo correction."""
+"""Beat tracking (stage 2 of dsp-v1): Ellis DP or PLP.
+
+Half/double tempo correction is the spike 2 hook tempo.choose_octave (beats.tempo_octave /
+beats.tempo_hint); off by default.
+"""
 
 from __future__ import annotations
 
 import librosa
 import numpy as np
 
+from . import tempo as tempo_mod
 from .config import Config
 from .types import BeatGrid, Features
+
+_TEMPO_OCTAVE = ('none', 'rule')
 
 
 def track_beats(feat: Features, cfg: Config) -> BeatGrid:
@@ -15,6 +22,18 @@ def track_beats(feat: Features, cfg: Config) -> BeatGrid:
     method 'ellis': librosa.beat.beat_track (trim = cfg.beats.trim, default False so
     the first/last beats are kept). method 'plp': peaks of the predominant local pulse.
     """
+    b = cfg.beats
+    if b.tempo_octave not in _TEMPO_OCTAVE:
+        raise ValueError(f'unknown beats.tempo_octave: {b.tempo_octave!r}')
+    if b.tempo_hint < 0:
+        raise ValueError(f'beats.tempo_hint must be >= 0, got {b.tempo_hint!r}')
+    grid = _track(feat, cfg)
+    if b.tempo_octave != 'none' or b.tempo_hint > 0:
+        grid = tempo_mod.choose_octave(feat, grid, cfg)  # spike 2 T6 (T0: unchanged)
+    return grid
+
+
+def _track(feat: Features, cfg: Config) -> BeatGrid:
     b = cfg.beats
     env = feat.onset_env
     if len(env) == 0 or not np.any(env > 0):

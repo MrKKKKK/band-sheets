@@ -1,0 +1,132 @@
+# key_fit.toml — how well a chord fits a key, for the per-bar key HMM (spike 2 T22, keytrack.py).
+#
+# source: the user's knowledge note 「和声法ノート v3（band-sheets 音声解析用）」
+#         §2.1–2.3 (diatonic chords, T・S・D), §3.1 (secondary
+#         dominants), §3.3 (tritone substitutes), §3.4 (borrowing from the parallel key), §3.5 (passing
+#         diminished 7th), §5.1–5.4 (modulation vs. tonicization, near keys, ambiguity), §6.5 (this table).
+# books:  なし（手元の文献なし。根拠は和声法ノート v3 の § のみ。一般的な和声・ポピュラー音楽理論を自分たちの言葉でまとめたもの）
+# weights: T14, tuned on synthetic incl. private chart set; see docs (docs/audio-spike2-plan.md 実績 T14).
+#          T14 changed [stage] tonic, [change] mid / boundary and [resolution] triad only; which chord belongs to
+#          which list is music theory — change it only after fixing the note.
+#          T14b (note v3, user decision 2026-10-17): [stage] dominant (new) and tonic; the rest flat, kept.
+#          T14c (phrase framing, user decision 2026-10-17): [phrase] bars; the rest kept.
+#
+# A chord is written "<degree> <quality>": degree = semitones above the key's tonic (0-11),
+# quality = analyzer chord quality (maj min 7 maj7 min7 dim aug m7b5 dim7 sus4).
+# A chord in several lists takes the HIGHEST stage. A chord in no list is "other".
+# Minor keys (note v3 §2.3, user decision 2026-10-17): "in key" = the natural-minor chords + the harmonic-minor
+# V (V, V7, Vsus4) and vii° (dim, dim7) with the raised leading tone. Melodic-minor / dorian chords (IV, ii, vi°,
+# viiø) are borrowed: the melodic minor shapes melodies, it is no strong criterion for harmony.
+# [minor] dominant lists the harmonic-minor V / vii°: they score the same in the minor key and in its relative
+# major (V/vi there, e.g. E7 in C major / A minor) and never place a bar in either key, so they are no evidence
+# for the minor key by themselves — only their resolution is ([resolution], note §5.0).
+#
+# PRIMARY CRITERION — where things resolve (user decision 2026-10-11, 「解決先で決める」): which key a passage
+# is in (tonicization vs. modulation, C major vs. A minor) is decided by its resolutions ([resolution]).
+# The stages below are the base evidence; the tonic stage is only a weak fallback when nothing resolves.
+
+[stage]  # score per bar (mean over the bar's beats) for each fit stage; other >= 0 (never forbids)
+tonic = 1.35     # I / i: fallback when nothing resolves (relative keys share their chords; [resolution] decides first). T14: 1.05 -> 1.5; T14b (v3): 1.5 -> 1.35 (1.25-1.45 flat)
+diatonic = 1.0
+borrowed = 0.5
+secondary = 0.4
+dominant = 1.0   # [minor] dominant in the minor key AND its relative major (max with the major's own stage). T14b: 1.0 (0.4 / 0.7 lower)
+other = 0.0
+
+[change]  # key-change cost between two bars, in the same units as [stage] (one bar of a full fit = 1.0)
+mid = 4.0          # inside a detected section (expensive: tonicization is not modulation, note §5.1). T14: 0.75 -> 4.0
+boundary = 2.0     # at a detected section start (cheaper, not free: boundaries are soft, note §5.3). T14: 0.25 -> 2.0
+near_factor = 0.75 # multiplier for near keys: dominant, subdominant, relative, parallel (note §5.2, §5.3)
+
+[resolution]  # a dominant-function chord followed by its target = evidence for the key whose tonic is the target
+# (note §2.4–2.5 cadences, §3.1 secondary dominants, §3.3 tritone substitute, §3.5 diminished 7th, §5.1):
+#   V7 or plain V triad -> root a 5th down;  7 (tritone substitute) -> root a semitone down;
+#   vii° (dim, m7b5) -> root a semitone up;  dim7 -> a semitone above any of its 4 tones.
+# The target must be a stable chord (maj, maj7 -> major key; min, min7 -> minor key).
+# If the target key differs from the key just before the dominant, the resolution counts only when min_bars
+# bars diatonic to the target key only follow (judged by the bar's stable chords; dominant-function chords,
+# bars in both keys and bars in neither are neutral; reaching the end
+# of the song counts, except after a plain-triad dominant) before the music returns to the old key — a bar that resolves to the old key, or is
+# diatonic to the old key only (modulation); otherwise it is a tonicization and the key stays (note §5.1).
+dominant7 = 0.6    # bonus added to the target key's score on the dominant's bar and the target's bar
+triad = 0.6        # same for a plain major triad as the dominant (also plain I -> IV motion). T14: 0.3 -> 0.6 (0.3-1.0 flat)
+min_bars = 2       # T14: 2 / 3 / 4 flat, kept 2
+
+[phrase]  # phrase framing (note §5.0, T14c, user decision 2026-10-17): a phrase = `bars` bars from bar 0, restarted at
+# every detected section start. A resolution counts as key evidence only when its target chord frames a phrase (covers
+# its first or last chord: what a phrase / loop starts or ends on). C E7 Am F: E7 -> Am is mid-phrase = a tonicization
+# of vi (V/vi), not A minor.
+bars = 8           # 0 = off (every resolution counts, T14b). T14c: 8 (4 .609, 8 .632, 16 .637 CH key/bar; 8 = a pop
+                   # phrase / period; a phrase-edge tonic bonus was tried and lowered CH key/bar, so it is not used)
+edge = "chord"     # T17: a phrase's first / last column = its first / last column WITH a chord, so a rest at a phrase
+                   # start or silence / decay at the end of the recording does not hide the framing chord (note §5.0:
+                   # the target is the chord the phrase starts / ends on). "column" = any column (T14c behaviour).
+
+[confidence]  # tuning only (not theory): scores x scale before the per-bar posterior (forward-backward)
+scale = 5.0
+
+[major]
+tonic = ["0 maj", "0 maj7"]
+diatonic = [
+  "0 maj", "0 maj7",              # I    T
+  "2 min", "2 min7",              # ii   S
+  "4 min", "4 min7",              # iii  T (substitute)
+  "5 maj", "5 maj7",              # IV   S
+  "7 maj", "7 7", "7 sus4",       # V    D (Vsus4 too)
+  "9 min", "9 min7",              # vi   T (substitute)
+  "11 dim", "11 m7b5",            # vii° D
+]
+borrowed = [
+  "5 min", "5 min7",              # iv
+  "8 maj", "8 maj7",              # bVI
+  "10 maj", "10 7",               # bVII
+  "3 maj", "3 maj7",              # bIII
+  "2 m7b5", "2 dim",              # ii ø
+  "7 min", "7 min7",              # v
+  "1 maj", "1 maj7",              # bII (Neapolitan)
+]
+secondary = [
+  "9 7", "9 maj",                 # V/ii
+  "11 7", "11 maj",               # V/iii
+  "0 7",                          # V/IV (only with the 7th: the plain I is diatonic)
+  "2 7", "2 maj",                 # V/V
+  "4 7", "4 maj",                 # V/vi
+  "1 7", "8 7", "3 7", "10 7", "6 7", "6 maj",   # tritone substitutes subV/I, /V, /ii, /vi, /IV
+  "0 dim7", "1 dim7", "2 dim7", "3 dim7", "4 dim7", "5 dim7",     # passing diminished 7th
+  "6 dim7", "7 dim7", "8 dim7", "9 dim7", "10 dim7", "11 dim7",   # (4 equal tones: any root)
+  "1 dim", "3 dim", "6 dim", "8 dim",                             # vii° of ii, iii, V, vi
+]
+
+[minor]
+tonic = ["0 min", "0 min7"]
+diatonic = [
+  "0 min", "0 min7",              # i     T
+  "2 dim", "2 m7b5",              # ii°   S
+  "3 maj", "3 maj7",              # bIII  T (substitute)
+  "5 min", "5 min7",              # iv    S
+  "7 min", "7 min7",              # v     D (natural, weak)
+  "8 maj", "8 maj7",              # bVI   S
+  "10 maj", "10 7",               # bVII  D-like (subtonic)
+  "7 maj", "7 7", "7 sus4",       # V     D (harmonic minor)
+  "11 dim", "11 dim7",            # vii°  D (harmonic minor: V7(b9) without its root)
+]
+dominant = [                      # harmonic-minor V / vii° (also listed in diatonic): see the header
+  "7 maj", "7 7", "7 sus4",
+  "11 dim", "11 dim7",
+]
+borrowed = [
+  "5 maj", "5 7",                 # IV (dorian / melodic minor)
+  "2 min", "2 min7",              # ii (dorian / melodic minor)
+  "9 dim", "9 m7b5",              # vi° (melodic minor)
+  "11 m7b5",                      # viiø (melodic minor)
+  "0 maj",                        # I (Picardy third)
+  "1 maj", "1 maj7",              # bII (Neapolitan)
+]
+secondary = [
+  "0 7",                          # V/iv
+  "3 7",                          # V/bVI
+  "2 7", "2 maj",                 # V/V
+  "1 7",                          # bII7 (tritone substitute of V)
+  "0 dim7", "1 dim7", "2 dim7", "3 dim7", "4 dim7", "5 dim7",
+  "6 dim7", "7 dim7", "8 dim7", "9 dim7", "10 dim7", "11 dim7",   # passing diminished 7th
+]

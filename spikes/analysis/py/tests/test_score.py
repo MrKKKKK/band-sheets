@@ -287,5 +287,269 @@ class ScoreTest(unittest.TestCase):
         self.assertEqual(s["sections"]["f"], 0.0)
 
 
+class MapVocabTest(unittest.TestCase):
+    TABLE = {
+        # triads and canonical names pass through
+        "maj": "maj", "min": "min", "7": "7", "maj7": "maj7", "min7": "min7", "dim": "dim", "aug": "aug",
+        "sus4": "sus4", "m7b5": "m7b5", "dim7": "dim7",
+        # 6 / add9 -> underlying triad
+        "6": "maj", "add9": "maj", "6/9": "maj", "m6": "min", "madd9": "min",
+        # dominant tensions -> 7
+        "7(#9)": "7", "7(b9)": "7", "9": "7", "13": "7", "7(#11)": "7", "7(b13)": "7", "7b9": "7", "11": "7",
+        # maj7 family
+        "M7": "maj7", "M9": "maj7", "maj9": "maj7", "maj7(#11)": "maj7", "M13": "maj7",
+        # minor 7 family
+        "m7": "min7", "m9": "min7", "m11": "min7", "m13": "min7", "-7": "min7", "min9": "min7",
+        # sus
+        "7sus4": "sus4", "sus": "sus4", "9sus4": "sus4",
+        # m7b5 spellings
+        "m9b5": "m7b5", "m7(b5)": "m7b5", "\u00f8": "m7b5",
+        # dropped (outside the vocabulary)
+        "7(b5)": None, "7(#5)": None, "aug7": None, "+7": None, "9#5": None, "mM7": None, "m(maj7)": None,
+        "sus2": None, "weird": None,
+    }
+
+    def test_table(self):
+        for q, want in self.TABLE.items():
+            with self.subTest(quality=q):
+                self.assertEqual(S.map_vocab(q), want)
+
+    def test_triad_classes(self):
+        got = {q: S.vocab_triad(q) for q in S.VOCAB_QUALITIES}
+        self.assertEqual(got["7"], "maj")
+        self.assertEqual(got["maj7"], "maj")
+        self.assertEqual(got["min7"], "min")
+        self.assertEqual(got["m7b5"], "dim")
+        self.assertEqual(got["dim7"], "dim")
+        self.assertEqual(got["aug"], "aug")
+        self.assertEqual(got["sus4"], "sus4")
+
+
+class VocabScoreTest(unittest.TestCase):
+    def test_spike1_numbers_unchanged_by_vocab(self):
+        t = make_truth()
+        s = S.score(t, copy.deepcopy(t))["chords"]
+        self.assertEqual((s["perBeat"], s["perBar"], s["majminWeighted"], s["nBeatsExcluded"]), (1.0, 1.0, 1.0, 0))
+
+    def test_tension_truth_is_scored_against_underlying_chord(self):
+        # truth C [0,4), G7(#9) [4,8); result C, G7: vocab 16/16 beats (8 s at 2 samples/beat), spike-1 excludes the G7(#9) half
+        t = make_truth(chords=[ch(0, 4, "C", "6"), ch(4, 8, "G", "7(#9)")])
+        r = make_truth(chords=[ch(0, 4, "C", "maj"), ch(4, 8, "G", "7")])
+        c = S.score(t, r)["chords"]
+        self.assertEqual(c["vocab"]["perBeat"], 1.0)
+        self.assertEqual(c["vocab"]["nBeatsScored"], 16)
+        self.assertEqual(c["nBeatsUnknownQualityTruth"], 16)  # spike-1 side: both are unknown qualities, unchanged
+
+    def test_vocab_quality_miss_but_triad_class_hit(self):
+        t = make_truth(chords=[ch(0, 4, "C", "maj7"), ch(4, 8, "A", "m7b5")])
+        r = make_truth(chords=[ch(0, 4, "C", "maj"), ch(4, 8, "A", "dim")])
+        v = S.score(t, r)["chords"]["vocab"]
+        self.assertEqual(v["perBeat"], 0.0)
+        self.assertEqual(v["triadPerBeat"], 1.0)
+
+    def test_dropped_forms_are_counted_not_scored(self):
+        t = make_truth(chords=[ch(0, 4, "C", "maj"), ch(4, 8, "G", "7(b5)")])
+        r = make_truth(chords=[ch(0, 4, "C", "maj"), ch(4, 8, "G", "7")])
+        v = S.score(t, r)["chords"]["vocab"]
+        self.assertEqual((v["nBeatsScored"], v["nBeatsDropped"], v["perBeat"]), (8, 8, 1.0))
+
+    def test_aug_and_sus4_are_scored_in_vocab(self):
+        t = make_truth(chords=[ch(0, 4, "C", "aug"), ch(4, 8, "G", "7sus4")])
+        r = make_truth(chords=[ch(0, 4, "C", "aug"), ch(4, 8, "G", "sus4")])
+        v = S.score(t, r)["chords"]["vocab"]
+        self.assertEqual((v["nBeatsScored"], v["perBeat"]), (16, 1.0))
+
+    def test_slash_bass_recorded(self):
+        tc = [ch(0, 4, "C", "maj"), ch(4, 8, "G", "7")]
+        tc[0]["bass"] = "E"
+        t = make_truth(chords=tc)
+        rc = [ch(0, 4, "C", "maj"), ch(4, 8, "G", "7")]
+        r = make_truth(chords=rc)
+        v = S.score(t, r)["chords"]["vocab"]
+        self.assertEqual((v["nBassScored"], v["nBassHit"], v["bassPerBeat"]), (8, 0, 0.0))
+        rc[0]["bass"] = "E"
+        v = S.score(t, make_truth(chords=rc))["chords"]["vocab"]
+        self.assertEqual((v["nBassHit"], v["bassPerBeat"]), (8, 1.0))
+        self.assertIsNone(S.score(make_truth(), make_truth())["chords"]["vocab"]["bassPerBeat"])
+
+
+class SplitScoreTest(unittest.TestCase):
+    """T27: root / quality split, power chords ('5'), top-k candidates."""
+
+    def test_existing_metrics_unchanged_and_split_perfect(self):
+        t = make_truth()
+        c = S.score(t, copy.deepcopy(t))["chords"]
+        self.assertEqual((c["perBeat"], c["vocab"]["perBeat"]), (1.0, 1.0))
+        sp = c["split"]
+        self.assertEqual((sp["rootPerBeat"], sp["qualityPerBeat"], sp["powerShare"]), (1.0, 1.0, 0.0))
+        self.assertIsNone(sp["topKPerBeat"])  # no candidates in the result
+        self.assertIsNone(sp["nBeatsTopKHit"])
+
+    def test_power_result_is_root_only(self):
+        t = make_truth(chords=[ch(0, 4, "C", "maj"), ch(4, 8, "A", "min")])
+        r = make_truth(chords=[ch(0, 4, "C", "5"), ch(4, 8, "C", "maj")])
+        c = S.score(t, r)["chords"]
+        sp = c["split"]
+        self.assertEqual(sp["nBeatsScored"], 16)
+        self.assertEqual(sp["nBeatsRootHit"], 8)  # C5 has the right root; C for Am does not
+        self.assertEqual(sp["nBeatsPower"], 8)
+        self.assertEqual(sp["powerShare"], 0.5)
+        self.assertEqual((sp["nBeatsQualityScored"], sp["nBeatsQualityHit"]), (8, 0))  # C (maj) vs Am (min)
+        # existing metrics: a '5' is an unknown result quality (miss), and a vocab miss
+        self.assertEqual(c["perBeat"], 0.0)
+        self.assertEqual(c["nBeatsUnknownQualityResult"], 8)
+        self.assertEqual(c["vocab"]["nBeatsHit"], 0)
+
+    def test_quality_counted_without_root(self):
+        t = make_truth(chords=[ch(0, 8, "C", "maj7")])
+        r = make_truth(chords=[ch(0, 8, "G", "maj")])
+        sp = S.score(t, r)["chords"]["split"]
+        self.assertEqual((sp["rootPerBeat"], sp["qualityPerBeat"]), (0.0, 1.0))
+
+    def test_missing_result_is_root_and_quality_miss(self):
+        t = make_truth(chords=[ch(0, 8, "C", "maj")])
+        r = make_truth(chords=[ch(0, 4, "C", "maj")])
+        sp = S.score(t, r)["chords"]["split"]
+        self.assertEqual((sp["rootPerBeat"], sp["qualityPerBeat"]), (0.5, 0.5))
+
+    def test_top_k(self):
+        t = make_truth(chords=[ch(0, 4, "C", "maj"), ch(4, 8, "A", "min7")])
+        r0 = ch(0, 4, "G", "maj")
+        r0["candidates"] = [{"name": "G", "root": "G", "quality": "maj", "prob": 0.5},
+                            {"name": "C5", "root": "C", "quality": "5", "prob": 0.3},
+                            {"name": "Cmaj7", "root": "C", "quality": "maj7", "prob": 0.2}]
+        r1 = ch(4, 8, "C", "maj")  # no candidates: the chord itself
+        sp = S.score(t, make_truth(chords=[r0, r1]))["chords"]["split"]
+        self.assertEqual(sp["nBeatsTopKHit"], 8)  # Cmaj7 counts as C (triad class); C5 never does
+        self.assertEqual(sp["topKPerBeat"], 0.5)
+
+    def test_map_vocab_power(self):
+        self.assertEqual(S.map_vocab("5"), "5")
+        self.assertEqual(S.vocab_triad("5"), "5")
+
+
+class KeyScoreTest(unittest.TestCase):
+    """4 bars of 4 beats (2 s per bar). Truth keys: C from bar 0, G from bar 2."""
+
+    def truth(self):
+        t = make_truth()
+        t["keys"] = [{"startBar": 0, "key": "C"}, {"startBar": 2, "key": "G"}]
+        return t
+
+    def result(self, keys):
+        r = copy.deepcopy(make_truth())
+        r["keys"] = [{"startBar": b, "tonic": k, "mode": m, "confidence": 1.0} for b, k, m in keys]
+        return r
+
+    def test_exact(self):
+        k = S.score(self.truth(), self.result([(0, "C", "major"), (2, "G", "major")]))["keys"]
+        self.assertEqual((k["perBar"], k["nearPerBar"], k["changeF"]), (1.0, 1.0, 1.0))
+        self.assertEqual((k["nBars"], k["nChangeRef"], k["nChangeEst"], k["nChangeHit"]), (4, 1, 1, 1))
+
+    def test_late_change_within_one_bar(self):
+        # result bars C C C G: 3/4 bars; change at bar 3 vs truth bar 2 -> within +-1 -> F 1.0
+        k = S.score(self.truth(), self.result([(0, "C", "major"), (3, "G", "major")]))["keys"]
+        self.assertEqual((k["nBarsHit"], k["perBar"], k["changeF"]), (3, 0.75, 1.0))
+
+    def test_change_two_bars_off_and_global_key(self):
+        t = self.truth()
+        t["keys"] = [{"startBar": 0, "key": "C"}, {"startBar": 1, "key": "G"}]
+        k = S.score(t, self.result([(0, "C", "major"), (3, "G", "major")]))["keys"]
+        self.assertEqual(k["changeF"], 0.0)
+        # global key only (no `keys`): C major for all bars -> 1/4 bars of G truth wrong... truth C,G,G,G -> 1 hit
+        r = copy.deepcopy(make_truth())
+        r["key"] = {"tonic": "C", "mode": "major", "confidence": 0.5}
+        k = S.score(t, r)["keys"]
+        self.assertEqual((k["nBarsHit"], k["nChangeEst"], k["changeF"]), (1, 0, 0.0))
+
+    def test_near_keys_and_minor(self):
+        t = make_truth()
+        t["keys"] = [{"startBar": 0, "key": "C"}]
+        k = S.score(t, self.result([(0, "A", "minor")]))["keys"]  # relative minor
+        self.assertEqual((k["perBar"], k["nearPerBar"], k["changeF"]), (0.0, 1.0, None))
+        k = S.score(t, self.result([(0, "F#", "major")]))["keys"]
+        self.assertEqual(k["nearPerBar"], 0.0)
+        t["keys"] = [{"startBar": 0, "key": "Am"}]
+        self.assertEqual(S.score(t, self.result([(0, "A", "minor")]))["keys"]["perBar"], 1.0)
+        self.assertEqual(S.score(t, self.result([(0, "A", "major")]))["keys"]["nearPerBar"], 1.0)  # parallel
+
+    def test_result_with_truth_style_keys_entries(self):
+        # oracle copies truth `keys` ({startBar, key}) into the result; must not KeyError('tonic')
+        t = self.truth()
+        k = S.score(t, copy.deepcopy(t))["keys"]
+        self.assertEqual(k["perBar"], 1.0)
+
+    def test_no_truth_keys_is_none(self):
+        self.assertIsNone(S.score(make_truth(), make_truth())["keys"])
+
+
+class SequenceMetricTest(unittest.TestCase):
+    def seq_truth(self, names):
+        return {"timing": "sequence", "beats": [], "chords": [], "chordSequence": names}
+
+    def res(self, names, gap=2.0):
+        return {"chords": [dict(c, start=i * gap, end=(i + 1) * gap) for i, c in enumerate(names)], "beats": []}
+
+    def test_identical_is_one_and_per_beat_skipped(self):
+        t = self.seq_truth([{"root": "C", "quality": "maj"}, {"root": "A", "quality": "min7"}, {"root": "F", "quality": "maj"}])
+        r = self.res([{"root": "C", "quality": "maj"}, {"root": "A", "quality": "min7"}, {"root": "F", "quality": "maj"}])
+        s = S.score(t, r)
+        self.assertIsNone(s["chords"])
+        self.assertIsNone(s["beats"])
+        self.assertEqual(s["sequence"]["full"]["similarity"], 1.0)
+        self.assertEqual(s["sequence"]["root"]["lcsRecall"], 1.0)
+
+    def test_one_substitution_and_root_only(self):
+        t = self.seq_truth([{"root": "C", "quality": "maj"}, {"root": "A", "quality": "min7"}, {"root": "F", "quality": "maj"},
+                            {"root": "G", "quality": "7"}])
+        r = self.res([{"root": "C", "quality": "maj"}, {"root": "A", "quality": "min"}, {"root": "F", "quality": "maj"},
+                      {"root": "G", "quality": "7"}])
+        q = S.score(t, r)["sequence"]
+        self.assertAlmostEqual(q["full"]["similarity"], 0.75)  # min7 vs min differ in the vocabulary
+        self.assertEqual(q["full"]["lcs"], 3)
+        self.assertEqual(q["root"]["similarity"], 1.0)
+
+    def test_exact_roots_collapse_duplicates_map_vocab_and_no_chord(self):
+        t = self.seq_truth([{"root": "C", "quality": "maj"}, {"root": "C", "quality": "add9"}, {"root": "D", "quality": "7(#9)"},
+                            {"root": "N", "quality": "maj"}])
+        r = self.res([{"root": "C", "quality": "maj"}, {"root": "C", "quality": "maj"}, {"root": "D", "quality": "7"}])
+        self.assertEqual(S._sequence(t, r)["full"]["similarity"], 1.0)
+        r2 = self.res([{"root": "D", "quality": "maj"}, {"root": "E", "quality": "7"}])  # transposed up: no credit
+        q = S._sequence(t, r2)
+        self.assertEqual(q["full"]["lcs"], 0)
+        self.assertEqual(q["full"]["similarity"], 0.0)
+
+    def test_not_applicable_to_timed_truth(self):
+        self.assertIsNone(S._sequence({"beats": [], "chords": []}, {"chords": []}))
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class OutsideWindowBeatsTest(unittest.TestCase):
+    """Q7: analyzer beats outside the scored window are counted (before / after), not hidden."""
+
+    def test_counts_before_and_after(self):
+        t = make_truth()
+        r = copy.deepcopy(t)
+        last = t["beats"][-1]["t"]
+        r["beats"].insert(0, {"t": t["beats"][0]["t"] - 0.3, "downbeat": False})  # 1 before
+        r["beats"] += [{"t": last + BI * k, "downbeat": False} for k in (1, 2)]  # 2 after
+        b = S.score(t, r)["beats"]
+        self.assertEqual(b["nEstOutsideBefore"], 1)
+        self.assertEqual(b["nEstOutsideAfter"], 2)
+        self.assertEqual(b["nEst"], len(t["beats"]))  # in-window count unchanged
+        self.assertEqual(b["f"], 1.0)
+
+    def test_zero_when_nothing_outside(self):
+        t = make_truth()
+        b = S.score(t, copy.deepcopy(t))["beats"]
+        self.assertEqual((b["nEstOutsideBefore"], b["nEstOutsideAfter"]), (0, 0))
+
+    def test_extra_beat_inside_window_is_not_outside(self):
+        t = make_truth()
+        r = copy.deepcopy(t)
+        r["beats"].append({"t": t["beats"][-1]["t"] + 0.2, "downbeat": False})
+        b = S.score(t, r)["beats"]
+        self.assertEqual((b["nEstOutsideBefore"], b["nEstOutsideAfter"]), (0, 0))

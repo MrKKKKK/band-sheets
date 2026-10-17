@@ -7,14 +7,20 @@ from dataclasses import FrozenInstanceError
 import numpy as np
 
 from py.dsp.config import (
+    SPIKE1_OFF_VALUES,
     Config,
     apply_overrides,
     config_hash,
     config_summary,
     config_to_dict,
     load_config,
+    spike1_config,
+    spike1_overrides,
 )
-from py.dsp.types import BeatChord, BeatGrid, Downbeats, Features, Section
+from py.dsp.types import BarKey, BeatChord, BeatGrid, Downbeats, Features, Section
+
+SPIKE1_DEFAULT_HASH = '99f2c324b973'  # config_hash(Config()) before spike 2 = config_hash(spike1_config()) (results/ and baselines use it)
+T14_DEFAULT_HASH = 'adec583eb3c6'  # config_hash(Config()) since T17 (phrase edge = chord; T14c 475ed8c95018, T14b ce49ca6ec435, T14 1f15f9825119)
 
 
 class ConfigTest(unittest.TestCase):
@@ -76,6 +82,67 @@ class ConfigTest(unittest.TestCase):
                 json.dump({'sections': {'min_section_bars': 8}}, f)
             self.assertEqual(load_config(p), c)
         self.assertEqual(load_config(None), Config())
+
+
+class Spike2ConfigTest(unittest.TestCase):
+    def test_t14_defaults(self):
+        c = Config()
+        self.assertEqual((c.beats.tempo_octave, c.beats.tempo_hint), ('rule', 0.0))
+        self.assertEqual(c.chroma.top_voice_discount, 0.0)
+        cc = c.chords
+        self.assertEqual(
+            (cc.resolution, cc.confidence, cc.low_confidence, cc.harmonics, cc.bass_root, cc.slash, cc.seventh_mode,
+             cc.vocab, cc.vocab_margin, cc.vocab_sus4_margin, cc.theory_prior, cc.power, cc.candidates),
+            ('eighth', 'posterior', 0.93, 'none', 'none', False, 'beat', 'v2', 0.05, 0.2, 1.0, False, True),
+        )
+        self.assertEqual(c.sections.percussive_weight, 0.5)
+        self.assertEqual((c.key.track, c.key.change_cost_mid, c.key.change_cost_boundary), ('sections', 0.0, 0.0))
+        self.assertEqual(config_hash(c), T14_DEFAULT_HASH)  # changes only deliberately (results record it)
+        self.assertEqual(config_summary(c), {})
+
+    def test_spike1_config_has_the_off_values(self):
+        d = config_to_dict(spike1_config())
+        for group, offs in SPIKE1_OFF_VALUES.items():
+            for k, v in offs.items():
+                self.assertEqual(d[group][k], v, f'{group}.{k}')
+        self.assertEqual(d['chords']['low_confidence'], 0.1)
+
+    def test_hash_covers_the_theory_tables_when_used(self):
+        from unittest import mock
+        from py.dsp import config as config_mod
+        with mock.patch.object(config_mod, '_table_digest', side_effect=lambda n: 'edited-' + n):
+            self.assertNotEqual(config_hash(Config()), T14_DEFAULT_HASH)  # a table edit gives a new hash
+            self.assertEqual(config_hash(spike1_config()), SPIKE1_DEFAULT_HASH)  # spike 1 reads no table
+
+    def test_spike1_config_keeps_the_spike1_hash(self):
+        self.assertEqual(config_hash(spike1_config()), SPIKE1_DEFAULT_HASH)
+        self.assertNotEqual(config_hash(Config()), SPIKE1_DEFAULT_HASH)
+
+    def test_spike1_json_matches(self):
+        path = os.path.join(os.path.dirname(__file__), '..', 'configs', 'spike1.json')
+        self.assertEqual(config_hash(load_config(path)), SPIKE1_DEFAULT_HASH)
+        with open(path, encoding='utf-8') as f:
+            self.assertEqual(json.load(f), spike1_overrides())
+
+    def test_switch_changes_hash(self):
+        base = spike1_config()
+        seen = {config_hash(base)}
+        for group, offs in SPIKE1_OFF_VALUES.items():
+            for k, off in offs.items():
+                if isinstance(off, bool):
+                    on = not off
+                elif isinstance(off, str):
+                    on = 'x'
+                else:
+                    on = off + 1 if isinstance(off, int) else off + 0.25  # int: T27 candidates_k
+                c = apply_overrides(base, {group: {k: on}})
+                h = config_hash(c)
+                self.assertNotIn(h, seen, f'{group}.{k}')
+                seen.add(h)
+
+    def test_bar_key(self):
+        k = BarKey(3, 7, 'major', 0.5)
+        self.assertEqual((k.bar, k.tonic, k.mode, k.confidence), (3, 7, 'major', 0.5))
 
 
 class TypesTest(unittest.TestCase):
