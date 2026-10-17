@@ -145,8 +145,36 @@ class TestHeldOutGuard(unittest.TestCase):
     def test_included_only_on_request(self):
         with tempfile.TemporaryDirectory() as d:
             self._dir(d)
-            rows, _ = RA.run_all(d, ["oracle"], include_held_out=True)
+            rows, _ = RA.run_all(d, ["oracle"], include_held_out=True, commit="abc1234")
             self.assertEqual({r["variant"] for r in rows}, {"tuned", "held"})
+
+    def test_held_out_refused_without_a_commit(self):
+        # T17: no .git in the Docker image -> the commit must come from the host (--commit / BAND_SHEETS_COMMIT)
+        nogit = lambda: {"commit": None, "dirty": None, "diffHash": None}  # noqa: E731
+        with tempfile.TemporaryDirectory() as d:
+            self._dir(d)
+            with mock.patch.dict(os.environ, {RA.COMMIT_ENV: ""}):
+                with self.assertRaises(RA.HeldOutError):
+                    RA.run_all(d, ["oracle"], include_held_out=True, git_info=nogit)
+                rows, _ = RA.run_all(d, ["oracle"], git_info=nogit)  # no held-out: fine
+                self.assertEqual({r["variant"] for r in rows}, {"tuned"})
+                rows, _ = RA.run_all(d, ["oracle"], include_held_out=True, git_info=nogit, commit="abc1234-dirty")
+                self.assertEqual({r["variant"] for r in rows}, {"tuned", "held"})
+                with open(os.path.join(d, "results", "run-info.json")) as f:
+                    info = json.load(f)
+                self.assertEqual((info["commit"], info["dirty"]), ("abc1234", True))
+            with mock.patch.dict(os.environ, {RA.COMMIT_ENV: "def5678"}):
+                RA.run_all(d, ["oracle"], include_held_out=True, git_info=nogit)
+                with open(os.path.join(d, "results", "run-info.json")) as f:
+                    self.assertEqual(json.load(f)["commit"], "def5678")
+            with self.assertRaises(ValueError):
+                RA.run_all(d, ["oracle"], git_info=nogit, commit="not a sha")
+
+    def test_checkout_commit_wins(self):
+        msgs = []
+        g = RA.resolve_git({"commit": "abc1234", "dirty": False, "diffHash": None}, "fff0000", msgs.append)
+        self.assertEqual(g["commit"], "abc1234")
+        self.assertTrue(any("WARNING" in m for m in msgs))
 
     def test_refused_in_tuning_path(self):
         with tempfile.TemporaryDirectory() as d:
@@ -382,6 +410,7 @@ class TestLevels(unittest.TestCase):
     def _run(self, **kw):
         kw.setdefault("analyzers", ["oracle", "constant"])
         kw.setdefault("include_held_out", True)  # these tests check the held-out table layout
+        kw.setdefault("commit", "abc1234")  # T17: held-out needs a known commit (no .git in the image)
         return RA.run_all(self.d, log=_quiet, **kw)[0]
 
     def test_load_variants_three_manifests(self):
@@ -605,11 +634,28 @@ class TestHeldOutLog(unittest.TestCase):
         RA.run_all(self.d, ["oracle"], log=msgs.append, git_info=lambda: git, **kw)
         return msgs
 
-    def _entries(self):
+    def _all_entries(self):
         if not os.path.exists(self.log_path):
             return []
         with open(self.log_path) as f:
             return [json.loads(line) for line in f if line.strip()]
+
+    def _entries(self):
+        return [e for e in self._all_entries() if e.get("status") == "finished"]
+
+    def test_started_line_before_analysis_survives_a_crash(self):
+        with mock.patch.object(RA.S, "score", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                self._run(include_held_out=True)
+        es = self._all_entries()
+        self.assertEqual({(e["kind"], e["status"]) for e in es}, {("heldOut", "started"), ("rec", "started")})
+        self.assertEqual(self._entries(), [])
+        self._run(include_held_out=True)
+        es = self._all_entries()
+        fin = [e for e in es if e["status"] == "finished"]
+        self.assertEqual(len(fin), 2)
+        started = [e for e in es if e["status"] == "started"]
+        self.assertEqual({e["runId"] for e in fin}, {started[-1]["runId"]})
 
     def test_no_log_without_held_out_or_rec(self):
         self._run(only="tuned")

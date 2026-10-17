@@ -2,6 +2,7 @@
 
 Usage: python py/run_all.py [--out DIR] [--analyzers constant,oracle,mode-chord,dsp-v1] [--only GLOB]
                             [--dsp-config x.json] [--dsp-name dsp-v1] [--include-held-out]
+                            [--commit SHA[-dirty]]
 Held-out variants (manifest "heldOut": true) are SKIPPED unless --include-held-out is given, and that flag is
 refused together with --dsp-config: held-out data may only be run with the default (frozen) config, never in a
 tuning / selection loop (R10).
@@ -27,7 +28,14 @@ run-info.json (commit, dirty flag, config hash of this run: R19).
 variants (R15). The phase-0 comparison row is named "<dsp-name>-phase0" ("dsp-phase0" for the default dsp-v1, Q3).
 Any run that scores a held-out variant or a private-recording ("REC") variant appends one line per kind to
 DIR/results/heldout-log.jsonl (time, commit, dirty flag, config hash, variants) and warns when the same config
-hash was already logged for that kind (Q1).
+hash was already logged for that kind (Q1). Since T17 each kind gets a "started" line before the analysis (with
+the planned variants) and a "finished" line after it (the scored ones), paired by runId, so a crash leaves a
+trace; only finished lines (and older lines without status) count for the repeated-hash warning.
+
+Commit (T17): inside the Docker image there is no .git, so the commit is unknown. Pass it from the host with
+--commit (or env BAND_SHEETS_COMMIT): a short / full SHA, with the suffix "-dirty" when py/ has uncommitted
+changes, e.g. --commit "$(git rev-parse --short HEAD)$(git diff --quiet HEAD -- spikes/analysis/py || echo -dirty)".
+A run that includes held-out variants is refused while the commit is unknown.
 """
 import argparse
 import csv
@@ -36,6 +44,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -166,6 +175,32 @@ def git_state(cwd=None):
             "diffHash": hashlib.sha256((status + diff).encode()).hexdigest()[:12] if dirty else None}
 
 
+COMMIT_ENV = "BAND_SHEETS_COMMIT"
+_COMMIT_RE = re.compile(r"([0-9a-f]{7,40})(-dirty)?")
+
+
+def parse_commit(text):
+    """'abc1234' / 'abc1234-dirty' -> {commit, dirty, diffHash}; ValueError for anything else."""
+    m = _COMMIT_RE.fullmatch((text or "").strip().lower())
+    if not m:
+        raise ValueError(f"--commit / {COMMIT_ENV} must be a hex SHA (7-40 chars), optionally with -dirty: {text!r}")
+    return {"commit": m.group(1), "dirty": bool(m.group(2)), "diffHash": None}
+
+
+def resolve_git(git, commit=None, log=print):
+    """The git state of this run: from git when available, else from `commit` (--commit / BAND_SHEETS_COMMIT).
+    When both are known and differ, git wins and a warning is logged."""
+    commit = commit if commit is not None else os.environ.get(COMMIT_ENV) or None
+    if commit is None:
+        return dict(git)
+    given = parse_commit(commit)
+    if git.get("commit") is None:
+        return {**given, "commitSource": "argument"}
+    if not (git["commit"].startswith(given["commit"]) or given["commit"].startswith(git["commit"])):
+        log(f"WARNING: --commit {given['commit']} differs from the checkout's commit {git['commit']}; using the checkout's")
+    return dict(git)
+
+
 def _read_log(path):
     if not os.path.exists(path):
         return []
@@ -179,8 +214,10 @@ def _read_log(path):
     return out
 
 
-def _log_looked_at(results_dir, scored, dsp_config, dsp_name, git, include_held_out, log):
-    """Q1: one jsonl line per kind ("heldOut" / "rec") that this run scored; warn on a repeated config hash."""
+def _log_looked_at(results_dir, scored, dsp_config, dsp_name, git, include_held_out, log, status="finished",
+                   run_id=None):
+    """Q1: one jsonl line per kind ("heldOut" / "rec" / "chart") of the variants; status "started" (planned, before
+    the analysis) or "finished" (scored); warn on a repeated config hash (at the start, against finished lines)."""
     kinds = {"heldOut": [v["name"] for v in scored if v["heldOut"]],
              "rec": [v["name"] for v in scored if v["level"] == "REC"],
              "chart": [v["name"] for v in scored if v["level"] == "CH"]}
@@ -190,17 +227,17 @@ def _log_looked_at(results_dir, scored, dsp_config, dsp_name, git, include_held_
     from dsp.config import config_hash, load_config
     chash = config_hash(load_config(dsp_config))
     path = os.path.join(results_dir, "heldout-log.jsonl")
-    previous = _read_log(path)
+    previous = [e for e in _read_log(path) if e.get("status", "finished") == "finished"]
     now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
     with open(path, "a") as f:
         for kind, names in kinds.items():
             n_before = sum(1 for e in previous if e.get("kind") == kind and e.get("configHash") == chash)
-            if n_before:
+            if n_before and status == "started":
                 log(f"WARNING: {kind} data was already looked at {n_before} time(s) with config hash {chash}; "
                     "a second look with the same config is not a new evaluation (see results/heldout-log.jsonl)")
-            f.write(json.dumps({"time": now, "kind": kind, "variants": names, "commit": git.get("commit"),
-                                "dirty": git.get("dirty"), "diffHash": git.get("diffHash"), "configHash": chash,
-                                "dspName": dsp_name, "dspConfig": dsp_config,
+            f.write(json.dumps({"time": now, "kind": kind, "status": status, "runId": run_id, "variants": names,
+                                "commit": git.get("commit"), "dirty": git.get("dirty"), "diffHash": git.get("diffHash"),
+                                "configHash": chash, "dspName": dsp_name, "dspConfig": dsp_config,
                                 "includeHeldOut": include_held_out}, ensure_ascii=False) + "\n")
 
 
@@ -213,10 +250,14 @@ def phase0_name(dsp_name):
 
 
 def run_all(out_dir, analyzers=None, only=None, dsp_config=None, dsp_name="dsp-v1", log=print,
-            include_held_out=False, git_info=None):
+            include_held_out=False, git_info=None, commit=None):
     if include_held_out and dsp_config is not None:
         raise HeldOutError("held-out variants must not be run with --dsp-config (tuning path); "
                            "evaluate them once with the default config")
+    git = resolve_git((git_info or git_state)(), commit, log)
+    if include_held_out and git.get("commit") is None:
+        raise HeldOutError(f"held-out run refused: the commit is unknown (no .git here); pass --commit or "
+                           f"{COMMIT_ENV} from the host")
     results_dir = os.path.join(out_dir, "results")
     os.makedirs(results_dir, exist_ok=True)
     names = list(analyzers) if analyzers else list(DEFAULT_ANALYZERS)
@@ -244,8 +285,13 @@ def run_all(out_dir, analyzers=None, only=None, dsp_config=None, dsp_name="dsp-v
     timings = {}
     n_held_skipped = 0
     scored = []
-    git = (git_info or git_state)()
-    for v in load_variants(out_dir):
+    variants = load_variants(out_dir)
+    planned = [v for v in variants if (include_held_out or not v["heldOut"])
+               and not (only and not fnmatch.fnmatch(v["name"], only))
+               and os.path.exists(os.path.join(out_dir, v["truth"]))]
+    run_id = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + os.urandom(3).hex()
+    _log_looked_at(results_dir, planned, dsp_config, dsp_name, git, include_held_out, log, "started", run_id)
+    for v in variants:
         if v["heldOut"] and not include_held_out:
             n_held_skipped += 1
             continue
@@ -291,7 +337,7 @@ def run_all(out_dir, analyzers=None, only=None, dsp_config=None, dsp_name="dsp-v
                          "heldOut": v["heldOut"], "values": [_get(scores, p) for _, p in COLUMNS]})
         if ran:
             scored.append(v)
-    _log_looked_at(results_dir, scored, dsp_config, dsp_name, git, include_held_out, log)
+    _log_looked_at(results_dir, scored, dsp_config, dsp_name, git, include_held_out, log, "finished", run_id)
     with open(os.path.join(results_dir, "run-info.json"), "w") as f:
         json.dump({"time": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
                    "analyzers": [a for a, _ in active], "only": only, "dspConfig": dsp_config,
@@ -376,10 +422,14 @@ def main(argv=None):
     ap.add_argument("--include-held-out", action="store_true",
                     help="also run held-out variants (final evaluation only; refused with --dsp-config)")
     ap.add_argument("--dsp-name", default="dsp-v1", help="analyzer name used in the output files/tables")
+    ap.add_argument("--commit", default=None,
+                    help=f"commit of the code (SHA, '-dirty' suffix for uncommitted py/ changes) when there is no .git "
+                         f"(Docker); default env {COMMIT_ENV}; required with --include-held-out when git is unavailable")
     args = ap.parse_args(argv)
     t0 = time.perf_counter()
     rows, timings = run_all(args.out, [a for a in args.analyzers.split(",") if a], args.only,
-                            args.dsp_config, args.dsp_name, include_held_out=args.include_held_out)
+                            args.dsp_config, args.dsp_name, include_held_out=args.include_held_out,
+                            commit=args.commit)
     print(f"scored {len(rows)} (variant x analyzer) in {time.perf_counter() - t0:.2f} s")
     print(f"wrote {os.path.join(args.out, 'results', 'summary.md')} (+ summary.csv, summary.levels.md)")
 
