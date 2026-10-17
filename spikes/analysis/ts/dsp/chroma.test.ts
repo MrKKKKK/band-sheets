@@ -154,3 +154,77 @@ describe('chordColumns', () => {
     expect(mem.peak).toBeLessThan(3 * y.byteLength);
   });
 });
+
+/**
+ * Full (6-octave) and bass (3-octave) CQTs are each trimmed to the minimum frame count over their own
+ * octaves, so the bass can have one frame more. Python (out/t6/framecount_ref.py, chroma.chord_columns
+ * with the default config) keeps both counts: bounds come from the full count, bass columns are
+ * aggregated over the bass count. Signal: 0.3 x (220 + 277.18 + 82.41 Hz) sines; beats every 0.5 s
+ * from 0.5 s to duration - 0.3 s plus one at duration - 0.005 s. Values = column sums of the last two
+ * columns.
+ */
+const FRAMECOUNT_REF = [
+  { n: 1323000, full: 2584, bass: 2585, nTimes: 120, boundsTail: [2562, 2583, 2583], cBoundsTail: [2583, 2583, 2583], bassLast: [0.7680725317448378, 1.2831795871257783], colLast: [1.64267158806324, 1.64267158806324] },
+  { n: 66151, full: 130, bass: 130, nTimes: 6, boundsTail: [107, 128, 129], cBoundsTail: [128, 129, 129], bassLast: [0.7685446314513683, 1.2442098319530488], colLast: [1.5552225470542909, 1.5203959703445435] },
+  { n: 66545, full: 130, bass: 131, nTimes: 6, boundsTail: [107, 129, 129], cBoundsTail: [129, 129, 129], bassLast: [0.7738617146387697, 1.2204404890537264], colLast: [1.589722126722336, 1.589722126722336] },
+  { n: 70142, full: 137, bass: 138, nTimes: 6, boundsTail: [107, 136, 136], cBoundsTail: [136, 136, 136], bassLast: [0.7451271576806904, 1.285138574242592], colLast: [1.665668570995331, 1.665668570995331] },
+  { n: 66152, full: 130, bass: 130, nTimes: 6, boundsTail: [107, 128, 129], cBoundsTail: [128, 129, 129], bassLast: [0.764364430680871, 1.2360887587070466], colLast: [1.5551304519176485, 1.520873272418976] },
+];
+
+function colSum(m: Float64Array, cols: number, c: number): number {
+  let s = 0;
+  for (let r = 0; r < 12; r++) s += m[r * cols + c];
+  return s;
+}
+
+describe('full / bass frame counts may differ (matches Python)', () => {
+  it.each(FRAMECOUNT_REF)('n = $n: full $full, bass $bass', (ref) => {
+    const n = ref.n;
+    const y = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const t = i / SR;
+      y[i] = 0.3 * Math.sin(2 * Math.PI * 220.0 * t) + 0.3 * Math.sin(2 * Math.PI * 277.1826309768721 * t) + 0.3 * Math.sin(2 * Math.PI * 82.40688922821748 * t);
+    }
+    const dur = n / SR;
+    const k = Math.ceil((dur - 0.3 - 0.5) / 0.5);
+    const times = Array.from({ length: k }, (_, i) => 0.5 + i * 0.5);
+    times.push(dur - 0.005);
+    expect(times.length).toBe(ref.nTimes);
+    const cc = chordColumns(y, times, dur);
+    expect(cc.frames.frames).toBe(ref.full);
+    expect(cc.frames.bassFrames).toBe(ref.bass);
+    expect(Array.from(cc.bounds.slice(-3))).toEqual(ref.boundsTail);
+    expect(Array.from(cc.cBounds.slice(-3))).toEqual(ref.cBoundsTail);
+    const nb = times.length;
+    const nc = cc.cBounds.length - 1;
+    const errs: number[][] = [];
+    for (let j = 0; j < 2; j++) {
+      const db = colSum(cc.bass, nb, nb - 2 + j) / ref.bassLast[j] - 1;
+      const dc = colSum(cc.cChroma, nc, nc - 2 + j) / ref.colLast[j] - 1;
+      errs.push([db, dc]);
+    }
+    // Chord columns (full CQT) within 0.5 %. The bass columns here are 1-2 frames at the very end of
+    // an abruptly cut sine, where the 16:1 decimation's end-of-signal handling differs (soxr vs our
+    // zero-padded half-band cascade): measured up to 0.93 % (n 66545), so 1.5 % here. This is an
+    // edge effect of the decimator, not of the frame-count logic (counts / bounds above are exact);
+    // on the song dumps the plan's 0.5 % holds (chroma.parity.test.ts).
+    for (const [db, dc] of errs) {
+      expect(Math.abs(dc)).toBeLessThan(0.005);
+      expect(Math.abs(db)).toBeLessThan(0.015);
+    }
+  }, 60_000);
+
+  it('bass columns are aggregated over the bass frame count (a column starting at the full end)', () => {
+    const nF = 10;
+    const full = new Float64Array(12 * nF).fill(1);
+    const bass = new Float64Array(12 * (nF + 1));
+    for (let t = 0; t <= nF; t++) bass[t * 1] = t; // pitch class 0 = frame index
+    // bounds [5, 10, 10]: column 1 starts at the full end -> full uses frame 9, bass frame 10
+    const c = columns(full, bass, nF, [5 * 512 / SR, 100], 1000, 1, 'median', SR, 512, nF + 1);
+    expect(Array.from(c.bounds)).toEqual([5, 10, 10]);
+    expect(c.bass[1]).toBe(10);
+    expect(c.chroma[1]).toBe(1);
+    const same = columns(full, bass, nF, [5 * 512 / SR, 100], 1000, 1, 'median', SR, 512);
+    expect(same.bass[1]).toBe(9);
+  });
+});

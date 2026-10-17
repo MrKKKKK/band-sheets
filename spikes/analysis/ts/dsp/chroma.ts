@@ -105,7 +105,14 @@ export interface FrameChroma {
   /** [12, frames] float64, x SCALE (py _frame_chroma). */
   full: Float64Array;
   bass: Float64Array;
+  /** Frames of the full chroma (decides the column bounds downstream, as in Python). */
   frames: number;
+  /**
+   * Frames of the bass chroma. librosa trims each CQT to the minimum frame count over ITS octaves,
+   * so the 3-octave bass can have one frame more than the 6-octave full (e.g. exactly 60 s: 2584
+   * vs 2585); Python keeps both as they are (bass >= full always).
+   */
+  bassFrames: number;
   tuningFull: number;
   tuningBass: number;
 }
@@ -152,8 +159,7 @@ export function frameChroma(
   const b = chromaCqt(yHarm, { ...base, fmin: cfg.bass_fmin_hz, nOctaves: cfg.bass_octaves, tuning: tBass }, mem);
   const bass = scaled(b.chroma, mem);
   mem.release(b.chroma);
-  if (f.cols !== b.cols) throw new Error(`full / bass chroma frame counts differ: ${f.cols} vs ${b.cols}`);
-  return { full, bass, frames: f.cols, tuningFull: tFull, tuningBass: tBass };
+  return { full, bass, frames: f.cols, bassFrames: b.cols, tuningFull: tFull, tuningBass: tBass };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -238,7 +244,11 @@ export interface Columns {
   perBeat: number;
 }
 
-/** chroma._columns from frame chroma (full / bass [12, nFrames]) and the beat times. */
+/**
+ * chroma._columns from frame chroma (full [12, nFrames], bass [12, nFramesBass]) and the beat
+ * times. Bounds are clipped to the FULL chroma's frame count; each matrix is aggregated over its
+ * own frame count (py _aggregate reads frames.shape[1]).
+ */
 export function columns(
   full: ArrayLike<number>,
   bass: ArrayLike<number>,
@@ -249,6 +259,7 @@ export function columns(
   how: 'median' | 'mean' = 'median',
   sr = 22050,
   hop = 512,
+  nFramesBass = nFrames,
 ): Columns {
   const n = times.length;
   if (n === 0) {
@@ -261,7 +272,7 @@ export function columns(
   const endFrame = timeToFrames(lastBeatEnd(times, duration), sr, hop);
   bounds[n] = Math.min(Math.max(endFrame, 0), nFrames);
   const chroma = aggregate(full, nFrames, bounds, how);
-  const bchroma = aggregate(bass, nFrames, bounds, how);
+  const bchroma = aggregate(bass, nFramesBass, bounds, how);
   if (perBeat === 1) return { chroma, bass: bchroma, bounds, cChroma: chroma, cBounds: bounds, perBeat: 1 };
   const ct = columnTimes(times, duration, perBeat);
   const cBounds = new Int32Array(ct.length + 1);
@@ -288,10 +299,21 @@ export function chordColumns(
   if (beatTimes.length === 0) {
     const z = new Float64Array(0);
     const b0 = new Int32Array(1);
-    const frames: FrameChroma = { full: z, bass: z, frames: 0, tuningFull: NaN, tuningBass: NaN };
+    const frames: FrameChroma = { full: z, bass: z, frames: 0, bassFrames: 0, tuningFull: NaN, tuningBass: NaN };
     return { chroma: z, bass: z, bounds: b0, cChroma: z, cBounds: b0, perBeat, frames };
   }
   const fc = frameChroma(yHarm, cfg, opts, mem);
-  const cols = columns(fc.full, fc.bass, fc.frames, beatTimes, duration, perBeat, cfg.aggregate, opts.sr, opts.hop);
+  const cols = columns(
+    fc.full,
+    fc.bass,
+    fc.frames,
+    beatTimes,
+    duration,
+    perBeat,
+    cfg.aggregate,
+    opts.sr,
+    opts.hop,
+    fc.bassFrames,
+  );
   return { ...cols, frames: fc };
 }

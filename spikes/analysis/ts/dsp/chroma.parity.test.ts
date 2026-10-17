@@ -121,22 +121,23 @@ describe.skipIf(variants.length === 0)('chroma parity (Python dumps)', () => {
       const fc = cache.get(key) ?? frameChroma(yHarm, undefined, { tuningFull: tf, tuningBass: tb, sr, hop });
       cache.set(key, fc);
       expect(fc.frames).toBe(F);
+      expect(fc.bassFrames).toBe(readStage(dir, 'frame_bass', meta).shape[1]);
       // Bounds from the (float32-dumped) beat times: a beat exactly on a frame time can round to
       // one frame earlier, so every mismatch must be explained by +-1 float32 ulp of that time;
       // the chroma comparison then uses Python's bounds.
-      const cols = columns(fc.full, fc.bass, fc.frames, times, duration, perBeat, 'median', sr, hop);
+      const cols = columns(fc.full, fc.bass, fc.frames, times, duration, perBeat, 'median', sr, hop, fc.bassFrames);
       const pyBounds = Int32Array.from(get('beat_bounds'));
       const pyCBounds = Int32Array.from(get('col_bounds'));
       const ct = columnTimes(times, duration, perBeat);
       boundMiss = checkBounds(cols.bounds, pyBounds, times, sr, hop) + checkBounds(cols.cBounds, pyCBounds, ct, sr, hop);
       cols.chroma = aggregate(fc.full, fc.frames, pyBounds);
-      cols.bass = aggregate(fc.bass, fc.frames, pyBounds);
+      cols.bass = aggregate(fc.bass, fc.bassFrames, pyBounds);
       cols.cChroma = aggregate(fc.full, fc.frames, pyCBounds);
       cols.cBounds = pyCBounds;
       const nc = cols.cBounds.length - 1;
       const cmp = {
         frame: compare(fc.full, pyFrame, F, cosThr),
-        frameBass: compare(fc.bass, pyFrameBass, F, cosThr),
+        frameBass: compare(fc.bass, pyFrameBass, fc.bassFrames, cosThr),
         beat: compare(cols.chroma, get('beat_chroma'), nb, cosThr),
         beatBass: compare(cols.bass, get('beat_bass'), nb, cosThr),
         col: compare(cols.cChroma, get('col_chroma'), nc, cosThr),
