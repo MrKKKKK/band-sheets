@@ -1,6 +1,6 @@
 """Chord-chart-only private songs (task T28): register + prepare charts for the renderer.
 
-Usage (from spikes/analysis):  python py/charts.py [--charts recordings/charts] [--out out] [--dry-run]
+Usage (from spikes/analysis):  python py/charts.py [--charts recordings/charts] [--out out] [--dry-run] [--sync-exclusions]
 then render in the devcontainer:  npx tsx render/chartsCli.ts   (writes out/charts/*.wav + truth + manifest.charts.json)
 
 The user writes one  <anyname>.txt  per song into recordings/charts/ (the same format as the recording intake .txt,
@@ -19,6 +19,12 @@ Nothing of a chart (name, chords) is printed or written to any tracked place.
 Two chart formats (parse_chart): bar/dash charts (`| C | Am7 . F . |`, `|[Dm]---[Am7]- --|`) and lyric charts pasted from
 ChordWiki (`[C]あいう[G]えお`, ChordPro-like; timing is derived from the lyric length, see lyric_bars). Lyrics are only
 used for that timing and are never stored. A compound meter (6/8, 12/8) is registered but marked skipped.
+
+Exclusions (T17): an id that is registered but never analysed carries `excluded: <reason id>` in ids.local.json (and
+in its song.json): EXCLUDE_COMPOUND (compound meter, skipped) or EXCLUDE_REMOVED (source .txt removed). Its heldOut
+flag is kept (ids never shift), so held-out counts can tell "held out and used" from "held out but excluded"
+(exclusion_summary). Each new exclusion appends one "exclude" line to out/results/heldout-log.jsonl.
+--sync-exclusions only brings the registry up to date (no parsing, no song.json rewrite).
 """
 import argparse
 import datetime
@@ -35,6 +41,8 @@ import rec_truth as RT  # noqa: E402
 IDS_FILE = "ids.local.json"
 HELD_OUT_EVERY = 4  # chart-04, chart-08 ... are held out (decided from the id alone, before any analysis)
 LEVEL = "CH"
+EXCLUDE_COMPOUND = "compound-meter"  # skipped: the renderer does not play compound meters
+EXCLUDE_REMOVED = "no-source"  # the source .txt was removed (id kept as a gap)
 EXT = re.compile(r"7|9|11|13")
 
 
@@ -417,6 +425,72 @@ def register(d, original, now=None):
     return cid, True
 
 
+def _log_exclude(out, cid, reason, held_out):
+    d = os.path.join(out, "results")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "heldout-log.jsonl"), "a") as f:
+        f.write(json.dumps({"time": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+                            "kind": "exclude", "take": cid, "reason": reason, "heldOut": held_out,
+                            "level": LEVEL}) + "\n")
+
+
+def set_excluded(charts_dir, out, cid, reason, ids=None):
+    """Mark (reason) or clear (None) the exclusion of an id in the registry; logs a new exclusion. -> changed?"""
+    own = ids is None
+    ids = _load_ids(charts_dir) if own else ids
+    e = ids["charts"].get(cid)
+    if e is None or e.get("excluded") == reason:
+        return False
+    if reason is None:
+        e.pop("excluded", None)
+    else:
+        e["excluded"] = reason
+        _log_exclude(out, cid, reason, bool(e.get("heldOut")))
+    if own:
+        _save_ids(charts_dir, ids)
+    return True
+
+
+def sync_exclusions(charts_dir, out, log=print):
+    """Registry entries that are removed or whose song.json is skipped get their `excluded` reason (idempotent)."""
+    ids = _load_ids(charts_dir)
+    changed = []
+    for cid, e in sorted(ids["charts"].items()):
+        reason = None
+        if e.get("removed"):
+            reason = EXCLUDE_REMOVED
+        else:
+            p = os.path.join(charts_dir, cid + ".song.json")
+            if os.path.exists(p):
+                with open(p, encoding="utf-8") as f:
+                    if "skipped" in json.load(f):
+                        reason = EXCLUDE_COMPOUND
+        if reason and set_excluded(charts_dir, out, cid, reason, ids):
+            changed.append(cid)
+    if changed:
+        _save_ids(charts_dir, ids)
+        for cid in changed:
+            log(f"{cid}: excluded ({ids['charts'][cid]['excluded']})")
+    return changed
+
+
+def exclusion_summary(charts_dir):
+    """Counts only: {"heldOut": n, "heldOutUsed": n, "excluded": {reason: n}, "heldOutExcluded": {reason: n}}."""
+    ids = _load_ids(charts_dir)["charts"]
+    out = {"heldOut": 0, "heldOutUsed": 0, "excluded": {}, "heldOutExcluded": {}}
+    for e in ids.values():
+        r = e.get("excluded")
+        if r:
+            out["excluded"][r] = out["excluded"].get(r, 0) + 1
+        if e.get("heldOut"):
+            out["heldOut"] += 1
+            if r:
+                out["heldOutExcluded"][r] = out["heldOutExcluded"].get(r, 0) + 1
+            else:
+                out["heldOutUsed"] += 1
+    return out
+
+
 def prune_removed(charts_dir, out, originals, log=print):
     """Charts whose source .txt is gone: mark the id `removed` in ids.local.json (the id stays reserved, never reused, so
     the held-out assignment of the others does not shift), delete chart-NN.song.json, its out/charts/chart-NN-* files
@@ -428,6 +502,7 @@ def prune_removed(charts_dir, out, originals, log=print):
     mf = os.path.join(out, "charts", "manifest.charts.json")
     for cid in gone:
         ids["charts"][cid]["removed"] = True
+        set_excluded(charts_dir, out, cid, EXCLUDE_REMOVED, ids)
         p = os.path.join(charts_dir, cid + ".song.json")
         if os.path.exists(p):
             os.remove(p)
@@ -513,9 +588,11 @@ def process(charts_dir, out, dry_run=False, log=print):
         if new:
             _log_register(out, cid, held)
         if song is None:
-            song = {"version": 1, "skipped": ann["skipped"]}
+            song = {"version": 1, "skipped": ann["skipped"], "excluded": EXCLUDE_COMPOUND}
+            set_excluded(charts_dir, out, cid, EXCLUDE_COMPOUND)
         else:
             song["format"] = fmt
+            set_excluded(charts_dir, out, cid, None)
         song.update(id=cid, heldOut=held)
         with open(os.path.join(charts_dir, cid + ".song.json"), "w") as f:
             json.dump(song, f, indent=1)
@@ -537,7 +614,13 @@ def main(argv=None):
     ap.add_argument("--dry-run", action="store_true", help="only check the .txt files; register / write nothing")
     ap.add_argument("--privacy-root", default=None, help="scan this tree instead of the repository (tests)")
     ap.add_argument("--no-privacy-check", action="store_true")
+    ap.add_argument("--sync-exclusions", action="store_true",
+                    help="only mark removed / skipped ids as excluded in the registry (no parsing), print counts")
     a = ap.parse_args(argv)
+    if a.sync_exclusions:
+        sync_exclusions(a.charts, a.out)
+        print(json.dumps(exclusion_summary(a.charts)))
+        return 0
     fails = process(a.charts, a.out, a.dry_run)
     if not a.no_privacy_check and not a.dry_run:
         import privacy_check

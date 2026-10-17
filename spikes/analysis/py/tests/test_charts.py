@@ -227,8 +227,21 @@ class TestLyricCharts(unittest.TestCase):
         self.assertEqual(C.process(cd, os.path.join(d.name, "out"), log=msgs.append), 0)
         song = json.load(open(os.path.join(cd, "chart-01.song.json")))
         self.assertEqual(song["skipped"], "compound meter")
+        self.assertEqual(song["excluded"], C.EXCLUDE_COMPOUND)
         self.assertNotIn("bars", song)
         self.assertTrue(any("複合拍子" in m for m in msgs))
+        ids = json.load(open(os.path.join(cd, "ids.local.json")))["charts"]
+        self.assertEqual(ids["chart-01"]["excluded"], C.EXCLUDE_COMPOUND)
+        log = [json.loads(l) for l in open(os.path.join(d.name, "out", "results", "heldout-log.jsonl"))]
+        self.assertEqual([(e["kind"], e.get("reason")) for e in log if e["kind"] == "exclude"],
+                         [("exclude", C.EXCLUDE_COMPOUND)])
+        C.process(cd, os.path.join(d.name, "out"), log=msgs.append)  # idempotent: no second exclude line
+        log = [json.loads(l) for l in open(os.path.join(d.name, "out", "results", "heldout-log.jsonl"))]
+        self.assertEqual(sum(e["kind"] == "exclude" for e in log), 1)
+        write(cd, "a.txt", "bpm: 90\n拍子: 4/4\n[C]あいうえ[G]おかきく\n")  # now playable: exclusion cleared
+        C.process(cd, os.path.join(d.name, "out"), log=msgs.append)
+        ids = json.load(open(os.path.join(cd, "ids.local.json")))["charts"]
+        self.assertNotIn("excluded", ids["chart-01"])
         d.cleanup()
 
     def test_lyrics_are_not_stored(self):
@@ -316,13 +329,45 @@ class TestRemovedCharts(unittest.TestCase):
         C.process(cd, out, log=msgs.append)
         ids = json.load(open(os.path.join(cd, "ids.local.json")))["charts"]
         self.assertTrue(ids["chart-02"]["removed"])
+        self.assertEqual(ids["chart-02"]["excluded"], C.EXCLUDE_REMOVED)
         self.assertNotIn("removed", ids["chart-01"])
+        self.assertNotIn("excluded", ids["chart-01"])
         self.assertIn("chart-03", ids)  # new file gets a new id, chart-02 is not reused
         self.assertFalse(os.path.exists(os.path.join(cd, "chart-02.song.json")))
         self.assertTrue(os.path.exists(os.path.join(cd, "chart-03.song.json")))
         self.assertEqual(sorted(os.listdir(os.path.join(out, "charts"))), ["chart-01-block.wav", "manifest.charts.json"])
         self.assertEqual([v["take"] for v in json.load(open(mf))["variants"]], ["chart-01"])
         self.assertTrue(any("chart-02" in m for m in msgs))
+        t.cleanup()
+
+
+class TestExclusions(unittest.TestCase):
+    def test_sync_marks_old_registry_and_counts(self):
+        t = tempfile.TemporaryDirectory()
+        cd, out = os.path.join(t.name, "charts"), os.path.join(t.name, "out")
+        os.makedirs(cd)
+        ids = {"version": 1, "charts": {
+            "chart-01": {"original": "x1", "heldOut": False},
+            "chart-04": {"original": "x4", "heldOut": True},
+            "chart-08": {"original": "x8", "heldOut": True},
+            "chart-12": {"original": "x12", "heldOut": True, "removed": True}}}
+        json.dump(ids, open(os.path.join(cd, "ids.local.json"), "w"))
+        json.dump({"version": 1, "skipped": "compound meter", "id": "chart-08", "heldOut": True},
+                  open(os.path.join(cd, "chart-08.song.json"), "w"))
+        json.dump({"version": 1, "bars": [], "id": "chart-04", "heldOut": True},
+                  open(os.path.join(cd, "chart-04.song.json"), "w"))
+        self.assertEqual(C.sync_exclusions(cd, out, log=lambda m: None), ["chart-08", "chart-12"])
+        self.assertEqual(C.sync_exclusions(cd, out, log=lambda m: None), [])  # idempotent
+        got = json.load(open(os.path.join(cd, "ids.local.json")))["charts"]
+        self.assertEqual(got["chart-08"]["excluded"], C.EXCLUDE_COMPOUND)
+        self.assertEqual(got["chart-12"]["excluded"], C.EXCLUDE_REMOVED)
+        self.assertTrue(got["chart-08"]["heldOut"])  # never re-decided
+        self.assertEqual(C.exclusion_summary(cd), {
+            "heldOut": 3, "heldOutUsed": 1, "excluded": {C.EXCLUDE_COMPOUND: 1, C.EXCLUDE_REMOVED: 1},
+            "heldOutExcluded": {C.EXCLUDE_COMPOUND: 1, C.EXCLUDE_REMOVED: 1}})
+        log = [json.loads(l) for l in open(os.path.join(out, "results", "heldout-log.jsonl"))]
+        self.assertEqual([(e["take"], e["reason"]) for e in log],
+                         [("chart-08", C.EXCLUDE_COMPOUND), ("chart-12", C.EXCLUDE_REMOVED)])
         t.cleanup()
 
 
