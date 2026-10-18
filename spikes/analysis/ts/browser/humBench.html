@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- no network: nothing but this origin's own scripts (connect-src limited to self) -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:"
+    />
+    <title>鼻歌解析の計測</title>
+    <style>
+      :root { --bg: #ffffff; --fg: #1b1b1b; --muted: #5c5c5c; --line: #d6d6d6; --accent: #1f5fbf; }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg: #161616; --fg: #ececec; --muted: #a8a8a8; --line: #3a3a3a; --accent: #7fb0ff; }
+      }
+      body { background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; margin: 0; padding: 16px; }
+      h1 { font-size: 1.3rem; margin: 0 0 8px; }
+      .note { color: var(--muted); font-size: 0.9rem; }
+      .controls { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 12px 0; align-items: center; }
+      input[type='number'], input[type='text'] { font: inherit; width: 5em; }
+      button { font: inherit; padding: 6px 14px; border: 1px solid var(--accent); border-radius: 6px; background: transparent; color: var(--accent); cursor: pointer; }
+      .scroll { overflow-x: auto; }
+      table { border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 0.85rem; }
+      th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: right; white-space: nowrap; }
+      #error { color: #b3261e; font-weight: 600; }
+      #error:empty { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1>鼻歌解析の計測（スパイク 4 T7）</h1>
+    <p class="note">音はこのページの中だけで使います。どこにも送りません。音符は表示せず、数と段階ごとの時間だけを出します。</p>
+    <div class="controls">
+      <label>ファイル: <input id="file" type="file" accept="audio/*" /></label>
+      <label>bpm <input id="bpm" type="number" value="100" min="30" max="300" step="any" /></label>
+      <label>拍子 <input id="ts" type="text" value="4/4" /></label>
+      <label>開始（秒） <input id="start" type="number" value="0" min="0" step="any" /></label>
+      <button id="run" disabled>解析</button>
+    </div>
+    <p id="status" role="status">ファイルを選んでください。</p>
+    <p id="error" role="alert"></p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>入力</th><th>長さ</th><th>validate s</th><th>resample s</th><th>f0 s</th><th>level s</th><th>notes s</th><th>quantize s</th><th>計 s</th><th>音符数</th><th>警告</th><th>設定</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <script type="module" src="./humBench.ts"></script>
+  </body>
+</html>
