@@ -184,10 +184,10 @@ def collect_all(rec_dir):
         if not os.path.isdir(d):
             continue
         for fn in os.listdir(d):
-            if fn.startswith(".") or fn in ("ids.local.json", "private-terms.local.txt") \
+            if fn.startswith(".") or fn in ("ids.local.json", "hum-ids.local.json", "private-terms.local.txt") \
                     or not os.path.isfile(os.path.join(d, fn)):
                 continue
-            terms.add(fn.split(".")[0] if fn.endswith(".chords.json") else os.path.splitext(fn)[0])
+            terms.add(fn.split(".")[0] if fn.endswith((".chords.json", ".truth.json")) else os.path.splitext(fn)[0])
     chart_runs = set()
     cdir = os.path.join(rec_dir, "charts")
     if os.path.isdir(cdir):

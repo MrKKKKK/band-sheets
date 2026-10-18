@@ -7,7 +7,7 @@ The user drops   <anyname>.<audio>   (the humming; mono or stereo, any common sa
                                       truth melody in the band-sheets melody alphaTex subset, see parse_hum_txt)
 into recordings/hum-inbox/. For every take this script
   1. parses + validates the .txt (all errors are Japanese) and decodes the audio,
-  2. gives the SONG an anonymous id hum-NN (takes of one song share it: file stem up to the first `_`, or the whole
+  2. gives the SONG an anonymous id hum-NN (takes of one song share it: file stem up to the first `_` or `-`, or the whole
      stem) and the take hum-NN-<style letter>; heldOut is decided per song when it is first registered (even NN =
      held-out, like spike 2) and recorded in recordings/hum-ids.local.json and out/results/heldout-log.jsonl
      (kind "register", input "hum") BEFORE anything is analysed,
@@ -60,6 +60,16 @@ def pitch_to_midi(p):
     return 12 * (int(m.group(3)) + 1) + _PC[m.group(1)] + {"#": 1, "b": -1, None: 0}[m.group(2)]
 
 
+# effects without an argument that do not change pitch / duration (articulation); dropped like lyrics / ch / slur
+IGNORED_FLAG_EFFECTS = ("st", "ac", "hac", "g", "x", "v", "ah", "nh", "th", "ph", "sh", "tr", "lr", "stac")
+# `\name ...` lines of the part text (whole line dropped); anything else is an error naming the directive
+KNOWN_DIRECTIVES = {"section", "ts", "ks", "track", "staff", "tuning", "lyrics", "tempo", "title", "subtitle", "artist",
+                    "album", "words", "music", "copyright", "tab", "instrument", "capo", "clef", "bracketextendmode",
+                    "singlebracketextendmode", "defaultsystemslayout", "systemslayout", "multibarrest", "voice",
+                    "accidentals", "chord", "ro", "rc", "ae", "tempolabel", "instrumentation", "transpose",
+                    "displaytranspose", "hidenumber", "showslash", "shownumbered", "showdashed", "color", "style"}
+
+
 def _effects(body):
     """Validate the inside of `{...}` -> (dotted, tied). lyrics / ch / slur are accepted and dropped."""
     dotted = tied = False
@@ -77,7 +87,7 @@ def _effects(body):
             dotted = True
         elif name == "t":
             tied = True
-        elif name in ("lyrics", "ch", "slur"):
+        elif name in ("lyrics", "ch", "slur", "dy", "tempo", "tb", "ts"):
             while i < len(body) and body[i] == " ":
                 i += 1
             if i < len(body) and body[i] == '"':
@@ -88,10 +98,12 @@ def _effects(body):
             else:
                 while i < len(body) and body[i] != " ":
                     i += 1
+        elif name in IGNORED_FLAG_EFFECTS:
+            pass
         elif name == "tu":
             raise HumError("メロディ: 連符 {tu} は鼻歌のスパイクでは使えません（16 分の格子だけ）")
         else:
-            raise HumError("メロディ: 使えない効果があります（d / t / lyrics / ch / slur だけ）")
+            raise HumError(f"メロディ: 使えない効果「{name[:12]}」があります")
     return dotted, tied
 
 
@@ -120,6 +132,63 @@ def _tokens(src):
         out.append((word, eff))
         i = j
     return out
+
+
+def clean_part_text(lines, first_line):
+    """Lenient pre-pass over the Vocal part text copied from the editor (lines numbered from first_line): drops `\\name ...`
+    directive lines (section / ts / ks / track / staff / tuning / lyrics ...), // and /* */ comments, and checks the
+    `{...}` effects per line. Returns text with the same line structure. Errors are Japanese and name only the
+    construct type and the line number, never the content."""
+    out = []
+    in_block = None  # line where an open /* started
+    for off, raw in enumerate(lines):
+        ln = first_line + off
+        line, i, q, buf = raw, 0, False, []
+        if in_block is None and line.lstrip().startswith("\\"):
+            m = re.match(r"\s*\\([A-Za-z]+)", line)
+            if not m or m.group(1).lower() not in KNOWN_DIRECTIVES:
+                name = m.group(1)[:16] if m else ""
+                raise HumError(f"{ln}行目: 読めない指定 \\{name} があります")
+            out.append("")
+            continue
+        while i < len(line):
+            c = line[i]
+            if in_block is not None:
+                e = line.find("*/", i)
+                if e < 0:
+                    i = len(line)
+                else:
+                    in_block, i = None, e + 2
+                continue
+            if q:
+                if c == '"':
+                    q = False
+                buf.append(c)
+            elif c == '"':
+                q = True
+                buf.append(c)
+            elif line.startswith("//", i):
+                break
+            elif line.startswith("/*", i):
+                in_block = ln
+                i += 2
+                continue
+            elif c == "\\":
+                raise HumError(f"{ln}行目: 行の途中に \\ で始まる指定があります")
+            else:
+                buf.append(c)
+            i += 1
+        if q:
+            raise HumError(f"{ln}行目: 引用符 \" が閉じていません")
+        cl = "".join(buf)
+        try:
+            _tokens(cl)
+        except HumError as e:
+            raise HumError(f"{ln}行目: {str(e).removeprefix('メロディ: ')}")
+        out.append(cl)
+    if in_block is not None:
+        raise HumError(f"{in_block}行目: コメント /* が閉じていません")
+    return "\n".join(out)
 
 
 def bar_ticks(ts):
@@ -212,6 +281,7 @@ def parse_hum_txt(text):
     ann = {"ts": [4, 4]}
     lines = unicodedata.normalize("NFKC", text.lstrip("﻿")).replace("\r\n", "\n").replace("\r", "\n").split("\n")
     melody = None
+    melody_line = 1
     for ln, raw in enumerate(lines, 1):
         if melody is not None:
             melody.append(raw)
@@ -226,6 +296,7 @@ def parse_hum_txt(text):
         val = m.group(2).strip()
         if key == "melody":
             melody = [val]
+            melody_line = ln
         elif key == "bpm":
             ann["bpm"] = _num(val, ln, "bpm")
             if not 30 <= ann["bpm"] <= 300:
@@ -247,7 +318,7 @@ def parse_hum_txt(text):
             raise HumError(f"「{name}:」の行がありません")
     if melody is None or not "".join(melody).strip():
         raise HumError("「メロディ:」の行とその下のメロディのテキストがありません")
-    ann["melody"] = "\n".join(melody)
+    ann["melody"] = clean_part_text(melody, melody_line)
     ann["events"], ann["bars"] = parse_melody(ann["melody"], ann["ts"])
     return ann
 
@@ -291,6 +362,11 @@ def _save_ids(rec_dir, ids):
         json.dump(ids, f, indent=1, ensure_ascii=False)
 
 
+def song_key(base):
+    """Takes of one song: file stem up to the first '_' or '-' (`1_a`, `1-b`), the whole stem when there is none."""
+    return re.split(r"[_-]", base, maxsplit=1)[0]
+
+
 def register_take(rec_dir, base, style, now=None):
     """-> (take id hum-NN-<style>, song id hum-NN, heldOut). Same rules as intake.register_take: the song is found by
     its key (file stem up to the first '_'), else registered with the next number; even number = held-out; the
@@ -298,7 +374,7 @@ def register_take(rec_dir, base, style, now=None):
     os.makedirs(rec_dir, exist_ok=True)
     ids = _load_ids(rec_dir)
     recs = ids["recordings"]
-    key = I.song_key(base)
+    key = song_key(base)
     song = held = None
     nums = [0]
     for rid, e in recs.items():

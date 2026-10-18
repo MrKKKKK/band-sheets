@@ -94,6 +94,54 @@ class TestTxt(unittest.TestCase):
         self.assertEqual(t["totalTicks"], 192)
 
 
+FULL_PART = """\\section "Made up"
+\\ts 4 4
+:4 C4{lyrics "la"} E4{ch "C" slur s1} G4{d lyrics "x"} // trailing comment
+/* block
+comment */ :8 E4 |
+
+:8 D4{st} F4 A4 F4 G4 E4 C5 r |
+\\section "Second"
+:2 B3 :4 D5 G4 |"""
+
+
+class TestFullPartText(unittest.TestCase):
+    def txt(self, part):
+        return TXT.split("メロディ:")[0] + "メロディ:\n" + part + "\n"
+
+    def test_directives_comments_blank_lines_and_sections(self):
+        a = H.parse_hum_txt(self.txt(FULL_PART))
+        self.assertEqual(a["bars"], 3)
+        self.assertEqual([e["midi"] for e in a["events"] if e["kind"] == "note"][:3], [60, 64, 67])
+
+    def test_matches_plain_melody(self):
+        plain = H.parse_hum_txt(TXT)
+        full = H.parse_hum_txt(self.txt(FULL_PART.replace("G4{d lyrics \"x\"} // trailing comment\n/* block\ncomment */ :8 E4",
+                                                       "G4 E4")))
+        self.assertEqual(plain["events"][0], full["events"][0])
+
+    def test_unknown_directive_names_type_and_line(self):
+        with self.assertRaises(H.HumError) as c:
+            H.parse_hum_txt(self.txt("\\section \"s\"\n\\frobnicate 3\n:4 C4 |"))
+        self.assertIn("8行目", str(c.exception))
+        self.assertIn("frobnicate", str(c.exception))
+
+    def test_directive_mid_line_and_unclosed_comment(self):
+        for bad in (":4 C4 \\ts 4 4 |", ":4 C4 |\n/* open"):
+            with self.assertRaises(H.HumError, msg=bad):
+                H.parse_hum_txt(self.txt(bad))
+
+    def test_bad_effect_error_has_line_but_no_content(self):
+        with self.assertRaises(H.HumError) as c:
+            H.parse_hum_txt(self.txt(":4 C4 D4 E4 F4 |\n:4 C4{zzz} |"))
+        self.assertIn("8行目", str(c.exception))
+
+    def test_song_key_accepts_hyphen_and_underscore(self):
+        self.assertEqual(H.song_key("1-a"), "1")
+        self.assertEqual(H.song_key("1_b"), "1")
+        self.assertEqual(H.song_key("plain"), "plain")
+
+
 class TestIntake(unittest.TestCase):
     def setUp(self):
         self.t = tempfile.TemporaryDirectory()
