@@ -38,10 +38,14 @@ scope.onmessage = (e) => {
   if (req.type !== 'run') return;
   try {
     const t0 = performance.now();
-    const mono = toMono(req.channels);
-    const r = analyzeHum(mono, req.sr, req.info, {
+    // S5: the input (44.1 kHz Float32, ~53 MB for 5 min) is only needed until the resample stage is done; the Worker
+    // holds no other reference to it, so it can be collected while f0 / notes run.
+    const r = analyzeHum(toMono(req.channels), req.sr, req.info, {
       config: req.config,
-      onStage: (name, ms) => scope.postMessage({ type: 'stage', id: req.id, name, ms }),
+      onStage: (name, ms) => {
+        if (name === 'resample') req.channels.length = 0;
+        scope.postMessage({ type: 'stage', id: req.id, name, ms });
+      },
     });
     req.channels.length = 0;
     const m = r.hum.meta;

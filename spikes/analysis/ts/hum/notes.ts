@@ -236,16 +236,47 @@ export const LEVEL_WIN_PERIODS = 2;
  */
 export function frameLevelDb(y: ArrayLike<number>, sr: number, track: FrameF0Track): number[] {
   const n = track.hz.length;
-  const c = new Float64Array(y.length + 1);
-  for (let i = 0; i < y.length; i++) c[i + 1] = c[i] + y[i] * y[i];
-  const out = new Array<number>(n);
+  // Window bounds first; the Float64 running sum c[k] = sum of y[i]^2 (i < k) is then streamed once and only sampled at
+  // the 2n needed indices (identical additions in identical order to a full cumulative array, so bit-identical, but
+  // O(frames) memory instead of 8 bytes per sample).
+  const loI = new Int32Array(n);
+  const hiI = new Int32Array(n);
   for (let i = 0; i < n; i++) {
     const f = track.voiced[i] >= 0.5 ? track.hz[i] : 0;
     const w = f > 0 ? Math.min(LEVEL_WIN_MAX_SEC, Math.max(LEVEL_WIN_MIN_SEC, LEVEL_WIN_PERIODS / f)) : LEVEL_WIN_MIN_SEC;
     const centre = (track.t0 + i * track.hopSec) * sr;
-    const lo = Math.max(0, Math.round(centre - (w * sr) / 2));
-    const hi = Math.min(y.length, Math.round(centre + (w * sr) / 2));
-    const ms = hi > lo ? (c[hi] - c[lo]) / (hi - lo) : 0;
+    loI[i] = Math.max(0, Math.round(centre - (w * sr) / 2));
+    hiI[i] = Math.min(y.length, Math.round(centre + (w * sr) / 2));
+  }
+  const need = new Int32Array(2 * n);
+  need.set(loI, 0);
+  need.set(hiI, n);
+  need.sort();
+  let m = 0;
+  for (let k = 0; k < need.length; k++) if (k === 0 || need[k] !== need[k - 1]) need[m++] = need[k];
+  const cAt = new Float64Array(m);
+  let acc = 0;
+  let pos = 0; // next sample whose square is not yet in acc
+  for (let k = 0; k < m; k++) {
+    const idx = Math.min(need[k], y.length);
+    for (; pos < idx; pos++) acc += y[pos] * y[pos];
+    cAt[k] = acc;
+  }
+  const find = (idx: number): number => {
+    let a = 0;
+    let b = m - 1;
+    while (a < b) {
+      const mid = (a + b) >> 1;
+      if (need[mid] < idx) a = mid + 1;
+      else b = mid;
+    }
+    return a;
+  };
+  const out = new Array<number>(n);
+  for (let i = 0; i < n; i++) {
+    const lo = loI[i];
+    const hi = hiI[i];
+    const ms = hi > lo ? (cAt[find(hi)] - cAt[find(lo)]) / (hi - lo) : 0;
     out[i] = ms > 1e-10 ? 10 * Math.log10(ms) : -100;
   }
   return out;

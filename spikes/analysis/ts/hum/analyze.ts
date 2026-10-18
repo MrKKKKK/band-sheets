@@ -90,6 +90,7 @@ export function analyzeHum(y: Float32Array, sr: number, info: HumInput, opts: Hu
   mark('validate');
   const audioSec = y.length / sr;
   const x = resampleSinc(y, sr, cfg.audio.sr);
+  y = null as unknown as Float32Array; // S5: drop this reference (the caller may drop its own via onStage 'resample')
   mark('resample');
   const f0 = estimateF0(x, cfg.audio.sr, cfg);
   mark('f0');

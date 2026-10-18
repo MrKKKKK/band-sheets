@@ -454,3 +454,36 @@ describe('T10 switches: note HMM (3h), local tuning (9b), key prior (10b)', () =
     expect(off).toEqual(extractNotes(track, levelDb, INFO).notes);
   });
 });
+
+describe('T15 S5: frameLevelDb streaming sum is bit-identical to the full Float64 cumulative sum', () => {
+  it('random signal, mixed voiced / unvoiced frames, windows reaching both ends', () => {
+    const sr = 22050;
+    let seed = 12345;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32) * 2 - 1;
+    const y = new Float32Array(sr * 3);
+    for (let i = 0; i < y.length; i++) y[i] = 0.3 * rnd() * (i % 5000 < 3500 ? 1 : 0.001);
+    const n = 320;
+    const track: FrameF0Track = {
+      t0: -0.01,
+      hopSec: 0.0095,
+      hz: Array.from({ length: n }, (_, i) => (i % 7 === 0 ? 0 : 90 + ((i * 37) % 400))),
+      voiced: Array.from({ length: n }, (_, i) => (i % 7 === 0 || i % 11 === 0 ? 0 : 1)),
+    } as FrameF0Track;
+    const ref = (() => {
+      const c = new Float64Array(y.length + 1);
+      for (let i = 0; i < y.length; i++) c[i + 1] = c[i] + y[i] * y[i];
+      return track.hz.map((_, i) => {
+        const f = track.voiced[i] >= 0.5 ? track.hz[i] : 0;
+        const w = f > 0 ? Math.min(0.032, Math.max(0.01, 2 / f)) : 0.01;
+        const centre = (track.t0 + i * track.hopSec) * sr;
+        const lo = Math.max(0, Math.round(centre - (w * sr) / 2));
+        const hi = Math.min(y.length, Math.round(centre + (w * sr) / 2));
+        const ms = hi > lo ? (c[hi] - c[lo]) / (hi - lo) : 0;
+        return ms > 1e-10 ? 10 * Math.log10(ms) : -100;
+      });
+    })();
+    const got = frameLevelDb(y, sr, track);
+    expect(got.length).toBe(ref.length);
+    for (let i = 0; i < ref.length; i++) expect(Object.is(got[i], ref[i])).toBe(true);
+  });
+});
