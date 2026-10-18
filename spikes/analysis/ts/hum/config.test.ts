@@ -50,7 +50,7 @@ describe('hum config hash', () => {
   it('plan values', () => {
     const c = DEFAULT_HUM_CONFIG;
     expect([c.f0.win, c.f0.hop, c.f0.fminHz, c.f0.fmaxHz, c.f0.binsPerSemitone]).toEqual([1024, 256, 65, 1050, 5]);
-    expect(c.segment.moveSemitones).toBe(0.6);
+    expect(c.segment.moveSemitones).toBe(0.5); // plan 0.6; hum-v3 (T10 re-tune) 0.5
     expect(c.segment.minMoveMs).toBe(60);
     expect(c.grid.subdivision).toBe(16);
     expect(c.pitch.candidatesMax).toBe(3);
@@ -85,4 +85,4 @@ describe('hum types', () => {
   });
 });
 
-const PINNED = 'cc4d83e41d17'; // hum-v2 (spike 4 step 2); hum-v1 was 0326ed5fd6c4
+const PINNED = 'f7a35fb44ae5'; // hum-v3 (spike 4 step 3 / T10); hum-v2 was cc4d83e41d17, hum-v1 0326ed5fd6c4

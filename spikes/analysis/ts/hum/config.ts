@@ -8,6 +8,13 @@
  * (no tuning effect; dev H3 better: left to T10).
  * Spike 4 step 2 (hum-v2): grid phase search (grid.phase*) and scoop / drift robust segmentation (segment.plateau*,
  * scoopMaxSemitones, fragment*), see the comments there.
+ * Spike 4 step 3 / T10 (hum-v3): re-tuned on the synthetic TUNING split with H4 (ts/hum/tune.ts, objective
+ * H2 + 1.5 H3 + 1.5 H4 of F onset + quant exact - edits/keyboard, summed over two starts: the exact bar-1 head and
+ * `first-note` with firstNoteTick known and the first-note second 0.7 beat early; guard H0-H2 not lower by > 0.002),
+ * each change kept only when DEV holds or improves and a leave-one-out on tuning and dev confirms it (out/hum/t10/).
+ * Proposed by the search but NOT adopted (dev worse): segment.dipDb 6 (dev J 7.12 -> 7.34 without it; H3 quant drops),
+ * segment.minMoveMs 80, segment.fragmentSemitones 1. The T10 switches (noteHmm, triplet, keyPrior, localTuning) stay
+ * off; their parameters below are the values tuned for the switch evaluation.
  * configHash() = SHA-256 (first 12 hex) over the canonical JSON (sorted keys, compact; same helpers as the
  * spike-3 ts/dsp/config.ts), so the key order of an object never changes the hash. Numbers are written the
  * way pyCanonicalJson does (integral -> int, else Python float repr): keep that stable when editing defaults.
@@ -89,6 +96,14 @@ export interface HumConfig {
     fragmentMs: number;
     fragmentGapMs: number;
     fragmentSemitones: number;
+    /** Note HMM (segment.noteHmm, T10 switch; notes.ts hmmSplits): per voiced run, Viterbi over semitone states (on the
+     *  frame tuning offset) with cost min((s - centre)^2 / (2 hmmSigmaSemitones^2), hmmOutlierCost) per stable frame
+     *  (glide frames cost 0) and hmmSplitCost (nats) per change of state; replaces the pitch-split rules 3 / 3b. */
+    hmmSplitCost: number;
+    hmmSigmaSemitones: number;
+    hmmOutlierCost: number;
+    /** Rule 3h: frames whose slope over +-3 frames is at least this (semitones / s; 0 = off) do not count either. */
+    hmmRampSemitonesPerSec: number;
   };
   pitch: {
     /** Fraction of the note trimmed at both ends before taking the median. */
@@ -102,8 +117,18 @@ export interface HumConfig {
     /** Fix short notes 12 semitones from both neighbours. */
     octaveFix: boolean;
     octaveFixMaxSixteenths: number;
-    /** Use HumInfo.key to reorder boundary candidates (switch, default off; decision 6). */
+    /** Use HumInfo.key (switch, default off; decision 6; notes.ts rule 10b): out-of-key candidates sort after in-key
+     *  ones of up to twice their confidence, and an out-of-key reading within keyPriorCents of the semitone boundary
+     *  (|cents| >= 50 - keyPriorCents) whose other neighbour is in the key is swapped with it (the original stays the
+     *  first candidate). Notes farther from the boundary are never changed. */
     keyPrior: boolean;
+    keyPriorCents: number;
+    /** Per-section tuning (T10 switch, notes.ts rule 9b): each note's offset is the duration-weighted median deviation
+     *  of the OTHER notes whose centre lies within +-localTuningSec / 2 (unwrapped around the global offset), when there
+     *  are at least localTuningMinNotes of them; else the global offset. */
+    localTuning: boolean;
+    localTuningSec: number;
+    localTuningMinNotes: number;
   };
   grid: {
     /** Grid per whole note: 16 = 16th-note grid. */
@@ -142,7 +167,7 @@ export const HUM_CONFIG_GROUPS = ['audio', 'f0', 'voicing', 'segment', 'pitch', 
 export const DEFAULT_HUM_CONFIG: HumConfig = deepFreeze({
   // T9 (tuned on the synthetic TUNING split with ts/hum/tune.ts, confirmed on DEV; T8 baseline = 'hum-v0', 2d3c76d270cd).
   // Each changed value says why; 'tuning'/'dev' numbers are per-level means of F onset / quant exact / edits per keyboard step.
-  name: 'hum-v2',
+  name: 'hum-v3',
   audio: { sr: 22050 },
   f0: {
     win: 1024,
@@ -173,7 +198,9 @@ export const DEFAULT_HUM_CONFIG: HumConfig = deepFreeze({
   },
   segment: {
     medianFrames: 5,
-    moveSemitones: 0.6,
+    // hum-v3: 0.6 -> 0.5. With rule 3b's plateau test guarding scoops, a smaller move threshold catches the H4 notes
+    // whose step is smeared by vibrato/wander; leave-one-out: tuning J 6.80 -> 6.74, dev 7.36 -> 7.09 without it.
+    moveSemitones: 0.5,
     minMoveMs: 60,
     // T9: 12 -> 14. Vibrato/scoop flanks of H2/H3 voices were "not stable", so the reference settled late and short
     // notes were merged; H2 F onset tuning .955 -> .991, dev .967 -> .996, H3 dev .818 -> .858. 16 was better on tuning
@@ -197,12 +224,23 @@ export const DEFAULT_HUM_CONFIG: HumConfig = deepFreeze({
     // onset .284 -> .593, extra splits 176 % -> ~19 % of truth notes; H0-H3 tuning unchanged. Dev: see the step-2 report.
     plateauFrames: 10,
     plateauMaxSixteenths: 0.6,
-    plateauSemitones: 0.2,
-    plateauWaitMs: 400,
+    // hum-v3: 0.2 -> 0.15 (a plateau must be flatter, so H4 scoops / wander do not count as one); leave-one-out
+    // tuning J 6.80 -> 6.77, dev 7.36 -> 7.18 without it.
+    plateauSemitones: 0.15,
+    // hum-v3: 400 -> 300 (a real note with heavy vibrato splits sooner; H4 missed splits); leave-one-out tuning
+    // 6.80 -> 6.71, dev 7.36 -> 6.99 without it.
+    plateauWaitMs: 300,
     scoopMaxSemitones: 1.5,
-    fragmentMs: 100,
+    // hum-v3: 100 -> 130 (longer drifted tails / scoop pieces merged back); without it tuning H1 drops (guard) and dev
+    // J 7.36 -> 7.34.
+    fragmentMs: 130,
     fragmentGapMs: 0,
     fragmentSemitones: 1.3,
+    // T10 switch values (tuned on tuning with noteHmm on: out/hum/t10/hmm-cd1.json)
+    hmmSplitCost: 16,
+    hmmSigmaSemitones: 0.5,
+    hmmOutlierCost: 6,
+    hmmRampSemitonesPerSec: 8,
   },
   pitch: {
     trimFraction: 0.25,
@@ -214,6 +252,10 @@ export const DEFAULT_HUM_CONFIG: HumConfig = deepFreeze({
     // .996 -> 1.000 (the one dev H0/H1 octave error was this rule).
     octaveFixMaxSixteenths: 1,
     keyPrior: false,
+    keyPriorCents: 15,
+    localTuning: false,
+    localTuningSec: 8,
+    localTuningMinNotes: 6,
   },
   grid: {
     subdivision: 16,
@@ -236,7 +278,9 @@ export const DEFAULT_HUM_CONFIG: HumConfig = deepFreeze({
     phaseBarPriorBeats: 0.05,
     phaseLevelWeights: [0, 0.5, 1, 1.05, 1.1],
     phaseAnchorBeats: 0.25,
-    phaseAnchorWeight: 10,
+    // hum-v3: 10 -> 20. With firstNoteTick known, trust the first note more: tuning H2 quant exact (first-note -0.7
+    // beat) .806 -> .871; dev unchanged (leave-one-out J identical), bar-start runs unaffected.
+    phaseAnchorWeight: 20,
   },
 });
 

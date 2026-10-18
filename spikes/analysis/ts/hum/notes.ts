@@ -66,8 +66,25 @@
  *      The nearer neighbour is a candidate when |cents| >= 50 - pitch.boundaryCents; an octave alternative is
  *      added when the note was octave-fixed (the original) or lies >= OCT_FAR from its neighbours (toward them).
  *      confidence = p(best) - p(second best) over the pitch readings.
- * The note HMM (segment.noteHmm) and the key prior (pitch.keyPrior) are switches only: not implemented here, a
- * warning is returned when they are on.
+ *
+ * T10 switches (default off; docs/audio-spike4-plan.md section 7 T10):
+ *   3h. Note HMM (segment.noteHmm), instead of rules 3 / 3b: per voiced run, a Viterbi path over semitone states
+ *      k (centre k + the frame tuning offset, estimateTuning over the stable smoothed frames) with the frame cost
+ *      min((s - centre)^2 / (2 sigma^2), hmmOutlierCost) on stable frames and 0 on glide frames (they do not count,
+ *      as in rule 3; nor are frames on a slow ramp: slope over +-RAMP_HALF frames >= segment.hmmRampSemitonesPerSec),
+ *      and hmmSplitCost (nats, the stay/split prior) for every change of state. A change of state is a
+ *      pitch boundary, moved back over the glide frames before it (the glide / scoop belongs to the new note). Rules
+ *      4-6b then run unchanged (dip snap, dip splits for repeats, short notes, fragments).
+ *   9b. Per-section tuning (pitch.localTuning): see config.ts; drift of the singer's pitch over the take is followed
+ *      instead of one recording-wide offset (HumNote.cents is relative to the note's own offset; tuningCents in the
+ *      result stays the global one).
+ *  10b. Key prior (pitch.keyPrior, needs info.key; decision 6): the key's scale (major; minor = natural minor plus the
+ *      raised 7th) only acts near a semitone boundary. (i) A note whose reading is out of the key, within
+ *      keyPriorCents of the boundary (|cents| >= 50 - keyPriorCents), and whose nearer neighbour is in the key takes
+ *      the neighbour; the original reading becomes the first candidate (confidence then 0: it is ambiguous). (ii)
+ *      Candidates are ordered by confidence times 1 (in key) or KEY_OUT_FACTOR (out of key); their confidences are
+ *      not changed. Notes farther from the boundary, and notes whose both readings are in (or out of) the key, keep
+ *      their pitch.
  */
 import { DEFAULT_HUM_CONFIG, type HumConfig } from './config';
 import type { FrameF0Track, HumInfo, HumNote, PitchCandidate } from './types';
@@ -112,6 +129,8 @@ export const PITCH_SIGMA_CENTS = 20;
 /** Confidence of an octave alternative candidate (rule 10). */
 export const OCTAVE_FIXED_CONF = 0.3;
 export const OCTAVE_ALT_CONF = 0.1;
+/** Key prior (rule 10b): ordering weight of an out-of-key candidate. */
+export const KEY_OUT_FACTOR = 0.5;
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -440,6 +459,105 @@ export function pitchSplits(s: ArrayLike<number>, stable: ArrayLike<boolean>, a:
   }
 }
 
+/* ------------------------------------------------------------------ rule 3h (note HMM switch) */
+
+export interface HmmParams {
+  splitCost: number;
+  sigma: number;
+  outlierCost: number;
+  /** Tuning offset of the state centres, semitones (state k sits at k + offset). */
+  offset: number;
+}
+
+/**
+ * Rule 3h: pitch boundaries (frame indices in (a, b)) of one voiced run by a Viterbi path over semitone states.
+ * Stable frames cost min((s - centre)^2 / (2 sigma^2), outlierCost), glide frames 0, a change of state splitCost.
+ * Each change of state becomes a boundary moved back over the glide frames right before it.
+ */
+export function hmmSplits(s: ArrayLike<number>, stable: ArrayLike<boolean>, a: number, b: number, H: HmmParams): number[] {
+  let mn = Infinity;
+  let mx = -Infinity;
+  for (let i = a; i < b; i++) if (Number.isFinite(s[i])) {
+    mn = Math.min(mn, s[i]);
+    mx = Math.max(mx, s[i]);
+  }
+  if (!(mx >= mn) || b - a < 2) return [];
+  const lo = Math.floor(mn - H.offset) - 1;
+  const K = Math.ceil(mx - H.offset) + 1 - lo + 1;
+  const n = b - a;
+  const back = new Int32Array(n * K); // predecessor state per frame and state
+  let D = new Float64Array(K);
+  let E = new Float64Array(K);
+  const inv = 1 / (2 * H.sigma * H.sigma);
+  const cost = (i: number, k: number) => {
+    if (!stable[i] || !Number.isFinite(s[i])) return 0;
+    const d = s[i] - (lo + k + H.offset);
+    return Math.min(d * d * inv, H.outlierCost);
+  };
+  for (let k = 0; k < K; k++) D[k] = cost(a, k);
+  for (let t = 1; t < n; t++) {
+    let best = 0;
+    for (let k = 1; k < K; k++) if (D[k] < D[best]) best = k;
+    const sw = D[best] + H.splitCost;
+    for (let k = 0; k < K; k++) {
+      const stay = D[k];
+      // ties stay
+      if (stay <= sw) {
+        E[k] = stay;
+        back[t * K + k] = k;
+      } else {
+        E[k] = sw;
+        back[t * K + k] = best;
+      }
+      E[k] += cost(a + t, k);
+    }
+    [D, E] = [E, D];
+  }
+  let k = 0;
+  for (let j = 1; j < K; j++) if (D[j] < D[k]) k = j;
+  const path = new Int32Array(n);
+  for (let t = n - 1; t >= 0; t--) {
+    path[t] = k;
+    if (t > 0) k = back[t * K + k];
+  }
+  const out: number[] = [];
+  let segStart = a;
+  for (let t = 1; t < n; t++) {
+    if (path[t] === path[t - 1]) continue;
+    let j = a + t;
+    while (j - 1 > segStart && !stable[j - 1]) j--;
+    const bd = Math.max(segStart + 1, j);
+    if (bd < b && (out.length === 0 || bd > out[out.length - 1])) {
+      out.push(bd);
+      segStart = bd;
+    }
+  }
+  return out;
+}
+
+/** Rule 3h: stable frames whose slope over +-RAMP_HALF frames (inside the run) is below maxStep per frame (0 = all). */
+export const RAMP_HALF = 3;
+function rampFree(s: ArrayLike<number>, stable: boolean[], runs: [number, number][], maxStep: number): boolean[] {
+  if (!(maxStep > 0)) return stable;
+  const out = stable.slice();
+  for (const [a, b] of runs) {
+    for (let i = a; i < b; i++) {
+      if (!out[i]) continue;
+      const lo = Math.max(a, i - RAMP_HALF);
+      const hi = Math.min(b - 1, i + RAMP_HALF);
+      if (hi > lo && Math.abs(s[hi] - s[lo]) / (hi - lo) >= maxStep) out[i] = false;
+    }
+  }
+  return out;
+}
+
+/** Frame tuning offset (semitones, in [-0.5, 0.5)) of the stable smoothed frames, for the HMM state centres. */
+function frameTuning(s: ArrayLike<number>, stable: ArrayLike<boolean>): number {
+  const xs: number[] = [];
+  for (let i = 0; i < s.length; i++) if (stable[i] && Number.isFinite(s[i])) xs.push(s[i]);
+  return estimateTuning(xs) / 100;
+}
+
 /* ------------------------------------------------------------------ segmentation */
 
 export type BoundaryCause = 'run' | 'pitch' | 'dip';
@@ -502,6 +620,9 @@ export function segmentFrames(track: FrameF0Track, levelDb: ArrayLike<number>, i
     plateauWaitFrames: Math.max(1, Math.round(sc.plateauWaitMs / 1000 / hop)),
     scoopMaxSemitones: sc.scoopMaxSemitones,
   };
+  const H: HmmParams | null = sc.noteHmm ? { splitCost: sc.hmmSplitCost, sigma: sc.hmmSigmaSemitones, outlierCost: sc.hmmOutlierCost, offset: frameTuning(s, stable) } : null;
+  // rule 3h: frames on a slow ramp (scoop, portamento slower than the glide threshold) are not informative either
+  const inform = H ? rampFree(s, stable, runs, sc.hmmRampSemitonesPerSec * hop) : stable;
   const snapF = Math.round(SNAP_MS / 1000 / hop);
   const dipW = Math.round(DIP_WINDOW_MS / 1000 / hop);
   const vibW = Math.round(sc.vibratoWindowMs / 1000 / hop);
@@ -511,7 +632,7 @@ export function segmentFrames(track: FrameF0Track, levelDb: ArrayLike<number>, i
     // rule 3 + 4
     const cuts: { at: number; cause: BoundaryCause }[] = [];
     let prev = a;
-    const ps = pitchSplits(s, stable, a, b, P);
+    const ps = H ? hmmSplits(s, inform, a, b, H) : pitchSplits(s, stable, a, b, P);
     ps.forEach((m, idx) => {
       const next = idx + 1 < ps.length ? ps[idx + 1] : b;
       let best = m;
@@ -687,6 +808,38 @@ export function semitoneProbs(q: number, sigmaCents: number): { midi: number; p:
   return raw.map((r) => ({ midi: r.midi, p: r.p / tot })).sort((x, y) => y.p - x.p);
 }
 
+/** Rule 10b: pitch classes of a key ('C', 'F#', 'Bb', 'Am', 'C#m', 'Ebmin'; minor = natural minor + raised 7th), or
+ *  null when the key cannot be read. */
+export function keyPitchClasses(key: string | undefined): Set<number> | null {
+  if (!key) return null;
+  const m = /^\s*([A-Ga-g])([#♯b♭]?)\s*(m|min|minor|maj|major|)\s*$/.exec(key.normalize('NFKC'));
+  if (!m) return null;
+  const base = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 }[m[1].toLowerCase() as 'c'];
+  const acc = m[2] === '#' || m[2] === '♯' ? 1 : m[2] === 'b' || m[2] === '♭' ? -1 : 0;
+  const tonic = (base + acc + 12) % 12;
+  const minor = m[3] === 'm' || m[3] === 'min' || m[3] === 'minor';
+  const steps = minor ? [0, 2, 3, 5, 7, 8, 10, 11] : [0, 2, 4, 5, 7, 9, 11];
+  return new Set(steps.map((d) => (tonic + d) % 12));
+}
+
+/** Rule 9b: per-note tuning offsets (cents) from the other notes within +-windowSec / 2 (see config.ts localTuning). */
+export function localTunings(pitches: readonly number[], centres: readonly number[], weights: readonly number[], globalCents: number, windowSec: number, minNotes: number): number[] {
+  return pitches.map((_, i) => {
+    const idx: number[] = [];
+    for (let j = 0; j < pitches.length; j++) if (j !== i && Math.abs(centres[j] - centres[i]) <= windowSec / 2) idx.push(j);
+    if (idx.length < minNotes) return globalCents;
+    let t = globalCents;
+    for (let it = 0; it < 2; it++) {
+      const dev = idx.map((j) => {
+        const x = pitches[j] - t / 100;
+        return (x - Math.round(x)) * 100;
+      });
+      t += weightedMedian(dev, idx.map((j) => weights[j]));
+    }
+    return t;
+  });
+}
+
 /* ------------------------------------------------------------------ top level */
 
 export interface NotesResult {
@@ -699,10 +852,10 @@ export interface NotesResult {
 }
 
 /** Rules 0-10: notes of a frame f0 track (see the header). */
-export function extractNotes(track: FrameF0Track, levelDb: ArrayLike<number>, info: Pick<HumInfo, 'bpm' | 'ts'>, cfg: HumConfig = DEFAULT_HUM_CONFIG): NotesResult {
+export function extractNotes(track: FrameF0Track, levelDb: ArrayLike<number>, info: Pick<HumInfo, 'bpm' | 'ts' | 'key'>, cfg: HumConfig = DEFAULT_HUM_CONFIG): NotesResult {
   const warnings: string[] = [];
-  if (cfg.segment.noteHmm) warnings.push('segment.noteHmm is not implemented; rule-based segmentation used');
-  if (cfg.pitch.keyPrior) warnings.push('pitch.keyPrior is not implemented; candidates not reordered');
+  const scale = cfg.pitch.keyPrior ? keyPitchClasses(info.key) : null;
+  if (cfg.pitch.keyPrior && !scale) warnings.push(info.key ? 'pitch.keyPrior: the key could not be read; candidates not reordered' : 'pitch.keyPrior: no key given; candidates not reordered');
   const seg = segmentFrames(track, levelDb, info, cfg);
   const hop = track.hopSec;
   const t = (i: number) => track.t0 + i * hop;
@@ -735,19 +888,31 @@ export function extractNotes(track: FrameF0Track, levelDb: ArrayLike<number>, in
 
   // rule 9
   const tuningCents = pc.tuning ? estimateTuning(pitches, raw.map((r) => r.g.b - r.g.a)) : 0;
+  // rule 9b
+  const noteTuning =
+    pc.tuning && pc.localTuning
+      ? localTunings(pitches, raw.map((r) => t((r.g.a + r.g.b - 1) / 2)), raw.map((r) => r.g.b - r.g.a), tuningCents, pc.localTuningSec, pc.localTuningMinNotes)
+      : raw.map(() => tuningCents);
+  const inKey = (m: number) => !scale || scale.has(((m % 12) + 12) % 12);
 
   // rule 10
   const notes: HumNote[] = raw.map((r, i) => {
-    const q = pitches[i] - tuningCents / 100;
+    const tc = noteTuning[i];
+    const q = pitches[i] - tc / 100;
     const sigma = Math.min(50, Math.hypot(PITCH_SIGMA_CENTS, 100 * r.spread / Math.sqrt(Math.max(1, (r.g.b - r.g.a) / 4))));
     const probs = semitoneProbs(q, sigma);
-    const midi = Math.round(q);
+    const near = Math.round(q);
+    const nearCents = (q - near) * 100;
+    // rule 10b (i): an out-of-key reading next to the boundary takes the in-key neighbour
+    const other = near + (q >= near ? 1 : -1);
+    const swapped = !!scale && Math.abs(nearCents) >= 50 - pc.keyPriorCents && !inKey(near) && inKey(other);
+    const midi = swapped ? other : near;
     const cents = Math.round((q - midi) * 1000) / 10;
     const cands: PitchCandidate[] = [];
-    const nearer = probs.find((x) => x.midi === midi + (q >= midi ? 1 : -1))!;
-    if (Math.abs(cents) >= 50 - pc.boundaryCents) cands.push({ midi: nearer.midi, confidence: round3(nearer.p) });
+    const nearer = probs.find((x) => x.midi === (swapped ? near : other))!;
+    if (swapped || Math.abs(nearCents) >= 50 - pc.boundaryCents) cands.push({ midi: nearer.midi, confidence: round3(nearer.p) });
     if (fixed[i] !== null) {
-      cands.push({ midi: Math.round(fixed[i]! - tuningCents / 100), confidence: OCTAVE_FIXED_CONF, octaveFixed: true });
+      cands.push({ midi: Math.round(fixed[i]! - tc / 100), confidence: OCTAVE_FIXED_CONF, octaveFixed: true });
     } else {
       const nbs: number[] = [];
       if (i > 0) nbs.push(pitches[i - 1]);
@@ -757,8 +922,10 @@ export function extractNotes(track: FrameF0Track, levelDb: ArrayLike<number>, in
         cands.push({ midi: midi + (ctx > pitches[i] ? 12 : -12), confidence: OCTAVE_ALT_CONF });
       }
     }
-    cands.sort((x, y) => y.confidence - x.confidence);
-    const best = probs[0].midi === midi ? probs[0].p : probs.find((x) => x.midi === midi)!.p;
+    // rule 10b (ii): out-of-key candidates sort after in-key ones (ordering weight only)
+    const ord = (c: PitchCandidate) => c.confidence * (inKey(c.midi) ? 1 : KEY_OUT_FACTOR);
+    cands.sort((x, y) => ord(y) - ord(x) || y.confidence - x.confidence);
+    const best = probs.find((x) => x.midi === midi)!.p;
     const second = Math.max(0, ...cands.map((c) => c.confidence), probs.filter((x) => x.midi !== midi)[0].p);
     return {
       start: r4(t(r.g.a) - hop / 2),

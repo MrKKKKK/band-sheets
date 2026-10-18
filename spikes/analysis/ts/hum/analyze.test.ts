@@ -47,7 +47,7 @@ describe('analyzeHum', () => {
     expect(q.events.filter((e) => e.kind === 'note')).toHaveLength(midis.length);
     const m = r.hum.meta;
     expect(m.configHash).toBe(humConfigHash());
-    expect(m.configName).toBe('hum-v2');
+    expect(m.configName).toBe('hum-v3');
     expect(m.commit).toBe('abc1234');
     expect(m.info).toEqual(INFO);
     for (const k of ['validate', 'resample', 'f0', 'level', 'notes', 'quantize']) expect(m.timings.stagesMs[k]).toBeGreaterThanOrEqual(0);

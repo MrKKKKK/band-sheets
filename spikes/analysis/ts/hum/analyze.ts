@@ -120,7 +120,13 @@ export function analyzeHum(y: Float32Array, sr: number, info: HumInput, opts: Hu
     analyzer: {
       name: 'hum-ts',
       version: ANALYZER_VERSION,
-      methods: [cfg.f0.pyin ? 'pyin' : 'yin', 'rule-segmentation', `grid-${quantized.grid}`],
+      methods: [
+        cfg.f0.pyin ? 'pyin' : 'yin',
+        cfg.segment.noteHmm ? 'note-hmm' : 'rule-segmentation',
+        ...(cfg.pitch.localTuning ? ['local-tuning'] : []),
+        ...(cfg.pitch.keyPrior && info.key ? ['key-prior'] : []),
+        `grid-${quantized.grid}`,
+      ],
     },
     melody: { notes: nr.notes, quantized },
     hum: {

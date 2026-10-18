@@ -5,6 +5,9 @@ import {
   extractNotes,
   fixOctaveGlitches,
   hasPlateau,
+  hmmSplits,
+  keyPitchClasses,
+  localTunings,
   mergeFragments,
   frameLevelDb,
   joinDropouts,
@@ -275,11 +278,12 @@ describe('extractNotes on hand-made f0 tracks', () => {
     expect(Math.abs(r.notes[1].start - 0.6)).toBeLessThan(0.05);
   });
 
-  it('switches that are not implemented warn; no voiced frames warns; frame-count mismatch throws', () => {
+  it('keyPrior without a readable key warns; no voiced frames warns; frame-count mismatch throws', () => {
     const { track, levelDb } = makeTrack(0.5, notesPitch([[0.1, 0.4, 60]]));
     const r = extractNotes(track, levelDb, INFO, resolveHumConfig({ segment: { noteHmm: true }, pitch: { keyPrior: true } }));
-    expect(r.warnings.length).toBe(2);
+    expect(r.warnings).toEqual(['pitch.keyPrior: no key given; candidates not reordered']);
     expect(r.notes.length).toBe(1);
+    expect(extractNotes(track, levelDb, { ...INFO, key: 'H#' }, resolveHumConfig({ pitch: { keyPrior: true } })).warnings[0]).toMatch(/could not be read/);
     const empty = makeTrack(0.5, () => NaN);
     expect(extractNotes(empty.track, empty.levelDb, INFO).warnings).toContain('no voiced frames');
     expect(() => extractNotes(track, levelDb.slice(1), INFO)).toThrow(RangeError);
@@ -378,5 +382,75 @@ describe('scoop / drift robustness (rules 3b, 6b)', () => {
     expect(far.length).toBe(3);
     const dip = mergeFragments([{ a: 0, b: 30, cause: 'run' }, { a: 30, b: 36, cause: 'dip' }], () => 60, 10, 0, 1);
     expect(dip.length).toBe(2);
+  });
+});
+
+describe('T10 switches: note HMM (3h), local tuning (9b), key prior (10b)', () => {
+  const HMM = resolveHumConfig({ segment: { noteHmm: true } });
+  it('hmmSplits: a step splits at the glide start, wander within sigma and glide frames do not', () => {
+    const n = 120;
+    const s = new Float64Array(n);
+    const st = new Array<boolean>(n).fill(true);
+    for (let i = 0; i < n; i++) s[i] = i < 50 ? 60 + 0.25 * Math.sin(i / 4) : i < 56 ? 60 + (2 * (i - 49)) / 7 : 62;
+    for (let i = 50; i < 56; i++) st[i] = false;
+    expect(hmmSplits(s, st, 0, n, { splitCost: 10, sigma: 0.35, outlierCost: 3, offset: 0 })).toEqual([50]);
+    // a short excursion (6 frames, 1 semitone) costs less to absorb than two state changes
+    const t = new Float64Array(n).fill(60);
+    for (let i = 60; i < 66; i++) t[i] = 61;
+    expect(hmmSplits(t, new Array<boolean>(n).fill(true), 0, n, { splitCost: 10, sigma: 0.35, outlierCost: 3, offset: 0 })).toEqual([]);
+    expect(hmmSplits(t, new Array<boolean>(n).fill(true), 0, n, { splitCost: 2, sigma: 0.35, outlierCost: 3, offset: 0 })).toEqual([60, 66]);
+  });
+  it('noteHmm: legato steps split, a slow onset scoop and a drift do not', () => {
+    const steps = makeTrack(1.6, (t) => (t < 0.1 || t > 1.5 ? NaN : t < 0.5 ? 60 : t < 0.55 ? 60 + 2 * rc((t - 0.5) / 0.05) : t < 1.0 ? 62 : 64));
+    expect(extractNotes(steps.track, steps.levelDb, INFO, HMM).notes.map((x) => x.midi)).toEqual([60, 62, 64]);
+    const scoop = makeTrack(1.2, (t) => (t < 0.1 || t > 1.1 ? NaN : t < 0.32 ? 63.8 + 1.2 * ((t - 0.1) / 0.22) : 65));
+    expect(extractNotes(scoop.track, scoop.levelDb, INFO, HMM).notes.map((x) => x.midi)).toEqual([65]);
+    const drift = makeTrack(2.2, (t) => (t < 0.1 || t > 2.1 ? NaN : 60.2 + 0.25 * ((t - 0.1) / 2)));
+    expect(extractNotes(drift.track, drift.levelDb, INFO, HMM).notes.length).toBe(1);
+  });
+  it('localTunings follows a drift, excludes the note itself and falls back to the global offset', () => {
+    // notes drift from +0 to +40 cents over 20 s, one per second
+    const p = Array.from({ length: 21 }, (_, i) => 60 + (i % 3) + 0.02 * i);
+    const c = p.map((_, i) => i);
+    const w = p.map(() => 1);
+    const loc = localTunings(p, c, w, 20, 6, 3);
+    expect(loc[0]).toBeLessThan(10);
+    expect(loc[20]).toBeGreaterThan(30);
+    expect(localTunings(p, c, w, 20, 6, 50).every((x) => x === 20)).toBe(true);
+  });
+  it('localTuning: a section sung 40 cents flat rounds right where the global offset does not', () => {
+    // 8 notes in tune, then 6 notes 40 cents flat, one of them 20 cents flatter still (60 cents below its semitone)
+    const notes: [number, number, number][] = Array.from({ length: 14 }, (_, i) => [0.1 + i * 0.5, 0.5 + i * 0.5, 60 + (i % 2) * 2 - (i >= 8 ? 0.4 : 0) - (i === 11 ? 0.2 : 0)]);
+    const { track, levelDb } = makeTrack(7.2, notesPitch(notes));
+    const truth = notes.map((_, i) => 60 + (i % 2) * 2);
+    const g = extractNotes(track, levelDb, INFO).notes.map((x) => x.midi);
+    const l = extractNotes(track, levelDb, INFO, resolveHumConfig({ pitch: { localTuning: true, localTuningSec: 3, localTuningMinNotes: 3 } })).notes.map((x) => x.midi);
+    expect(g[11]).toBe(truth[11] - 1);
+    expect(l).toEqual(truth);
+  });
+  it('keyPitchClasses reads major / minor keys', () => {
+    expect([...keyPitchClasses('C')!].sort((a, b) => a - b)).toEqual([0, 2, 4, 5, 7, 9, 11]);
+    expect(keyPitchClasses('Bb')!.has(3)).toBe(true);
+    expect(keyPitchClasses('F#')!.has(10)).toBe(true);
+    expect([...keyPitchClasses('Am')!].sort((a, b) => a - b)).toEqual([0, 2, 4, 5, 7, 8, 9, 11]);
+    expect(keyPitchClasses('x')).toBeNull();
+    expect(keyPitchClasses(undefined)).toBeNull();
+  });
+  it('keyPrior: only an out-of-key reading near the boundary moves; far ones and in-key ones stay', () => {
+    // tuning 0 (most notes centred); note 2 = 65.6 (F# +... reads 66 = F#, -40 cents) -> in C it becomes 65 (F)
+    const notes: [number, number, number][] = [[0.1, 0.5, 60], [0.55, 1.0, 62], [1.05, 1.5, 65.6], [1.55, 2.0, 64], [2.05, 2.5, 66.2], [2.55, 3.0, 67]];
+    const { track, levelDb } = makeTrack(3.2, notesPitch(notes));
+    const KP = resolveHumConfig({ pitch: { keyPrior: true } });
+    const off = extractNotes(track, levelDb, { ...INFO, key: 'C' }).notes;
+    const on = extractNotes(track, levelDb, { ...INFO, key: 'C' }, KP).notes;
+    expect(off.map((x) => x.midi)).toEqual([60, 62, 66, 64, 66, 67]);
+    expect(on.map((x) => x.midi)).toEqual([60, 62, 65, 64, 66, 67]); // 66.2 is 20 cents from F#: never moved
+    expect(on[2].candidates[0].midi).toBe(66);
+    expect(on[2].confidence).toBe(0);
+    expect(on[2].cents).toBeCloseTo(60, 0);
+    // in G (F# in key) nothing moves
+    expect(extractNotes(track, levelDb, { ...INFO, key: 'G' }, KP).notes.map((x) => x.midi)).toEqual([60, 62, 66, 64, 66, 67]);
+    // same notes without keyPrior: identical to no key
+    expect(off).toEqual(extractNotes(track, levelDb, INFO).notes);
   });
 });
