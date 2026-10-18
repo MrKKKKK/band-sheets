@@ -11,6 +11,9 @@
  *                     if it beats the current one; repeat --rounds times (stops early when a round changes nothing).
  *              grid = full product of the chosen params (keep it small).
  *              eval = score the base config only (before/after tables, dev confirmation).
+ *   --start-mode bar|first-note|first-note-only, --start-error-beats X: the start the analyzer gets (cli.ts variantStart;
+ *              default bar = the exact bar-1 head; first-note = the first truth note's sung onset + X beats and its tick).
+ *   --objective "H2:1,H3:1.5" (default) level weights of J; --guard "H0,H1" (default) levels that must not drop.
  *   -o         JSON with the per-level summaries of the start and the result, and the step history
  *              (default out/hum/t9/tune-<split>.json).
  *
@@ -30,11 +33,13 @@ import { scoreTake, type Variant } from './baseline';
 import { humConfigHash, humConfigSummary, resolveHumConfig, type HumConfig } from './config';
 import { estimateF0 } from './f0';
 import { extractNotes, frameLevelDb } from './notes';
-import { quantize } from './quantize';
-import type { FrameF0Track, HumInfo } from './types';
+import { resolveStart } from './analyze';
+import { variantStart, type CliArgs } from './cli';
+import { quantize, type QuantizeInfo } from './quantize';
+import type { FrameF0Track } from './types';
 
 const OUT = join(import.meta.dirname, '..', '..', 'out', 'hum');
-export const LEVELS = ['H0', 'H1', 'H2', 'H3'] as const;
+export const LEVELS = ['H0', 'H1', 'H2', 'H3', 'H4'] as const;
 export const GUARD = 0.002;
 
 type Val = number | boolean | string;
@@ -52,6 +57,17 @@ export const SPACE: Record<string, Val[]> = {
   'segment.joinGapMs': [40, 60, 80, 120],
   'segment.vibratoWindowMs': [150, 200, 250, 300],
   'segment.vibratoSwingSemitones': [0.1, 0.15, 0.2, 0.25],
+  'segment.plateauFrames': [0, 4, 6, 8, 10, 12, 16],
+  'segment.plateauSemitones': [0.2, 0.3, 0.4, 0.5],
+  'segment.plateauMaxSixteenths': [0.4, 0.5, 0.6, 0.75, 1],
+  'segment.plateauWaitMs': [150, 250, 400],
+  'segment.scoopMaxSemitones': [1.5, 2, 2.5, 3.5, 99],
+  'segment.fragmentMs': [0, 100, 150, 200, 250],
+  'segment.fragmentGapMs': [0, 30, 50],
+  'segment.fragmentSemitones': [0.8, 1.0, 1.3],
+  'grid.phaseSearch': [false, true],
+  'grid.phasePriorBeats': [0.5, 0.75, 1],
+  'grid.phaseAnchorWeight': [0, 0.5, 1, 2],
   'pitch.trimFraction': [0.1, 0.2, 0.25, 0.3, 0.35],
   'pitch.octaveFixMaxSixteenths': [0, 1, 2, 4],
   'grid.legatoGapEighths': [0.25, 0.5, 0.75, 1],
@@ -68,7 +84,7 @@ export const SPACE: Record<string, Val[]> = {
 
 interface Take {
   v: Variant;
-  info: HumInfo;
+  info: QuantizeInfo;
   x: Float32Array;
   truth: Parameters<typeof scoreTake>[0];
 }
@@ -85,18 +101,20 @@ export interface LevelSummary {
 }
 export type Summary = Record<string, LevelSummary>;
 
-function loadTakes(split: string): Take[] {
+function loadTakes(split: string, startMode: CliArgs['startMode'] = 'bar', errBeats = 0): Take[] {
   if (split !== 'tuning' && split !== 'dev') throw new Error(`--split must be tuning or dev (held-out is never read), got ${split}`);
   const manifest = JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8')) as { variants: (Variant & { wav: string; bpm: number; ts: [number, number]; startSec: number })[] };
   const out: Take[] = [];
   for (const v of manifest.variants) {
     if (v.heldOut || v.split === 'heldOut' || v.split !== split) continue;
     const wav = decodeWav(new Uint8Array(readFileSync(join(OUT, v.wav))));
+    const truth = JSON.parse(readFileSync(join(OUT, v.truth), 'utf8'));
+    const st = resolveStart(variantStart(v, startMode, errBeats, truth));
     out.push({
       v,
-      info: { bpm: v.bpm, ts: v.ts, startSec: v.startSec },
+      info: { bpm: v.bpm, ts: v.ts, startSec: st.startSec, firstNoteSec: st.firstNoteSec, firstNoteTick: st.firstNoteTick },
       x: resampleSinc(toMono(wav.channels), wav.sampleRate, 22050),
-      truth: JSON.parse(readFileSync(join(OUT, v.truth), 'utf8')),
+      truth,
     });
   }
   return out;
@@ -146,13 +164,17 @@ export function evaluate(takes: Take[], cfg: HumConfig, withF0 = false): Summary
   return out;
 }
 
-export function objective(s: Summary): number {
+/** Objective weights per level (--objective "H2:1,H3:1.5", the T9 default) and guarded levels (--guard "H0,H1"). */
+export const DEFAULT_OBJECTIVE: Record<string, number> = { H2: 1, H3: 1.5 };
+export const DEFAULT_GUARD = ['H0', 'H1'];
+
+export function objective(s: Summary, weights: Record<string, number> = DEFAULT_OBJECTIVE): number {
   const part = (L: string) => s[L].fOnset + s[L].quantExact - s[L].editsKbd;
-  return part('H2') + 1.5 * part('H3');
+  return Object.entries(weights).reduce((a, [L, w]) => a + w * part(L), 0);
 }
 
-export function guardOk(s: Summary, start: Summary): boolean {
-  return (['H0', 'H1'] as const).every((L) => s[L].fOnset >= start[L].fOnset - GUARD && s[L].quantExact >= start[L].quantExact - GUARD && s[L].editsKbd <= start[L].editsKbd + GUARD);
+export function guardOk(s: Summary, start: Summary, levels: readonly string[] = DEFAULT_GUARD): boolean {
+  return levels.every((L) => s[L].fOnset >= start[L].fOnset - GUARD && s[L].quantExact >= start[L].quantExact - GUARD && s[L].editsKbd <= start[L].editsKbd + GUARD);
 }
 
 function setPath(ov: Record<string, Record<string, Val>>, path: string, v: Val) {
@@ -186,20 +208,24 @@ function main(argv: string[]) {
   const rounds = Number(arg(argv, '--rounds', '2'));
   const outPath = resolve(arg(argv, '-o', join(OUT, 't9', `tune-${split}.json`))!);
 
+  const objArg = arg(argv, '--objective');
+  const objW: Record<string, number> = objArg ? Object.fromEntries(objArg.split(',').map((x) => [x.split(':')[0], Number(x.split(':')[1] ?? 1)])) : DEFAULT_OBJECTIVE;
+  const guardL = (arg(argv, '--guard') ?? DEFAULT_GUARD.join(',')).split(',').filter(Boolean);
+  const objective_ = (s: Summary) => objective(s, objW);
   const t0 = performance.now();
-  const takes = loadTakes(split);
+  const takes = loadTakes(split, (arg(argv, '--start-mode', 'bar') as CliArgs['startMode']), Number(arg(argv, '--start-error-beats', '0')));
   process.stderr.write(`${split}: ${takes.length} takes loaded (${((performance.now() - t0) / 1000).toFixed(1)} s)\n`);
   const startCfg = resolveHumConfig(ov);
   const start = evaluate(takes, startCfg);
   let cur = start;
-  let curJ = objective(cur);
+  let curJ = objective_(cur);
   process.stderr.write(`start ${humConfigHash(startCfg)} J ${curJ.toFixed(4)}\n  ${fmtSummary(start)}\n`);
   const history: { param: string; value: Val; J: number; guard: boolean; summary: Summary }[] = [];
 
   const tryCfg = (cand: Record<string, Record<string, Val>>, label: string, value: Val) => {
     const s = evaluate(takes, resolveHumConfig(cand));
-    const J = objective(s);
-    const g = guardOk(s, start);
+    const J = objective_(s);
+    const g = guardOk(s, start, guardL);
     history.push({ param: label, value, J, guard: g, summary: s });
     process.stderr.write(`  ${label}=${JSON.stringify(value)} J ${J.toFixed(4)}${g ? '' : ' (guard)'}\n`);
     return { s, J, g };

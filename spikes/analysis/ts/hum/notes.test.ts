@@ -4,6 +4,8 @@ import {
   estimateTuning,
   extractNotes,
   fixOctaveGlitches,
+  hasPlateau,
+  mergeFragments,
   frameLevelDb,
   joinDropouts,
   medianSmooth,
@@ -286,5 +288,95 @@ describe('extractNotes on hand-made f0 tracks', () => {
   it('defaults are the T0 config', () => {
     const { track, levelDb } = makeTrack(0.5, notesPitch([[0.1, 0.4, 60]]));
     expect(extractNotes(track, levelDb, INFO, DEFAULT_HUM_CONFIG)).toEqual(extractNotes(track, levelDb, INFO));
+  });
+});
+
+describe('scoop / drift robustness (rules 3b, 6b)', () => {
+  // hum-v1 behaviour: the new rules off
+  const OLD = resolveHumConfig({ segment: { plateauFrames: 0, fragmentMs: 0 } });
+  const NO_TUNING = resolveHumConfig({ pitch: { tuning: false } });
+  const midis = (r: { notes: { midi: number }[] }) => r.notes.map((n) => n.midi);
+
+  it('hasPlateau finds a flat run of N frames', () => {
+    const s = [60, 60.5, 61, 61.05, 61.1, 61.05, 62];
+    expect(hasPlateau(s, 0, s.length, 4, 0.2)).toBe(true);
+    expect(hasPlateau(s, 0, s.length, 5, 0.2)).toBe(false);
+    expect(hasPlateau(s, 0, 3, 4, 0.2)).toBe(false);
+  });
+
+  it('a slow onset scoop (1.2 semitones over 220 ms) belongs to the note', () => {
+    // from 58.8 up to 60 in 220 ms (5.5 st/s: "stable" for the slope test), then 60 for 0.5 s
+    const pitch = (t: number) => (t < 0.1 || t > 0.82 ? NaN : t < 0.32 ? 58.8 + 1.2 * rc((t - 0.1) / 0.22) : 60);
+    const { track, levelDb } = makeTrack(1, pitch);
+    expect(midis(extractNotes(track, levelDb, INFO, OLD))).toEqual([59, 60]); // the extra split of look point 1
+    const r = extractNotes(track, levelDb, INFO);
+    expect(midis(r)).toEqual([60]);
+    expect(Math.abs(r.notes[0].start - 0.1)).toBeLessThan(0.02);
+    expect(Math.abs(r.notes[0].cents)).toBeLessThan(5);
+  });
+
+  it('overshoot and return (+0.8 semitones for 90 ms) does not split', () => {
+    const pitch = (t: number) => (t < 0.1 || t > 1.0 ? NaN : t > 0.45 && t < 0.54 ? 60.8 : 60);
+    const { track, levelDb } = makeTrack(1.1, pitch);
+    expect(midis(extractNotes(track, levelDb, INFO))).toEqual([60]);
+  });
+
+  it('a slow drift across the semitone boundary in the middle of a note does not split', () => {
+    // 60.1 for 0.4 s, drifting up to 60.75 over 150 ms and back over 150 ms, then 60.1 for 0.3 s
+    const pitch = (t: number) => {
+      if (t < 0.1 || t > 1.1) return NaN;
+      const x = t - 0.5;
+      return x < 0 || x > 0.3 ? 60.1 : 60.1 + 0.65 * (x < 0.15 ? x / 0.15 : (0.3 - x) / 0.15);
+    };
+    const { track, levelDb } = makeTrack(1.2, pitch);
+    const r = extractNotes(track, levelDb, INFO, NO_TUNING);
+    expect(midis(r)).toEqual([60]);
+    expect(Math.abs(r.notes[0].cents - 10)).toBeLessThan(15); // the drift frames move it a little, not across
+  });
+
+  it('a short drifted tail (90 ms over the boundary) merges into the note (rule 6b), pitch from the longer part', () => {
+    // 0.5 s at 60.2, a quick move to 60.9 held 90 ms, then silence: rule 3b splits it at the run end, 6b merges it back
+    const pitch = (t: number) => (t < 0.1 || t > 0.69 ? NaN : t < 0.6 ? 60.2 : 60.9);
+    const { track, levelDb } = makeTrack(0.8, pitch);
+    const noMerge = extractNotes(track, levelDb, INFO, resolveHumConfig({ segment: { fragmentMs: 0, minNoteSixteenths: 0.25 }, pitch: { tuning: false } }));
+    expect(midis(noMerge)).toEqual([60, 61]);
+    const r = extractNotes(track, levelDb, INFO, NO_TUNING);
+    expect(midis(r)).toEqual([60]);
+    expect(Math.abs(r.notes[0].cents - 20)).toBeLessThan(5);
+  });
+
+  it('real notes still split: legato steps, a fast 16th run and a jump after a short note', () => {
+    const legato = (t: number) => (t < 0.1 || t > 1.3 ? NaN : t < 0.5 ? 60 : t < 0.9 ? 62 : 61);
+    let x = makeTrack(1.4, legato);
+    expect(midis(extractNotes(x.track, x.levelDb, INFO))).toEqual([60, 62, 61]);
+    // 16ths at 120 bpm (125 ms each) with 30 ms glides, rising scale
+    const fast: HumInfo = { bpm: 120, ts: [4, 4], startSec: 0 };
+    const steps = [60, 62, 64, 65, 67, 65, 64, 62];
+    const run = (t: number) => {
+      if (t < 0.1 || t >= 0.1 + steps.length * 0.125) return NaN;
+      const k = Math.floor((t - 0.1) / 0.125);
+      const dt = t - 0.1 - k * 0.125;
+      return k > 0 && dt < 0.03 ? steps[k - 1] + (steps[k] - steps[k - 1]) * rc(dt / 0.03) : steps[k];
+    };
+    x = makeTrack(1.2, run);
+    expect(midis(extractNotes(x.track, x.levelDb, fast))).toEqual(steps);
+  });
+
+  it('mergeFragments: a short piece next to a longer note within 1 semitone joins it and keeps its pitch range', () => {
+    const segs = [
+      { a: 0, b: 6, cause: 'run' as const },
+      { a: 6, b: 40, cause: 'pitch' as const },
+      { a: 40, b: 70, cause: 'pitch' as const },
+    ];
+    const pitchOf = [59.4, 60, 62];
+    const med = (g: { a: number }) => pitchOf[segs.findIndex((x) => x.a === g.a)] ?? (g.a === 0 ? 60 : 62);
+    const out = mergeFragments(segs, med, 10, 0, 1);
+    expect(out.map((g) => [g.a, g.b, g.pa, g.pb])).toEqual([[0, 40, 6, 40], [40, 70, undefined, undefined]]);
+    // too far in pitch, or a dip boundary: kept
+    expect(mergeFragments(segs, () => 0, 10, 0, 1).length).toBe(2); // equal medians -> merged too (d = 0)
+    const far = mergeFragments(segs, (g) => (g.a === 0 ? 57 : g.a === 6 ? 60 : 62), 10, 0, 1);
+    expect(far.length).toBe(3);
+    const dip = mergeFragments([{ a: 0, b: 30, cause: 'run' }, { a: 30, b: 36, cause: 'dip' }], () => 60, 10, 0, 1);
+    expect(dip.length).toBe(2);
   });
 });

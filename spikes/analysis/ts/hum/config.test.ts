@@ -76,7 +76,7 @@ describe('hum types', () => {
         notes: [note],
         quantized: { bpm: 100, ts: [4, 4], startSec: 0, onsetBiasSec: 0, grid: 'sixteenth', events: [] },
       },
-      hum: { meta: { configHash: humConfigHash(), configName: 'hum-v0', timings: { stagesMs: {}, totalMs: 0, audioSec: 1 }, warnings: [], tuningCents: 0, info: { bpm: 100, ts: [4, 4], startSec: 0 } } },
+      hum: { meta: { configHash: humConfigHash(), configName: 'hum-v0', timings: { stagesMs: {}, totalMs: 0, audioSec: 1 }, warnings: [], tuningCents: 0, info: { bpm: 100, ts: [4, 4], startSec: 0 }, grid: { startMode: 'barStart', givenStartSec: 0, startSec: 0, phaseOffsetSec: 0, phaseSteps: 0, onsetBiasSec: 0, barPositionKnown: true } } },
     };
     const asBase: AnalysisResult = r;
     const old: AnalysisResult = { ...asBase, melody: { notes: [{ start: 0, end: 1, midi: 60, confidence: 1 }] } };
@@ -85,4 +85,4 @@ describe('hum types', () => {
   });
 });
 
-const PINNED = '0326ed5fd6c4';
+const PINNED = 'cc4d83e41d17'; // hum-v2 (spike 4 step 2); hum-v1 was 0326ed5fd6c4

@@ -133,7 +133,7 @@ function main() {
     '- truth: sung-time notes for note F / f0 / segmentation / pitch errors; score-time ticks for quantized accuracy and edits. Truth notes shorter than a 16th are dropped.',
     '',
   ];
-  const levels = ['H0', 'H1', 'H2', 'H3'];
+  const levels = ['H0', 'H1', 'H2', 'H3', 'H4'].filter((L) => rows.some((r) => r.level === L));
   for (const split of ['tuning', 'dev']) {
     const sub = rows.filter((r) => r.split === split);
     md.push(`# ${split}`, '', renderReport(sub).split('## Synthetic: per variant')[0].replace('## Synthetic: mean per level', '## Mean per level (mean of per-take values)'));

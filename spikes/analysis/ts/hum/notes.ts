@@ -27,6 +27,15 @@
  *      note's reference waits until the pitch settles again (so the rest of a glide does not split twice). Vibrato
  *      (+-20..60 cents) never stays that far for that long from a median over ~2 vibrato periods, and a scoop at a
  *      phrase start is over before the pitch settles, so neither splits.
+ *      3b (spike 4 step 2, scoops / drift; segment.plateauFrames > 0): a split also needs a stable pitch on BOTH
+ *      sides: plateauFrames consecutive smoothed frames (at most segment.plateauMaxSixteenths of a 16th, >= 3) whose
+ *      range is <= segment.plateauSemitones. The new side must
+ *      reach one while it still deviates; if the pitch comes back first (overshoot-and-return, a short excursion) the
+ *      deviation is dropped, and if it has not plateaued after segment.plateauWaitMs the split is made anyway (a real
+ *      note with heavy vibrato). If the OLD side has no plateau since its start (it was a scoop / ramp that the
+ *      slope test called stable; a side lasting plateauWaitMs counts as stable (vibrato), and so does one more than
+ *      segment.scoopMaxSemitones from the new pitch (a jump, not an approach)), no boundary is made: the reference is reset and settles on the new pitch, so the
+ *      ramp belongs to the note it leads into.
  *   4. Dip snap: a pitch boundary moves to the deepest level minimum within +-SNAP_MS when that dip is at least
  *      segment.dipDb / 2 deep (singers dip at note changes too; the dip marks the onset better than the glide).
  *   5. Dip splits (segment.splitOnDips; same-pitch repeats "la la"): inside a note, a local minimum of the
@@ -37,6 +46,12 @@
  *      pitch (shortest first), except that a piece whose pitch lies between both neighbours (the rest of a glide)
  *      joins the NEXT note; a short note touching nothing is dropped. Then touching notes split by pitch whose
  *      medians are < MERGE_SEMITONES apart are merged again (left-overs of scoops).
+ *      6b (segment.fragmentMs > 0; note-level smoothing): a note shorter than fragmentMs that touches a neighbour
+ *      (unvoiced gap <= segment.fragmentGapMs; boundary from a pitch split or a voiced-run end, never a level dip)
+ *      whose median pitch is <= segment.fragmentSemitones away, and that neighbour is longer, is merged into it
+ *      (the closer pitch first, shortest fragment first). The merged note's pitch is taken from the longer part only
+ *      (Segment.pa / pb), so a scoop or a drifted tail does not move it. Same-pitch pieces left over are merged by the
+ *      MERGE_SEMITONES rule of 6.
  *   7. Pitch: median of the raw pitch of the stable frames after trimming pitch.trimFraction of them at each end
  *      (all frames if fewer than 3 are stable).
  *   8. Octave fix (pitch.octaveFix): a note of <= pitch.octaveFixMaxSixteenths whose pitch is >= OCT_FAR semitones
@@ -297,6 +312,32 @@ export interface PitchSplitParams {
   maxBackFrames: number;
   /** Consecutive stable frames before a reference exists (default SETTLE_FRAMES). */
   settleFrames?: number;
+  /** Rule 3b: plateau length (frames, 0 = off), its max range (semitones) and the wait before splitting anyway (frames). */
+  plateauFrames?: number;
+  plateauSemitones?: number;
+  plateauWaitFrames?: number;
+  /** Rule 3b: only an old side within this many semitones of the new pitch can be a ramp (scoop / portamento). */
+  scoopMaxSemitones?: number;
+}
+
+/** True when s has plateau frames in a row within [lo, hi) whose range (max - min) is <= range (rule 3b). */
+export function hasPlateau(s: ArrayLike<number>, lo: number, hi: number, frames: number, range: number): boolean {
+  if (frames <= 1) return hi - lo >= 1;
+  for (let a = lo; a + frames <= hi; a++) {
+    let mn = Infinity;
+    let mx = -Infinity;
+    let ok = true;
+    for (let j = a; j < a + frames; j++) {
+      mn = Math.min(mn, s[j]);
+      mx = Math.max(mx, s[j]);
+      if (mx - mn > range) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return true;
+  }
+  return false;
 }
 
 /**
@@ -315,12 +356,18 @@ export function pitchSplits(s: ArrayLike<number>, stable: ArrayLike<boolean>, a:
   let sign = 0;
   let ref = NaN;
   const settle = P.settleFrames ?? SETTLE_FRAMES;
+  const plat = P.plateauFrames ?? 0;
+  const platR = P.plateauSemitones ?? 0.3;
+  const platWait = P.plateauWaitFrames ?? Infinity;
+  const scoopMax = P.scoopMaxSemitones ?? Infinity;
+  let iNow = a;
   const refOf = (lo: number, hi: number): number => {
     const w: number[] = [];
     for (let j = hi - 1; j >= lo && w.length < P.refFrames; j--) w.push(s[j]);
     return w.length ? median(w) : NaN;
   };
   for (let i = a; i < b; i++) {
+    iNow = i;
     if (refStart < 0) {
       let ok = i - settle + 1 >= from;
       for (let j = i - settle + 1; ok && j <= i; j++) ok = stable[j];
@@ -331,25 +378,66 @@ export function pitchSplits(s: ArrayLike<number>, stable: ArrayLike<boolean>, a:
     const d = s[i] - ref;
     if (Math.abs(d) >= P.moveSemitones) {
       const sg = Math.sign(d);
+      if (plat > 0 && k >= 0 && sg !== sign && i - k >= P.minMoveFrames && oldStable()) {
+        // rule 3b: a deviation still waiting for its plateau jumps to the other side (the next note came before the
+        // plateau, or an f0 glitch): it was a note
+        // the waited part is the new note: it is the reference, and this frame starts a deviation from it
+        const k0 = k;
+        split();
+        refStart = k0;
+        ref = refOf(k0, i);
+        k = i;
+        sign = sg;
+        continue;
+      }
       if (k < 0 || sg !== sign) {
         k = i;
         sign = sg;
       }
       if (i - k + 1 >= P.minMoveFrames) {
-        let j = k;
-        while (j - 1 > seg && k - (j - 1) <= P.maxBackFrames && sign * (s[j] - s[j - 1]) > BACK_STEP && sign * (s[j - 1] - ref) > BACK_NEAR) j--;
-        const boundary = Math.max(seg + 1, j);
-        out.push(boundary);
-        seg = boundary;
-        from = k;
-        refStart = -1;
-        k = -1;
+        if (plat > 0) {
+          // rule 3b: the new side must plateau while it deviates (or deviate for platWait frames) ...
+          if (!hasPlateau(s, k, i + 1, plat, platR) && i - k + 1 < platWait) continue;
+          // ... and the old side must have had a stable pitch since this note's start; else it was a ramp into this one
+          if (!oldStable()) {
+            from = k;
+            refStart = -1;
+            k = -1;
+            continue;
+          }
+        }
+        split();
       }
     } else {
       k = -1;
     }
   }
+  // rule 3b: a deviation still waiting for its plateau when the run ends (a short last note) splits if the old side
+  // had a stable pitch; a short drifted note end split off this way is merged back by rule 6b
+  if (plat > 0 && k >= 0 && b - k >= P.minMoveFrames && oldStable()) split();
   return out;
+
+  /** The note before the deviation was a note, not a ramp: it has a plateau, lasted platWait frames (vibrato), or
+   *  lies more than scoopMax semitones from the pitch now (a scoop / portamento is a small approach). */
+  function oldStable(): boolean {
+    if (k - seg >= platWait || hasPlateau(s, seg, k, plat, platR)) return true;
+    const w: number[] = [];
+    for (let j = seg; j < k; j++) if (Number.isFinite(s[j])) w.push(s[j]);
+    return w.length > 0 && Math.abs(s[Math.min(b - 1, Math.max(k, iNow))] - median(w)) > scoopMax;
+  }
+
+  function split(): void {
+    let j = k;
+    while (j - 1 > seg && k - (j - 1) <= P.maxBackFrames && sign * (s[j] - s[j - 1]) > BACK_STEP && sign * (s[j - 1] - ref) > BACK_NEAR) j--;
+    const boundary = Math.max(seg + 1, j);
+    out.push(boundary);
+    seg = boundary;
+    from = k;
+    // rule 3b waited for the new pitch to be stable: it is the new reference at once (with plateauFrames = 0 the
+    // reference waits for SETTLE_FRAMES stable frames, as before)
+    refStart = plat > 0 && iNow - k + 1 >= plat ? k : -1;
+    k = -1;
+  }
 }
 
 /* ------------------------------------------------------------------ segmentation */
@@ -362,6 +450,9 @@ export interface Segment {
   b: number;
   /** What made the boundary at `a`. */
   cause: BoundaryCause;
+  /** Frames [pa, pb) the pitch is taken from when a fragment was merged in (rule 6b); default [a, b). */
+  pa?: number;
+  pb?: number;
 }
 
 export interface SegmentDebug {
@@ -405,6 +496,11 @@ export function segmentFrames(track: FrameF0Track, levelDb: ArrayLike<number>, i
     refFrames: sc.refFrames,
     maxBackFrames: Math.round(MAX_BACK_MS / 1000 / hop),
     settleFrames: sc.settleFrames,
+    // capped at plateauMaxSixteenths of a 16th so a real fast 16th can still be a note
+    plateauFrames: sc.plateauFrames > 0 ? Math.min(sc.plateauFrames, Math.max(3, Math.round((sc.plateauMaxSixteenths * sixteenthSec(info)) / hop))) : 0,
+    plateauSemitones: sc.plateauSemitones,
+    plateauWaitFrames: Math.max(1, Math.round(sc.plateauWaitMs / 1000 / hop)),
+    scoopMaxSemitones: sc.scoopMaxSemitones,
   };
   const snapF = Math.round(SNAP_MS / 1000 / hop);
   const dipW = Math.round(DIP_WINDOW_MS / 1000 / hop);
@@ -457,9 +553,11 @@ export function segmentFrames(track: FrameF0Track, levelDb: ArrayLike<number>, i
 
   // rule 6
   const med = (g: Segment) => {
+    const lo = g.pa ?? g.a;
+    const hi = g.pb ?? g.b;
     const w: number[] = [];
-    for (let i = g.a; i < g.b; i++) if (stable[i]) w.push(s[i]);
-    if (w.length === 0) for (let i = g.a; i < g.b; i++) w.push(s[i]);
+    for (let i = lo; i < hi; i++) if (stable[i] && Number.isFinite(s[i])) w.push(s[i]);
+    if (w.length === 0) for (let i = lo; i < hi; i++) if (Number.isFinite(s[i])) w.push(s[i]);
     return median(w);
   };
   for (;;) {
@@ -487,14 +585,64 @@ export function segmentFrames(track: FrameF0Track, levelDb: ArrayLike<number>, i
       segs.splice(idx, 1);
     }
   }
+  // rule 6b
+  if (sc.fragmentMs > 0) segs = mergeFragments(segs, med, Math.round(sc.fragmentMs / 1000 / hop), Math.round(sc.fragmentGapMs / 1000 / hop), sc.fragmentSemitones);
   const merged: Segment[] = [];
   for (const g of segs) {
     const last = merged[merged.length - 1];
-    if (last && last.b === g.a && g.cause === 'pitch' && Math.abs(med(last) - med(g)) < MERGE_SEMITONES) last.b = g.b;
-    else merged.push({ ...g });
+    if (last && last.b === g.a && g.cause === 'pitch' && Math.abs(med(last) - med(g)) < MERGE_SEMITONES) {
+      // keep a pitch range from 6b on the longer part
+      if (last.pa !== undefined || g.pa !== undefined) {
+        const lr = (last.pb ?? last.b) - (last.pa ?? last.a);
+        const gr = (g.pb ?? g.b) - (g.pa ?? g.a);
+        const src = lr >= gr ? last : g;
+        [last.pa, last.pb] = [src.pa ?? src.a, src.pb ?? src.b];
+      }
+      last.b = g.b;
+    } else merged.push({ ...g });
   }
   segs = merged;
   return { segments: segs, pitch: p, smooth: s, stable, octaveGlitchFrames };
+}
+
+/**
+ * Rule 6b: merge short fragments (< maxF frames) into a longer neighbour that is (almost) touching (gap <= maxGap
+ * frames, boundary not from a level dip) and <= maxSemitones away in median pitch. The merged note keeps the pitch
+ * range of the longer part. Shortest fragment first, the closer-pitched neighbour first. Returns a new array.
+ */
+export function mergeFragments(segs0: readonly Segment[], med: (g: Segment) => number, maxF: number, maxGap: number, maxSemitones: number): Segment[] {
+  const segs = segs0.map((g) => ({ ...g }));
+  const len = (g: Segment) => g.b - g.a;
+  const prange = (g: Segment): [number, number] => [g.pa ?? g.a, g.pb ?? g.b];
+  const blocked = new Set<Segment>();
+  for (;;) {
+    let idx = -1;
+    for (let q = 0; q < segs.length; q++) if (!blocked.has(segs[q]) && len(segs[q]) < maxF && (idx < 0 || len(segs[q]) < len(segs[idx]))) idx = q;
+    if (idx < 0) break;
+    const g = segs[idx];
+    const mg = med(g);
+    const opts: { nb: Segment; side: -1 | 1; d: number }[] = [];
+    const pv = idx > 0 ? segs[idx - 1] : null;
+    const nx = idx + 1 < segs.length ? segs[idx + 1] : null;
+    if (pv && g.a - pv.b <= maxGap && g.cause !== 'dip' && len(pv) > len(g)) opts.push({ nb: pv, side: -1, d: Math.abs(med(pv) - mg) });
+    if (nx && nx.a - g.b <= maxGap && nx.cause !== 'dip' && len(nx) > len(g)) opts.push({ nb: nx, side: 1, d: Math.abs(med(nx) - mg) });
+    const ok = opts.filter((o) => o.d <= maxSemitones).sort((x, y) => x.d - y.d);
+    if (ok.length === 0) {
+      blocked.add(g);
+      continue;
+    }
+    const { nb, side } = ok[0];
+    const [pa, pb] = prange(nb);
+    if (side === -1) nb.b = g.b;
+    else {
+      nb.a = g.a;
+      nb.cause = g.cause;
+    }
+    nb.pa = pa;
+    nb.pb = pb;
+    segs.splice(idx, 1);
+  }
+  return segs;
 }
 
 /* ------------------------------------------------------------------ pitch */
@@ -559,7 +707,7 @@ export function extractNotes(track: FrameF0Track, levelDb: ArrayLike<number>, in
   const hop = track.hopSec;
   const t = (i: number) => track.t0 + i * hop;
   const pc = cfg.pitch;
-  const raw = seg.segments.map((g) => ({ g, ...notePitch(seg.pitch, seg.stable, g.a, g.b, pc.trimFraction) }));
+  const raw = seg.segments.map((g) => ({ g, ...notePitch(seg.pitch, seg.stable, g.pa ?? g.a, g.pb ?? g.b, pc.trimFraction) }));
   if (raw.length === 0) warnings.push('no voiced frames');
 
   // rule 8

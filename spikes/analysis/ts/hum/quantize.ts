@@ -8,6 +8,20 @@
  * Rules, in order (all in ticks of src/lib/melody.ts, whole = 64, 16th = 4):
  *  1. Grid: beat = 64 / ts[1] ticks, bpm counts that beat, tick = 60 / (bpm * beatTicks) s, tick 0 = startSec.
  *     Step = 64 / grid.subdivision ticks (16 -> a 16th).
+ *  1b. Grid phase (grid.phaseSearch, spike 4 step 2): the given bar-1 head is approximate (the user writes the
+ *     approximate second of the first sung note). Over whole grid steps k with |k * step| <= phaseRangeBeats beats,
+ *     the analyzer picks the offset that best explains the detected onsets (never the truth):
+ *       score(k) = sum_i w_i * phaseLevelWeights[metricLevel(slot_i - k step)]           (onsets on beats / strong slots)
+ *                  - (k step / beat)^2 / (2 phasePriorBeats^2)                           (stay near the given head;
+ *                    phaseBarPriorBeats instead when only a bar-1 head was given: `小節頭:` is meant to be exact)
+ *                  - phaseAnchorWeight * min(d_k, 1 beat)^2 / (2 phaseAnchorBeats^2)      (first note, when known)
+ *     slot_i = the onset's nearest grid point after the sub-step bias (rule 2's estimator, which is step-periodic and
+ *     so the same for every k), w_i = exp(-r_i^2 / (2 (0.2 step)^2)) (r_i its residual) times (0.5 + 0.5 min(1,
+ *     duration / beat)) (long notes weigh more). The anchor: with info.firstNoteSec, the first detected note starting
+ *     after firstNoteSec - phaseRangeBeats beats is the first sung note; d_k = its distance (beats) to firstNoteTick
+ *     (0 when unknown: the first note is then bar 1 beat 1 and ticks count from its beat). Ties go to the smaller |k|. The bar-1 head becomes
+ *     startSec + k * step * tickSec (QuantizedMelody.startSec; givenStartSec / phaseOffsetSec record the search);
+ *     k = 0 reproduces the result without the search exactly.
  *  2. Onset bias (grid.onsetBias): the singer's habitual early/late offset b, in ticks. Default ('local'): start at
  *     b = 0 and move b by the median of the residuals of (onset - b) to the nearest grid point until it settles,
  *     |b| <= min(maxBiasSec, 0.45 step). Converging from 0 keeps a bias near half a step from flipping to the other
@@ -41,7 +55,7 @@
  *     Synthetic truths never contain triplets, so this only measures false positives.
  */
 import { DEFAULT_HUM_CONFIG, type HumConfig } from './config';
-import { WHOLE_TICKS, type HumInfo, type PitchCandidate, type QuantCandidate, type QuantizedEvent, type QuantizedMelody, type QuantizedNote } from './types';
+import { WHOLE_TICKS, type PitchCandidate, type QuantCandidate, type QuantizedEvent, type QuantizedMelody, type QuantizedNote } from './types';
 
 export type GridConfig = HumConfig['grid'];
 
@@ -70,6 +84,15 @@ export interface QuantizeOptions {
   padLastBar: boolean;
   /** Triplet beat when its error < tripletMargin * the 16th error (rule 9). */
   tripletMargin: number;
+  /** Grid phase search (rule 1b): on/off, range and prior (beats), score per metric level 0..4, first-note anchor. */
+  phaseSearch: boolean;
+  phaseRangeBeats: number;
+  phasePriorBeats: number;
+  /** Prior sigma (beats) when only the bar-1 head was given (no firstNoteSec: `小節頭:` / synthetic exact start). */
+  phaseBarPriorBeats: number;
+  phaseLevelWeights: number[];
+  phaseAnchorBeats: number;
+  phaseAnchorWeight: number;
 }
 
 export const DEFAULT_QUANTIZE_OPTIONS: Readonly<QuantizeOptions> = Object.freeze({
@@ -80,14 +103,33 @@ export const DEFAULT_QUANTIZE_OPTIONS: Readonly<QuantizeOptions> = Object.freeze
   minBiasNotes: 4,
   padLastBar: true,
   tripletMargin: 0.5,
-});
+  phaseSearch: false,
+  phaseRangeBeats: 1.5,
+  phasePriorBeats: 0.75,
+  phaseBarPriorBeats: 0.05,
+  phaseLevelWeights: [0, 0.5, 1, 1.05, 1.1],
+  phaseAnchorBeats: 0.25,
+  phaseAnchorWeight: 10,
+}) as Readonly<QuantizeOptions>;
+
+/**
+ * What quantize() needs to know about the start: the (approximate) bar-1 head, and optionally the approximate
+ * second of the first sung note with its bar position (ticks; undefined = "on some beat"), for the phase anchor.
+ */
+export interface QuantizeInfo {
+  bpm: number;
+  ts: [number, number];
+  startSec: number;
+  firstNoteSec?: number;
+  firstNoteTick?: number;
+}
 
 /** The QuantizeOptions a grid config carries (cfg.grid, T9); keys a hand-made grid object leaves out keep the defaults. */
 export function gridOptions(grid: Partial<GridConfig>): Partial<QuantizeOptions> {
   const out: Partial<QuantizeOptions> = {};
   for (const k of Object.keys(DEFAULT_QUANTIZE_OPTIONS) as (keyof QuantizeOptions)[]) {
     const v = (grid as Record<string, unknown>)[k];
-    if (v !== undefined) (out as Record<string, unknown>)[k] = v;
+    if (v !== undefined) (out as Record<string, unknown>)[k] = Array.isArray(v) ? [...v] : v;
   }
   if (out.biasMethod !== undefined && out.biasMethod !== 'local' && out.biasMethod !== 'trunc') throw new RangeError(`bad grid.biasMethod: ${String(out.biasMethod)}`);
   return out;
@@ -109,7 +151,7 @@ export interface BeatGrid {
   stepTicks: number;
 }
 
-export function beatGrid(info: Pick<HumInfo, 'bpm' | 'ts' | 'startSec'>, grid: Pick<GridConfig, 'subdivision'> = DEFAULT_HUM_CONFIG.grid): BeatGrid {
+export function beatGrid(info: Pick<QuantizeInfo, 'bpm' | 'ts' | 'startSec'>, grid: Pick<GridConfig, 'subdivision'> = DEFAULT_HUM_CONFIG.grid): BeatGrid {
   const [num, den] = info.ts;
   if (!(info.bpm > 0) || !Number.isFinite(info.bpm)) throw new RangeError(`bad bpm: ${info.bpm}`);
   if (!Number.isInteger(num) || num <= 0 || !Number.isInteger(den) || den <= 0 || WHOLE_TICKS % den !== 0) throw new RangeError(`bad time signature: ${num}/${den}`);
@@ -201,25 +243,26 @@ export interface QuantizeReport {
   moved: number;
   /** Beats written as triplets (rule 9). */
   tripletBeats: number;
+  /** Grid offset chosen by rule 1b, in steps (0 when off). */
+  phaseSteps: number;
   warnings: string[];
 }
 
 /** quantizeDetailed(...).melody. */
-export function quantize(notes: readonly QuantizeInputNote[], info: Pick<HumInfo, 'bpm' | 'ts' | 'startSec'>, grid: GridConfig = DEFAULT_HUM_CONFIG.grid, options: Partial<QuantizeOptions> = {}): QuantizedMelody {
+export function quantize(notes: readonly QuantizeInputNote[], info: QuantizeInfo, grid: GridConfig = DEFAULT_HUM_CONFIG.grid, options: Partial<QuantizeOptions> = {}): QuantizedMelody {
   return quantizeDetailed(notes, info, grid, options).melody;
 }
 
 export function quantizeDetailed(
   notes: readonly QuantizeInputNote[],
-  info: Pick<HumInfo, 'bpm' | 'ts' | 'startSec'>,
+  info: QuantizeInfo,
   grid: GridConfig = DEFAULT_HUM_CONFIG.grid,
   options: Partial<QuantizeOptions> = {},
 ): QuantizeReport {
   const opt: QuantizeOptions = { ...DEFAULT_QUANTIZE_OPTIONS, ...gridOptions(grid), ...options };
-  const g = beatGrid(info, grid);
-  const step = g.stepTicks;
+  const g0 = beatGrid(info, grid);
+  const step = g0.stepTicks;
   const warnings: string[] = [];
-  const toTick = (sec: number) => (sec - g.startSec) / g.tickSec;
 
   const order = notes
     .map((n, i) => ({ n, i }))
@@ -227,13 +270,37 @@ export function quantizeDetailed(
     .sort((a, b) => a.n.start - b.n.start || a.i - b.i);
   if (order.length < notes.length) warnings.push(`${notes.length - order.length} note(s) with end <= start were ignored`);
 
+  const maxBiasTicks = Math.min(opt.maxBiasSec / g0.tickSec, 0.45 * step);
+  const biasOf = (u: number[]) =>
+    grid.onsetBias && u.length >= opt.minBiasNotes ? (opt.biasMethod === 'local' ? estimateOnsetBiasLocal(u, step, maxBiasTicks) : estimateOnsetBiasTicks(u, step, maxBiasTicks)) : 0;
+
+  // ---- rule 1b: grid phase (whole steps)
+  let phaseSteps = 0;
+  if (opt.phaseSearch) {
+    const toTick0 = (sec: number) => (sec - g0.startSec) / g0.tickSec;
+    const u0 = order.map(({ n }) => toTick0(n.start));
+    const b0 = biasOf(u0);
+    let anchor: { u: number; target: number } | undefined;
+    if (info.firstNoteSec !== undefined && Number.isFinite(info.firstNoteSec)) {
+      const from = info.firstNoteSec - opt.phaseRangeBeats * g0.beatTicks * g0.tickSec;
+      const first = order.find(({ n }) => n.start >= from);
+      // without firstNoteTick the first note is taken as bar 1 beat 1 (tick 0): ticks then count from its beat
+      if (first) anchor = { u: toTick0(first.n.start) - b0, target: info.firstNoteTick !== undefined && Number.isFinite(info.firstNoteTick) ? info.firstNoteTick : 0 };
+    }
+    phaseSteps = estimateGridPhaseSteps(
+      u0.map((u) => u - b0),
+      order.map(({ n }) => (n.end - n.start) / g0.tickSec),
+      g0,
+      info.firstNoteSec !== undefined ? opt : { ...opt, phasePriorBeats: opt.phaseBarPriorBeats },
+      anchor,
+    );
+  }
+  const g: BeatGrid = phaseSteps === 0 ? g0 : { ...g0, startSec: g0.startSec + phaseSteps * step * g0.tickSec };
+  const toTick = (sec: number) => (sec - g.startSec) / g.tickSec;
+
   // ---- rule 2: bias
   const rawU = order.map(({ n }) => toTick(n.start));
-  let biasTicks = 0;
-  if (grid.onsetBias && order.length >= opt.minBiasNotes) {
-    const maxTicks = Math.min(opt.maxBiasSec / g.tickSec, 0.45 * step);
-    biasTicks = opt.biasMethod === 'local' ? estimateOnsetBiasLocal(rawU, step, maxTicks) : estimateOnsetBiasTicks(rawU, step, maxTicks);
-  }
+  const biasTicks = biasOf(rawU);
 
   const work: Work[] = order.map(({ n, i }) => ({
     u: toTick(n.start) - biasTicks,
@@ -383,8 +450,9 @@ export function quantizeDetailed(
     melody: {
       bpm: g.bpm,
       ts: [g.ts[0], g.ts[1]],
-      startSec: g.startSec,
+      startSec: round6(g.startSec),
       onsetBiasSec: round6(biasTicks * g.tickSec),
+      ...(opt.phaseSearch ? { givenStartSec: g0.startSec, phaseOffsetSec: round6(phaseSteps * step * g0.tickSec) } : {}),
       grid: grid.triplet && tripletBeats > 0 ? 'triplet' : 'sixteenth',
       events: finalEvents,
     },
@@ -392,8 +460,53 @@ export function quantizeDetailed(
     merged,
     moved,
     tripletBeats,
+    phaseSteps,
     warnings,
   };
+}
+
+/**
+ * Rule 1b: the grid offset in whole steps (positive = bar 1 later than given). `u` = onsets in ticks from the given
+ * head with the sub-step bias already removed, `dur` = note lengths in ticks, `anchor` = the first sung note's onset
+ * (same ticks) and its expected tick. See the header for the score.
+ */
+export function estimateGridPhaseSteps(
+  u: readonly number[],
+  dur: readonly number[],
+  g: Pick<BeatGrid, 'barTicks' | 'beatTicks' | 'ts' | 'stepTicks'>,
+  opt: Pick<QuantizeOptions, 'phaseRangeBeats' | 'phasePriorBeats' | 'phaseLevelWeights' | 'phaseAnchorBeats' | 'phaseAnchorWeight'>,
+  anchor?: { u: number; target: number },
+): number {
+  const step = g.stepTicks;
+  const K = Math.floor((opt.phaseRangeBeats * g.beatTicks) / step + 1e-9);
+  if (K <= 0) return 0;
+  const sr = 0.2 * step;
+  const slots = u.map((x) => roundTo(x, step));
+  const w = u.map((x, i) => Math.exp(-((x - slots[i]) ** 2) / (2 * sr * sr)) * (0.5 + 0.5 * Math.min(1, Math.max(0, dur[i] ?? 0) / g.beatTicks)));
+  const W = (lv: number) => opt.phaseLevelWeights[Math.min(lv, opt.phaseLevelWeights.length - 1)] ?? 0;
+  const mod = (x: number, m: number) => ((x % m) + m) % m;
+  let best = 0;
+  let bestScore = -Infinity;
+  for (let a = 0; a <= 2 * K; a++) {
+    const k = a % 2 === 0 ? a / 2 : -(a + 1) / 2; // 0, -1, 1, -2, 2 ... (ties keep the smaller |k|)
+    const shift = k * step;
+    let sc = 0;
+    slots.forEach((sl, i) => {
+      sc += w[i] * W(metricLevel(mod(sl - shift, g.barTicks), g));
+    });
+    const kb = shift / g.beatTicks;
+    if (opt.phasePriorBeats > 0) sc -= (kb * kb) / (2 * opt.phasePriorBeats ** 2);
+    if (anchor && opt.phaseAnchorWeight > 0 && opt.phaseAnchorBeats > 0) {
+      const pos = anchor.u - shift;
+      const d = Math.min(1, Math.abs(pos - anchor.target) / g.beatTicks);
+      sc -= (opt.phaseAnchorWeight * d * d) / (2 * opt.phaseAnchorBeats ** 2);
+    }
+    if (sc > bestScore + 1e-9) {
+      bestScore = sc;
+      best = k;
+    }
+  }
+  return best;
 }
 
 /** Metric strength of a tick position: 4 bar line, 3 half bar (even numerators), 2 beat, 1 eighth, 0 else. */

@@ -6,6 +6,8 @@
  * (ts/hum/tune.ts, out/hum/t9/): trimFraction .3/.35, glide 16, refFrames 48, medianFrames 3, biasMethod 'trunc'
  * (better on tuning, worse on dev), endExtendFraction .5 (H0 quant drops), pyin (tuning H2 drops), octaveCheckRatio .5
  * (no tuning effect; dev H3 better: left to T10).
+ * Spike 4 step 2 (hum-v2): grid phase search (grid.phase*) and scoop / drift robust segmentation (segment.plateau*,
+ * scoopMaxSemitones, fragment*), see the comments there.
  * configHash() = SHA-256 (first 12 hex) over the canonical JSON (sorted keys, compact; same helpers as the
  * spike-3 ts/dsp/config.ts), so the key order of an object never changes the hash. Numbers are written the
  * way pyCanonicalJson does (integral -> int, else Python float repr): keep that stable when editing defaults.
@@ -75,6 +77,18 @@ export interface HumConfig {
     /** Vibrato guard after a dip (rule 5): window (ms) and swing size (semitones). */
     vibratoWindowMs: number;
     vibratoSwingSemitones: number;
+    /** Rule 3b (notes.ts, spike 4 step 2): a pitch split needs a plateau of plateauFrames smoothed frames within
+     *  plateauSemitones on both sides (0 frames = off); the new side may take plateauWaitMs before splitting anyway. */
+    plateauFrames: number;
+    plateauMaxSixteenths: number;
+    plateauSemitones: number;
+    plateauWaitMs: number;
+    scoopMaxSemitones: number;
+    /** Rule 6b: notes shorter than fragmentMs (0 = off) touching a longer neighbour (gap <= fragmentGapMs) within
+     *  fragmentSemitones are merged into it, keeping the longer part's pitch. */
+    fragmentMs: number;
+    fragmentGapMs: number;
+    fragmentSemitones: number;
   };
   pitch: {
     /** Fraction of the note trimmed at both ends before taking the median. */
@@ -110,6 +124,16 @@ export interface HumConfig {
     padLastBar: boolean;
     tripletMargin: number;
     biasMethod: 'local' | 'trunc';
+    /** Grid phase search (quantize.ts rule 1b, spike 4 step 2): the given bar-1 head is approximate; whole-step
+     *  offsets within +-phaseRangeBeats beats are scored by the onsets on strong slots (phaseLevelWeights per metric
+     *  level 0 = odd 16th .. 4 = bar line), a Gaussian prior (phasePriorBeats) and the first-note anchor. */
+    phaseSearch: boolean;
+    phaseRangeBeats: number;
+    phasePriorBeats: number;
+    phaseBarPriorBeats: number;
+    phaseLevelWeights: number[];
+    phaseAnchorBeats: number;
+    phaseAnchorWeight: number;
   };
 }
 
@@ -118,7 +142,7 @@ export const HUM_CONFIG_GROUPS = ['audio', 'f0', 'voicing', 'segment', 'pitch', 
 export const DEFAULT_HUM_CONFIG: HumConfig = deepFreeze({
   // T9 (tuned on the synthetic TUNING split with ts/hum/tune.ts, confirmed on DEV; T8 baseline = 'hum-v0', 2d3c76d270cd).
   // Each changed value says why; 'tuning'/'dev' numbers are per-level means of F onset / quant exact / edits per keyboard step.
-  name: 'hum-v1',
+  name: 'hum-v2',
   audio: { sr: 22050 },
   f0: {
     win: 1024,
@@ -168,6 +192,17 @@ export const DEFAULT_HUM_CONFIG: HumConfig = deepFreeze({
     // T9: 0.15 -> 0.2. The vibrato guard blocked real dips after pitch noise of H2/H3 (+-15 cents counted as a swing);
     // tuning H3 quant exact .404 -> .416, H2 .855 -> .862 (leave-one-out); dev unchanged.
     vibratoSwingSemitones: 0.2,
+    // Spike 4 step 2 (scoops / drift; notes.ts rules 3b, 6b): chosen on the synthetic TUNING split with ts/hum/tune.ts
+    // (objective H4 + H3, guard: H0-H3 F onset / quant exact / edits-per-keyboard not lower than hum-v1). Tuning H4 F
+    // onset .284 -> .593, extra splits 176 % -> ~19 % of truth notes; H0-H3 tuning unchanged. Dev: see the step-2 report.
+    plateauFrames: 10,
+    plateauMaxSixteenths: 0.6,
+    plateauSemitones: 0.2,
+    plateauWaitMs: 400,
+    scoopMaxSemitones: 1.5,
+    fragmentMs: 100,
+    fragmentGapMs: 0,
+    fragmentSemitones: 1.3,
   },
   pitch: {
     trimFraction: 0.25,
@@ -193,6 +228,15 @@ export const DEFAULT_HUM_CONFIG: HumConfig = deepFreeze({
     padLastBar: true,
     tripletMargin: 0.5,
     biasMethod: 'local',
+    // Spike 4 step 2 (after look point 1): the user's start is approximate (first sung note), so search the phase.
+    phaseSearch: true,
+    phaseRangeBeats: 1.5,
+    phasePriorBeats: 0.75,
+    // only a bar-1 head given (小節頭 / synthetic): nearly exact, a shift needs strong evidence
+    phaseBarPriorBeats: 0.05,
+    phaseLevelWeights: [0, 0.5, 1, 1.05, 1.1],
+    phaseAnchorBeats: 0.25,
+    phaseAnchorWeight: 10,
   },
 });
 

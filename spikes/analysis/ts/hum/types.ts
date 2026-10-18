@@ -24,10 +24,44 @@ export interface HumInfo {
   bpm: number;
   /** Time signature [numerator, denominator], e.g. [4, 4]. */
   ts: [number, number];
-  /** Second (in the audio) at which bar 1 beat 1 starts, i.e. after the count-in. */
+  /** Second (in the audio) at which bar 1 beat 1 starts. May be NEGATIVE: the recording starts inside a rest-led
+   *  pickup bar. The analyzer treats it as approximate (grid.phaseSearch). */
   startSec: number;
   /** Optional key hint, e.g. 'C' or 'Am'; only reorders candidates near a semitone boundary (decision 6). */
   key?: string;
+}
+
+/**
+ * The input form of HumInfo (analyzeHum / CLI, plan "見る時点 ① の後の決定"): EITHER `startSec` (bar-1 head, may be
+ * negative) OR `firstNoteSec` (approximate second of the first sung note, the `.txt` `開始:`) with, when known,
+ * `firstNoteTick` (its bar position, ticks from bar 1 beat 1; e.g. 48 for a pickup on beat 4 of a 4/4 bar 1).
+ * Without `firstNoteTick` the first note is assumed to be on a beat and is put at tick 0 (bar 1 beat 1); the grid
+ * phase search then finds the beat. Both are approximate; the analyzer refines the grid phase from the onsets.
+ */
+export interface HumInput {
+  bpm: number;
+  ts: [number, number];
+  startSec?: number;
+  firstNoteSec?: number;
+  firstNoteTick?: number;
+  key?: string;
+}
+
+/** How the bar-1 head was obtained and refined (HumMeta.grid). Seconds are in the audio file's time. */
+export interface GridPhaseMeta {
+  /** 'barStart' (startSec given), 'firstNote' (firstNoteSec + firstNoteTick), 'firstNoteOnly' (firstNoteSec, beat assumed). */
+  startMode: 'barStart' | 'firstNote' | 'firstNoteOnly';
+  /** The bar-1 head implied by the input, before the phase search. */
+  givenStartSec: number;
+  /** The bar-1 head used for quantization (= givenStartSec + phaseOffsetSec); also melody.quantized.startSec. */
+  startSec: number;
+  /** Chosen grid offset (whole grid steps, positive = bar 1 later than given) in seconds and in steps. */
+  phaseOffsetSec: number;
+  phaseSteps: number;
+  /** Sub-step onset bias removed afterwards (= melody.quantized.onsetBiasSec). */
+  onsetBiasSec: number;
+  /** False for 'firstNoteOnly': ticks count from the beat of the first note, not from a known bar 1. */
+  barPositionKnown: boolean;
 }
 
 /** One alternative pitch reading of a note. `confidence` in 0..1, derived from the gap between the best and second best. */
@@ -93,6 +127,10 @@ export interface QuantizedMelody {
   startSec: number;
   /** Median onset offset (sec, positive = sang late) removed before rounding (design: bias correction). */
   onsetBiasSec: number;
+  /** Grid phase search (grid.phaseSearch): the bar-1 head before the search and the chosen offset (whole steps, s).
+   *  startSec above is already givenStartSec + phaseOffsetSec. Absent when the search is off. */
+  givenStartSec?: number;
+  phaseOffsetSec?: number;
   /** 'sixteenth' (default) or 'triplet' (switch, measured on synthetic only). */
   grid: 'sixteenth' | 'triplet';
   /** Consecutive from tick 0: notes and rests, no gaps or overlaps. */
@@ -132,7 +170,9 @@ export interface HumMeta {
   /** Recording-wide tuning offset removed from all pitches, in cents. */
   tuningCents: number;
   /** The info the analyzer was given (echoed for reproducibility). */
-  info: HumInfo;
+  info: HumInput;
+  /** Bar-1 head: input mode, given value, chosen phase offset and onset bias. */
+  grid: GridPhaseMeta;
 }
 
 /** The `hum` field of the result JSON. */

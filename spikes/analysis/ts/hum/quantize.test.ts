@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_HUM_CONFIG } from './config';
-import { beatGrid, checkQuantized, estimateOnsetBiasLocal, estimateOnsetBiasTicks, metricLevel, quantize, quantizeDetailed, wrapResidual, type QuantizedEventT } from './quantize';
+import { beatGrid, checkQuantized, estimateGridPhaseSteps, estimateOnsetBiasLocal, estimateOnsetBiasTicks, metricLevel, quantize, quantizeDetailed, wrapResidual, type QuantizedEventT } from './quantize';
 import { prng } from '../../render/prng';
 import type { HumInfo, QuantizedMelody, QuantizedNote } from './types';
 
@@ -320,5 +320,70 @@ describe('quantize: triplet switch', () => {
     ]);
     const r = quantizeDetailed(s, INFO, { ...GRID, triplet: true });
     expect(r.tripletBeats).toBe(0);
+  });
+});
+
+describe('grid phase search (rule 1b)', () => {
+  // a plain tune: quarters and eighths, mostly on beats
+  const TUNE: S[] = [
+    [0, 16, 60], [16, 16, 62], [32, 8, 64], [40, 8, 65], [48, 16, 67],
+    [64, 16, 67], [80, 8, 65], [88, 8, 64], [96, 32, 62],
+    [128, 16, 60], [144, 16, 64], [160, 32, 67],
+  ];
+  const beatSec = 60 / INFO.bpm;
+  const sungT = sing(INFO, TUNE, { jitter: (i) => [0.01, -0.012, 0.006, 0, -0.008, 0.011, -0.004, 0.009, -0.01, 0.003, 0.007, -0.006][i] });
+
+  it('estimateGridPhaseSteps: beats win over 16th offsets; the prior and the anchor pick the beat', () => {
+    const g = beatGrid(INFO);
+    const opt = { phaseRangeBeats: 1.5, phasePriorBeats: 0.75, phaseLevelWeights: [0, 0.5, 1, 1.05, 1.1], phaseAnchorBeats: 0.25, phaseAnchorWeight: 10 };
+    const u = TUNE.map(([st]) => st);
+    const dur = TUNE.map(([, ti]) => ti);
+    expect(estimateGridPhaseSteps(u, dur, g, opt)).toBe(0);
+    // the given head is 1 16th late: onsets at -4 relative to it -> k = -1
+    expect(estimateGridPhaseSteps(u.map((x) => x - 4), dur, g, opt)).toBe(-1);
+    // 3 16ths early: k = +3 (a beat away from k = -1, which the prior alone would prefer) only with the anchor
+    const u3 = u.map((x) => x + 12);
+    expect(estimateGridPhaseSteps(u3, dur, g, { ...opt, phaseAnchorWeight: 0 })).toBe(-1);
+    expect(estimateGridPhaseSteps(u3, dur, g, opt, { u: u3[0], target: 0 })).toBe(3);
+    // a tight prior (bar head given) keeps 0 against weak evidence
+    expect(estimateGridPhaseSteps([4, 20, 36], [16, 16, 16], g, { ...opt, phasePriorBeats: 0.05 })).toBe(0);
+  });
+
+  it('bar head given (default bar prior): same result as without the search', () => {
+    const on = quantizeDetailed(sungT, INFO, GRID);
+    const off = quantizeDetailed(sungT, INFO, { ...GRID, phaseSearch: false });
+    expect(on.phaseSteps).toBe(0);
+    expect(shape(on.melody)).toEqual(shape(off.melody));
+    expect(on.melody.givenStartSec).toBe(INFO.startSec);
+    expect(on.melody.phaseOffsetSec).toBe(0);
+    expect(off.melody.givenStartSec).toBeUndefined();
+  });
+
+  for (const err of [-0.7, -0.3, 0.4, 0.9]) {
+    it(`approximate first note (${err} beats off) with its tick: the written ticks come back`, () => {
+      const first = sungT[0].start + err * beatSec;
+      const q = quantizeDetailed(sungT, { bpm: INFO.bpm, ts: INFO.ts, startSec: first, firstNoteSec: first, firstNoteTick: 0 }, GRID);
+      expect(shape(q.melody).filter((e) => e[0] !== 'r')).toEqual(TUNE);
+      // whole steps from the phase search, the rest from the onset bias
+      expect(Math.abs(q.melody.startSec - INFO.startSec)).toBeLessThan(0.5 * (beatSec / 4));
+      expect(Math.abs(q.melody.startSec + q.melody.onsetBiasSec - INFO.startSec)).toBeLessThan(0.02);
+      expect(q.melody.givenStartSec).toBeCloseTo(first, 9);
+    });
+  }
+
+  it('first note only (no tick): it becomes bar 1 beat 1 and the rest follows', () => {
+    // a pickup: the tune starts on beat 4 (tick 48) of bar 1; the user only knows the first note's second (~0.6 beat early)
+    const pick = sing(INFO, TUNE.map(([st, ti, m]) => [st + 48, ti, m] as S));
+    const first = pick[0].start - 0.6 * beatSec;
+    const q = quantize(pick, { bpm: INFO.bpm, ts: INFO.ts, startSec: first, firstNoteSec: first }, GRID);
+    expect(shape(q).filter((e) => e[0] !== 'r')).toEqual(TUNE);
+  });
+
+  it('a negative bar-1 head works (recording starts inside a pickup bar)', () => {
+    const neg: HumInfo = { bpm: 100, ts: [4, 4], startSec: -0.9 };
+    const s = sing(neg, [[48, 16, 60], [64, 16, 62], [80, 32, 64]]);
+    const q = quantize(s, neg, GRID);
+    expect(shape(q)).toEqual([['r', 0, 48], [48, 16, 60], [64, 16, 62], [80, 32, 64], ['r', 112, 16]]);
+    expect(checkQuantized(q)).toEqual([]);
   });
 });
