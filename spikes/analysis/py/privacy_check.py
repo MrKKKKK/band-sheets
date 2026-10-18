@@ -258,7 +258,7 @@ def tracked_files(root):
 
 
 def _git(root, *args):
-    return subprocess.run(["git", "-C", root, *args], capture_output=True, check=True, text=True).stdout
+    return subprocess.run(["git", "-C", root, *args], capture_output=True, check=True).stdout.decode("utf-8", errors="replace")
 
 
 def _ref_exists(root, ref):
@@ -299,6 +299,8 @@ def history_lines(root, base):
     for line in log.splitlines():
         if line.startswith("\x01"):
             sha, path = line[1:].strip(), None
+        elif line.startswith("Binary files "):
+            path = None
         elif line.startswith("+++ "):
             path = line[4:].strip()
             path = path[2:] if path.startswith("b/") else path

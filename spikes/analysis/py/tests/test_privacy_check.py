@@ -225,5 +225,22 @@ class TestT17(unittest.TestCase):
         self.assertEqual(len(bad), 1)
         self.assertIn("not found", bad[0])
 
+    @unittest.skipUnless(shutil.which("git"), "git is not in the analysis image (runs on the host)")
+    def test_history_survives_non_utf8_lines(self):
+        self._git("init", "-q", "-b", "main")
+        self._git("add", "src/ok.md")
+        self._git("commit", "-q", "-m", "base")
+        self._git("branch", "base")
+        with open(os.path.join(self.root, "src", "raw.dat"), "wb") as f:
+            f.write(b"abc\xab\xcd\xff text line\nsecond\n")
+        write(os.path.join(self.root, "docs", "leak.md"), " ".join(self.SONG_RUN) + "\n")
+        self._git("add", "src/raw.dat", "docs/leak.md")
+        self._git("commit", "-q", "-m", "raw")
+        bad = P.check(self.root, self.rec, check_log=False, base="base", history=True)
+        hist = [b for b in bad if b.startswith("history ")]
+        self.assertEqual(len(hist), 1, bad)
+        self.assertIn("docs/leak.md", hist[0])
+
+
 if __name__ == "__main__":
     unittest.main()

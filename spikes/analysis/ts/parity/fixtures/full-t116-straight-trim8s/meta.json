@@ -1,0 +1,611 @@
+{
+  "commit": "f612dfb",
+  "configHash": "adec583eb3c6",
+  "variant": "full-t116-straight-trim8s",
+  "hpssRecomputeMaxAbsDiff": 0.0,
+  "tempoTop1MatchesLibrosa": true,
+  "tempoCandidateNames": [
+    "T",
+    "2T",
+    "T/2a",
+    "T/2b"
+  ],
+  "tempoChosen": "T",
+  "sectionLabels": [
+    "A"
+  ],
+  "segmentsColumns": [
+    "start",
+    "end",
+    "root",
+    "quality",
+    "confidence",
+    "lowConfidence",
+    "bass"
+  ],
+  "qualities": [
+    "maj",
+    "min",
+    "7",
+    "maj7",
+    "min7",
+    "dim",
+    "aug",
+    "sus4",
+    "m7b5",
+    "dim7"
+  ],
+  "states": [
+    [
+      0,
+      "maj"
+    ],
+    [
+      1,
+      "maj"
+    ],
+    [
+      2,
+      "maj"
+    ],
+    [
+      3,
+      "maj"
+    ],
+    [
+      4,
+      "maj"
+    ],
+    [
+      5,
+      "maj"
+    ],
+    [
+      6,
+      "maj"
+    ],
+    [
+      7,
+      "maj"
+    ],
+    [
+      8,
+      "maj"
+    ],
+    [
+      9,
+      "maj"
+    ],
+    [
+      10,
+      "maj"
+    ],
+    [
+      11,
+      "maj"
+    ],
+    [
+      0,
+      "min"
+    ],
+    [
+      1,
+      "min"
+    ],
+    [
+      2,
+      "min"
+    ],
+    [
+      3,
+      "min"
+    ],
+    [
+      4,
+      "min"
+    ],
+    [
+      5,
+      "min"
+    ],
+    [
+      6,
+      "min"
+    ],
+    [
+      7,
+      "min"
+    ],
+    [
+      8,
+      "min"
+    ],
+    [
+      9,
+      "min"
+    ],
+    [
+      10,
+      "min"
+    ],
+    [
+      11,
+      "min"
+    ],
+    [
+      0,
+      "7"
+    ],
+    [
+      1,
+      "7"
+    ],
+    [
+      2,
+      "7"
+    ],
+    [
+      3,
+      "7"
+    ],
+    [
+      4,
+      "7"
+    ],
+    [
+      5,
+      "7"
+    ],
+    [
+      6,
+      "7"
+    ],
+    [
+      7,
+      "7"
+    ],
+    [
+      8,
+      "7"
+    ],
+    [
+      9,
+      "7"
+    ],
+    [
+      10,
+      "7"
+    ],
+    [
+      11,
+      "7"
+    ],
+    [
+      0,
+      "maj7"
+    ],
+    [
+      1,
+      "maj7"
+    ],
+    [
+      2,
+      "maj7"
+    ],
+    [
+      3,
+      "maj7"
+    ],
+    [
+      4,
+      "maj7"
+    ],
+    [
+      5,
+      "maj7"
+    ],
+    [
+      6,
+      "maj7"
+    ],
+    [
+      7,
+      "maj7"
+    ],
+    [
+      8,
+      "maj7"
+    ],
+    [
+      9,
+      "maj7"
+    ],
+    [
+      10,
+      "maj7"
+    ],
+    [
+      11,
+      "maj7"
+    ],
+    [
+      0,
+      "min7"
+    ],
+    [
+      1,
+      "min7"
+    ],
+    [
+      2,
+      "min7"
+    ],
+    [
+      3,
+      "min7"
+    ],
+    [
+      4,
+      "min7"
+    ],
+    [
+      5,
+      "min7"
+    ],
+    [
+      6,
+      "min7"
+    ],
+    [
+      7,
+      "min7"
+    ],
+    [
+      8,
+      "min7"
+    ],
+    [
+      9,
+      "min7"
+    ],
+    [
+      10,
+      "min7"
+    ],
+    [
+      11,
+      "min7"
+    ],
+    [
+      0,
+      "dim"
+    ],
+    [
+      1,
+      "dim"
+    ],
+    [
+      2,
+      "dim"
+    ],
+    [
+      3,
+      "dim"
+    ],
+    [
+      4,
+      "dim"
+    ],
+    [
+      5,
+      "dim"
+    ],
+    [
+      6,
+      "dim"
+    ],
+    [
+      7,
+      "dim"
+    ],
+    [
+      8,
+      "dim"
+    ],
+    [
+      9,
+      "dim"
+    ],
+    [
+      10,
+      "dim"
+    ],
+    [
+      11,
+      "dim"
+    ],
+    [
+      0,
+      "aug"
+    ],
+    [
+      1,
+      "aug"
+    ],
+    [
+      2,
+      "aug"
+    ],
+    [
+      3,
+      "aug"
+    ],
+    [
+      4,
+      "aug"
+    ],
+    [
+      5,
+      "aug"
+    ],
+    [
+      6,
+      "aug"
+    ],
+    [
+      7,
+      "aug"
+    ],
+    [
+      8,
+      "aug"
+    ],
+    [
+      9,
+      "aug"
+    ],
+    [
+      10,
+      "aug"
+    ],
+    [
+      11,
+      "aug"
+    ],
+    [
+      0,
+      "sus4"
+    ],
+    [
+      1,
+      "sus4"
+    ],
+    [
+      2,
+      "sus4"
+    ],
+    [
+      3,
+      "sus4"
+    ],
+    [
+      4,
+      "sus4"
+    ],
+    [
+      5,
+      "sus4"
+    ],
+    [
+      6,
+      "sus4"
+    ],
+    [
+      7,
+      "sus4"
+    ],
+    [
+      8,
+      "sus4"
+    ],
+    [
+      9,
+      "sus4"
+    ],
+    [
+      10,
+      "sus4"
+    ],
+    [
+      11,
+      "sus4"
+    ],
+    [
+      0,
+      "m7b5"
+    ],
+    [
+      1,
+      "m7b5"
+    ],
+    [
+      2,
+      "m7b5"
+    ],
+    [
+      3,
+      "m7b5"
+    ],
+    [
+      4,
+      "m7b5"
+    ],
+    [
+      5,
+      "m7b5"
+    ],
+    [
+      6,
+      "m7b5"
+    ],
+    [
+      7,
+      "m7b5"
+    ],
+    [
+      8,
+      "m7b5"
+    ],
+    [
+      9,
+      "m7b5"
+    ],
+    [
+      10,
+      "m7b5"
+    ],
+    [
+      11,
+      "m7b5"
+    ],
+    [
+      0,
+      "dim7"
+    ],
+    [
+      1,
+      "dim7"
+    ],
+    [
+      2,
+      "dim7"
+    ],
+    [
+      3,
+      "dim7"
+    ],
+    [
+      4,
+      "dim7"
+    ],
+    [
+      5,
+      "dim7"
+    ],
+    [
+      6,
+      "dim7"
+    ],
+    [
+      7,
+      "dim7"
+    ],
+    [
+      8,
+      "dim7"
+    ],
+    [
+      9,
+      "dim7"
+    ],
+    [
+      10,
+      "dim7"
+    ],
+    [
+      11,
+      "dim7"
+    ]
+  ],
+  "sr": 22050,
+  "hop": 512,
+  "stages": {
+    "y": {
+      "file": "y.f32",
+      "dtype": "float32",
+      "shape": [
+        176400
+      ]
+    },
+    "col_chroma": {
+      "file": "col_chroma.f32",
+      "dtype": "float32",
+      "shape": [
+        12,
+        32
+      ]
+    },
+    "per_beat": {
+      "file": "per_beat.f32",
+      "dtype": "float32",
+      "shape": []
+    },
+    "chords1_root": {
+      "file": "chords1_root.f32",
+      "dtype": "float32",
+      "shape": [
+        32
+      ]
+    },
+    "chords1_quality": {
+      "file": "chords1_quality.f32",
+      "dtype": "float32",
+      "shape": [
+        32
+      ]
+    },
+    "chords1_confidence": {
+      "file": "chords1_confidence.f32",
+      "dtype": "float32",
+      "shape": [
+        32
+      ]
+    },
+    "chords1_posterior": {
+      "file": "chords1_posterior.f32",
+      "dtype": "float32",
+      "shape": [
+        120,
+        32
+      ]
+    },
+    "chords2_root": {
+      "file": "chords2_root.f32",
+      "dtype": "float32",
+      "shape": [
+        32
+      ]
+    },
+    "chords2_quality": {
+      "file": "chords2_quality.f32",
+      "dtype": "float32",
+      "shape": [
+        32
+      ]
+    },
+    "chords2_confidence": {
+      "file": "chords2_confidence.f32",
+      "dtype": "float32",
+      "shape": [
+        32
+      ]
+    },
+    "chords2_posterior": {
+      "file": "chords2_posterior.f32",
+      "dtype": "float32",
+      "shape": [
+        120,
+        32
+      ]
+    },
+    "chord_prior": {
+      "file": "chord_prior.f32",
+      "dtype": "float32",
+      "shape": [
+        16,
+        120,
+        120
+      ]
+    }
+  }
+}

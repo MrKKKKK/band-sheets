@@ -8,5 +8,8 @@
   },
   "devDependencies": {
     "tsx": "4.20.6"
+  },
+  "dependencies": {
+    "fft.js": "4.0.4"
   }
 }
