@@ -7,6 +7,7 @@ import { stubNoNetwork } from '../parity/noNetwork';
 import { AnalysisInputError, analyzeHum, resolveStart, validateHumInfo } from './analyze';
 import { humConfigHash } from './config';
 import { cliInfo, firstNoteTickFromTruthInfo, parseArgs, parseInfoTxt, variantStart } from './cli';
+import { melodyRoundTrip } from './toMelody';
 import type { HumInfo } from './types';
 
 const SR = 44100;
@@ -137,6 +138,28 @@ describe('analyzeHum', () => {
     const r = analyzeHum(toMono(wav.channels), wav.sampleRate, { bpm: 116, ts: [4, 4], startSec: 2.642966 });
     expect(r.melody.notes.length).toBeGreaterThan(20);
   });
+});
+
+describe('T15 S10: analyzer output survives the app melody model (splitAtBars -> serializeMelody -> parseMelody)', () => {
+  beforeEach(() => stubNoNetwork());
+  afterEach(() => vi.unstubAllGlobals());
+  const midis = [60, 62, 64, 65, 67, 69, 71, 72, 71, 69];
+  const starts: [string, HumInfo][] = [
+    ['bar head', INFO],
+    ['first note + tick', { bpm: 120, ts: [4, 4], firstNoteSec: 1.02, firstNoteTick: 0 }],
+    ['first note only', { bpm: 120, ts: [4, 4], firstNoteSec: 1.03 }],
+    ['bar head before the recording (pickup)', { bpm: 120, ts: [4, 4], startSec: 0.5 }],
+    ['3/4', { bpm: 90, ts: [3, 4], startSec: 1 }],
+  ];
+  for (const [label, info] of starts) {
+    it(`round trip is identical: ${label}`, () => {
+      const r = analyzeHum(tones(midis), SR, info, { sourceKind: 'synthetic' });
+      const rt = melodyRoundTrip(r.melody.quantized);
+      expect(rt.events.length).toBeGreaterThan(0);
+      expect(rt.parsed).toBe(true);
+      expect(rt.identical).toBe(true);
+    });
+  }
 });
 
 describe('cli helpers', () => {

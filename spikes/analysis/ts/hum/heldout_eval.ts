@@ -18,6 +18,7 @@ import { resampleSinc, toMono } from '../dsp/core/resample';
 import { analyzeHum, resolveStart } from './analyze';
 import { errorTypes, scoreTake as scoreSynTake, type TruthNote } from './baseline';
 import { firstNoteTickFromTruthInfo, variantStart } from './cli';
+import { heldOutRunBlock } from './heldout_log';
 import { humConfigHash, resolveHumConfig, type HumConfig } from './config';
 import { estimateF0 } from './f0';
 import { extractNotes, frameLevelDb } from './notes';
@@ -110,12 +111,11 @@ function main() {
   const cfg = resolveHumConfig();
   const hash = humConfigHash(cfg);
   if (hash !== FROZEN) throw new Error(`not the frozen hum-v3 config: ${hash}`);
-  if (final) {
-    if (existsSync(LOG) && readFileSync(LOG, 'utf8').split('\n').some((l) => l.trim() && ((d) => d.input === 'hum' && d.lookPoint === 3)(JSON.parse(l) as { lookPoint?: number; input?: string }))) throw new Error('a hum look-3 line already exists in the heldout log: refusing to run again');
-  }
   const commit = gitOut(['rev-parse', 'HEAD']);
-  const porcelain = gitOut(['status', '--porcelain']);
-  if (final && (porcelain === null || porcelain !== '')) throw new Error('working tree must be clean (and git must work) for the final run');
+  if (final) {
+    const block = heldOutRunBlock({ run: 'final-heldout', configHash: hash, frozenHash: FROZEN, logText: existsSync(LOG) ? readFileSync(LOG, 'utf8') : null, porcelain: gitOut(['status', '--porcelain']) });
+    if (block) throw new Error(block);
+  }
   const heldOut = final;
   const outDir = final ? OUTDIR : join(OUTDIR, 'selftest');
   mkdirSync(join(outDir, 'rec'), { recursive: true });
