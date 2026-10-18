@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 import soundfile as sf
@@ -113,14 +114,18 @@ class DumpStagesTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.parity, 'ho')))
 
     def test_commit_required(self):
+        # Simulate the analysis container (no .git): on CI the checkout's commit would win over --commit.
         old = os.environ.pop('BAND_SHEETS_COMMIT', None)
-        try:
-            self.assertEqual(D.resolve_commit('abc1234-dirty'), 'abc1234-dirty')
-            with self.assertRaises(ValueError):
-                D.resolve_commit('not a sha')
-        finally:
-            if old is not None:
-                os.environ['BAND_SHEETS_COMMIT'] = old
+        real_git_state = D.run_all.git_state
+        with tempfile.TemporaryDirectory() as no_repo, \
+                mock.patch.object(D.run_all, 'git_state', lambda cwd=None: real_git_state(no_repo)):
+            try:
+                self.assertEqual(D.resolve_commit('abc1234-dirty'), 'abc1234-dirty')
+                with self.assertRaises(ValueError):
+                    D.resolve_commit('not a sha')
+            finally:
+                if old is not None:
+                    os.environ['BAND_SHEETS_COMMIT'] = old
 
 
 if __name__ == '__main__':
