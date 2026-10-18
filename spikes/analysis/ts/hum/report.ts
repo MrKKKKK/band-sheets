@@ -21,6 +21,7 @@ import {
   shiftClass,
   unshiftNotes,
   unshiftQuantized,
+  writtenPitch,
   type ScoreNote,
   type TickNote,
 } from './score';
@@ -71,11 +72,14 @@ export function scoreRow(inp0: ScoreInput): Scores {
   }
   if (inp.truthNotes && inp.estNotes) {
     const est: ScoreNote[] = inp.estNotes.map((n) => ({ start: n.start, end: n.end, midi: n.midi, cents: n.cents }));
-    for (const [v, r] of Object.entries(noteScoreSet(inp.truthNotes, est))) {
+    // M1: headline = pitch by WRITTEN note (score MIDI, cents ignored on both sides).
+    for (const [v, r] of Object.entries(noteScoreSet(writtenPitch(inp.truthNotes), writtenPitch(est)))) {
       s[`noteF.${v}`] = r.f;
       s[`noteP.${v}`] = r.precision;
       s[`noteR.${v}`] = r.recall;
     }
+    // Old definition (sung pitch incl. deviation) under a different name, F only.
+    for (const [v, r] of Object.entries(noteScoreSet(inp.truthNotes, est))) s[`noteF_sungPitch.${v}`] = r.f;
     s['pitchCand.k1'] = pitchCandidateHit(inp.truthNotes, inp.estNotes, 1);
     s['pitchCand.k2'] = pitchCandidateHit(inp.truthNotes, inp.estNotes, 2);
   }

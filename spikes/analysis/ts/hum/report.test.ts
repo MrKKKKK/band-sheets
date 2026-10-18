@@ -50,3 +50,22 @@ describe('renderReport', () => {
     expect(renderReport([mk('x', 'synthetic', 'H0', 1)])).toContain('| - |');
   });
 });
+
+describe('T15 M1: note F pitch = WRITTEN note (score MIDI), not the sung pitch', () => {
+  // The truth note is written C4 (60) but sung 80 cents sharp; the analyzer picked 61 (the nearest semitone to what was sung)
+  // with a residual of -20 cents. Sung-pitch definition: |60.8 - 60.8| = 0 -> "right". Written definition: 61 != 60 -> wrong.
+  const truth = [{ start: 0, end: 0.5, midi: 60, cents: 80 }];
+  const est: HumNote[] = [{ start: 0, end: 0.5, midi: 61, cents: -20, confidence: 1, candidates: [] }];
+  it('a note sung > 50 cents off the written note is NOT right when the analyzer chose another semitone', () => {
+    const s = scoreRow({ truthNotes: truth, estNotes: est });
+    expect(s['noteF.onset']).toBe(0);
+    expect(s['noteF_sungPitch.onset']).toBe(1); // old definition kept under a different name
+  });
+  it('the written note is right when the analyzer picks it, even if the voice was > 50 cents away', () => {
+    const e2: HumNote[] = [{ ...est[0], midi: 60, cents: 0 }];
+    const s = scoreRow({ truthNotes: truth, estNotes: e2 });
+    expect(s['noteF.onset']).toBe(1);
+    expect(s['noteF.onsetOffset']).toBe(1);
+    expect(s['noteF_sungPitch.onset']).toBe(0); // sung 60.8 vs 60.0 = 80 cents apart: the old metric punished the correct written note
+  });
+});

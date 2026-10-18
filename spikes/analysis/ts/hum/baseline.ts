@@ -41,9 +41,12 @@ export function errorTypes(truth: TruthNote[], est: HumNote[], estQ: QuantizedMe
   const pairs = matchNotes(T, est.map((e) => ({ start: e.start, end: e.end, midi: e.midi, cents: e.cents })), { onsetTol: 0.1, offsetRatio: null, pitchMode: 'any' });
   add('pitch.matched', pairs.length);
   for (const [i, j] of pairs) {
-    const d = sung(est[j]) - sung(T[i]);
+    // M1: written-note definition (integer MIDI difference); the old sung-pitch classes are counted as pitchSung.*
+    const d = est[j].midi - T[i].midi;
     const r = Math.round(d);
-    if (Math.abs(d) <= 0.5) add('pitch.ok');
+    const ds = sung(est[j]) - sung(T[i]);
+    if (Math.abs(ds) <= 0.5) add('pitchSung.ok');
+    if (d === 0) add('pitch.ok');
     else if (r % 12 === 0) add('pitch.octave');
     else if (Math.abs(r) === 1) add('pitch.semitone');
     else add('pitch.other');

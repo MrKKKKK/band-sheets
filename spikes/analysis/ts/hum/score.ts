@@ -100,6 +100,20 @@ export interface NoteScore {
 
 const sungMidi = (n: ScoreNote): number => n.midi + (n.cents ?? 0) / 100;
 
+/**
+ * T15 / review M1: the pitch definition of the headline note F is the WRITTEN note (score-time MIDI): both sides get
+ * `cents` removed, so "pitch right" = same MIDI number (|d| <= 50 cents on integers). The synthetic truth `cents`
+ * (voice deviation, take offset, drift) and the analyzer's residual `cents` are NOT part of it. The old definition
+ * (sung pitch = midi + cents/100 on both sides, which counts a deviation of > 50 cents from the written note as
+ * right) is kept only as `noteF_sungPitch.*` in scoreRow so old numbers stay interpretable.
+ */
+export function writtenPitch<T extends { cents?: number }>(notes: T[]): T[] {
+  return notes.map((n) => {
+    const { cents: _c, ...rest } = n;
+    return rest as T;
+  });
+}
+
 export function matchNotes(ref: ScoreNote[], est: ScoreNote[], o: NoteMatchOptions = {}): [number, number][] {
   const onsetTol = o.onsetTol ?? 0.05;
   const pitchTol = o.pitchTol ?? 50;
