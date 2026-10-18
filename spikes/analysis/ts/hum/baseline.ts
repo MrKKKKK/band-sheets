@@ -2,14 +2,14 @@
  * Spike 4 T8: synthetic baseline driver. Scores out/hum/results/<name>.json (cli.ts --all --f0-track) against the
  * synthetic truths and writes out/hum/baseline/{report.md,rows.json}. Tuning + dev only; held-out is never read.
  *
- *   npx tsx ts/hum/baseline.ts [--results out/hum/results] [--out out/hum/baseline] [--title "..."]
+ *   npx tsx ts/hum/baseline.ts [--results out/hum/results] [--out out/hum/baseline] [--title "..."] [--transpose-invariant]
  * T9: the scoring is exported (scoreTake) for ts/hum/tune.ts; --results/--out score another result set the same way.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { renderReport, scoreRow, type ReportRow, type Scores } from './report';
-import { dropShortTruth, editScript, matchNotes, notesToEvents, quantizedToEvents, type ScoreNote, type TickNote } from './score';
+import { renderReport, scoreRow, shiftFor, type ReportRow, type Scores } from './report';
+import { dropShortTruth, editScript, matchNotes, notesToEvents, quantizedToEvents, unshiftNotes, unshiftQuantized, type ScoreNote, type TickNote } from './score';
 import type { FrameF0Track, HumNote, QuantizedMelody } from './types';
 
 const OUT = join(import.meta.dirname, '..', '..', 'out', 'hum');
@@ -75,17 +75,21 @@ export function sum(rows: { scores: Scores }[], k: string) {
 }
 
 /** All scores of one synthetic take (truth JSON of render/hum) for the analyzer's notes, quantized melody and f0. */
-export function scoreTake(tr: { melody: { notes: TruthNote[] }; hum: { f0: unknown } }, estNotes: HumNote[], estQ: QuantizedMelody, estF0?: FrameF0Track): Scores {
+export function scoreTake(tr: { melody: { notes: TruthNote[] }; hum: { f0: unknown } }, estNotes: HumNote[], estQ: QuantizedMelody, estF0?: FrameF0Track, opts: { transposeInvariant?: boolean } = {}): Scores {
   const truthAll: TruthNote[] = tr.melody.notes;
   const truthNotes = truthAll.filter((n) => n.ticks >= 4); // TICKS_PER_16TH = 4
-  const scores = scoreRow({
+  const input = {
     truthNotes: truthNotes.map((n) => ({ start: n.start, end: n.end, midi: n.midi, cents: n.cents })),
     estNotes,
     ...(estF0 ? { truthF0: tr.hum.f0 as FrameF0Track, estF0 } : {}),
     truthTicks: truthAll.map((n) => ({ startTick: n.startTick, ticks: n.ticks, midi: n.midi })),
     estQuant: estQ,
-  });
-  Object.assign(scores, errorTypes(truthNotes, estNotes, estQ));
+    transposeInvariant: !!opts.transposeInvariant,
+    exposeShift: true, // synthetic only
+  };
+  const scores = scoreRow(input);
+  const shift = opts.transposeInvariant ? shiftFor(input) : 0;
+  Object.assign(scores, errorTypes(truthNotes, unshiftNotes(estNotes, shift), unshiftQuantized(estQ, shift)));
   scores.nTruth = truthNotes.length;
   scores.nEst = estNotes.length;
   return scores;
@@ -100,6 +104,7 @@ function main() {
   const resultsDir = resolve(arg('--results', join(OUT, 'results')));
   const outDir = resolve(arg('--out', join(OUT, 'baseline')));
   const title = arg('--title', 'Spike 4 T8: synthetic baseline');
+  const transposeInvariant = process.argv.includes('--transpose-invariant'); // default OFF for synthetic
   const manifest = JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8')) as { variants: Variant[] };
   const rows: (ReportRow & { split: string; melody: string; msPerSec: number; stagesMsPerSec: Record<string, number> })[] = [];
   let commit = '';
@@ -110,7 +115,7 @@ function main() {
     const res = JSON.parse(readFileSync(join(resultsDir, `${v.name}.json`), 'utf8'));
     commit = res.hum.meta.commit;
     hash = res.hum.meta.configHash;
-    const scores = scoreTake(tr, res.melody.notes, res.melody.quantized, res.hum.f0 as FrameF0Track);
+    const scores = scoreTake(tr, res.melody.notes, res.melody.quantized, res.hum.f0 as FrameF0Track, { transposeInvariant });
     const tm = res.hum.meta.timings;
     const stagesMsPerSec: Record<string, number> = {};
     for (const [k, ms] of Object.entries(tm.stagesMs as Record<string, number>)) stagesMsPerSec[k] = ms / tm.audioSec;

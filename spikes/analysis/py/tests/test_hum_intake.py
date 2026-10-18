@@ -94,6 +94,47 @@ class TestTxt(unittest.TestCase):
         self.assertEqual(t["totalTicks"], 192)
 
 
+REST_MELODY = ":4 r C4 D4 E4 | :4 F4 G4 A4 B4 |"  # starts with a quarter rest
+
+
+class TestStartRule(unittest.TestCase):
+    def txt(self, head, melody=REST_MELODY):
+        return f"bpm: 120\n{head}\n歌い方: a\nメロディ:\n{melody}\n"
+
+    def test_first_note_after_rest(self):
+        a = H.parse_hum_txt(self.txt("開始: 2.5秒"))
+        # 120 bpm: a quarter = 0.5 s; first note is 1 beat into bar 1 -> bar 1 head at 2.0 s
+        self.assertAlmostEqual(a["startSec"], 2.0)
+        self.assertAlmostEqual(a["firstNoteSec"], 2.5)
+        self.assertTrue(a["startApprox"])
+        t = H.build_truth(a, "hum-01-a", "hum-01", False, 10.0)
+        self.assertEqual((t["info"]["startSec"], t["info"]["firstNoteSec"], t["info"]["startApprox"]), (2.0, 2.5, True))
+        self.assertAlmostEqual(t["notes"][0]["start"], 2.5)
+
+    def test_first_note_at_bar_head_and_long_rest(self):
+        a = H.parse_hum_txt(self.txt("開始: 3", ":2 r :4 r r | :4 C4 D4 E4 F4 |".replace(":2 r :4 r r", ":1 r")))
+        self.assertAlmostEqual(a["startSec"], 3.0 - 2.0)  # a whole rest = 4 beats = 2 s
+        b = H.parse_hum_txt(self.txt("開始: 3", ":4 C4 D4 E4 F4 |"))
+        self.assertAlmostEqual(b["startSec"], 3.0)
+
+    def test_bar_start_key_keeps_old_meaning(self):
+        for key in ("小節頭", "barStart"):
+            a = H.parse_hum_txt(self.txt(f"{key}: 2"))
+            self.assertAlmostEqual(a["startSec"], 2.0)
+            self.assertFalse(a["startApprox"])
+            self.assertAlmostEqual(a["firstNoteSec"], 2.5)
+
+    def test_errors(self):
+        with self.assertRaises(H.HumError):  # both keys
+            H.parse_hum_txt(self.txt("開始: 3\n小節頭: 2"))
+        with self.assertRaises(H.HumError):  # neither
+            H.parse_hum_txt(self.txt(""))
+        with self.assertRaises(H.HumError):  # bar head would be before the recording
+            H.parse_hum_txt(self.txt("開始: 0.2秒"))
+        with self.assertRaises(H.HumError):  # rests only
+            H.parse_hum_txt(self.txt("開始: 2", ":1 r |"))
+
+
 FULL_PART = """\\section "Made up"
 \\ts 4 4
 :4 C4{lyrics "la"} E4{ch "C" slur s1} G4{d lyrics "x"} // trailing comment
@@ -215,6 +256,36 @@ class TestIntake(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.rec, "hum-ids.local.json")))
         self.assertFalse(os.path.exists(os.path.join(self.out, "results", "heldout-log.jsonl")))
         self.assertEqual(len(os.listdir(self.inbox)), 2)
+
+
+class TestRebuild(unittest.TestCase):
+    def test_rebuild_changes_only_truth_times(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rec, out = os.path.join(tmp, "recordings"), os.path.join(tmp, "out")
+            inbox = os.path.join(rec, "hum-inbox")
+            os.makedirs(inbox)
+            tone_wav(os.path.join(inbox, "Fake_a.wav"))
+            with open(os.path.join(inbox, "Fake_a.txt"), "w", encoding="utf-8") as f:
+                f.write(f"bpm: 120\n開始: 2.5\n歌い方: a\nメロディ:\n{REST_MELODY}\n")
+            self.assertEqual(H.main(["--inbox", inbox, "--out", out, "--no-privacy-check"]), 0)
+            ids_before = open(os.path.join(rec, "hum-ids.local.json"), encoding="utf-8").read()
+            log_p = os.path.join(out, "results", "heldout-log.jsonl")
+            log_before = open(log_p).read()
+            # simulate a truth built with the old rule (開始 = bar-1 head)
+            tp = os.path.join(rec, "hum-01-a.truth.json")
+            tr = json.load(open(tp))
+            self.assertAlmostEqual(tr["info"]["startSec"], 2.0)
+            tr["info"]["startSec"] = 2.5
+            json.dump(tr, open(tp, "w"))
+            logs = []
+            self.assertEqual(H.rebuild_truth(rec, out, log=logs.append), 0)
+            self.assertIn("-1.00 拍", logs[0])
+            self.assertIn("開発用", logs[0])
+            tr = json.load(open(tp))
+            self.assertAlmostEqual(tr["info"]["startSec"], 2.0)
+            self.assertEqual(open(os.path.join(rec, "hum-ids.local.json"), encoding="utf-8").read(), ids_before)
+            self.assertEqual(open(log_p).read(), log_before)
+            self.assertEqual(H.main(["--inbox", inbox, "--out", out, "--rebuild-truth"]), 0)
 
 
 class TestHumPrivacy(unittest.TestCase):

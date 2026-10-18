@@ -587,3 +587,70 @@ export function pitchCandidateHit(truth: ScoreNote[], est: Pick<HumNote, 'start'
   }
   return hit / truth.length;
 }
+
+/* ------------------------------------------------------------------ global transposition */
+
+export const MAX_SHIFT = 24;
+
+/**
+ * The integer semitone shift s (-24..24, octaves included) that, subtracted from the estimate, makes most
+ * onset-matched pairs agree in pitch: pairs are `pairs` = (truthMidi, estMidi) from an onset-only matching; the
+ * shift maximizing #{estMidi - truthMidi === s} wins, ties -> smallest |s|, then the lower value (negative first).
+ * No pairs -> 0. The ±1-semitone neighbours of a pair are not counted: this is a mode, not a tolerance.
+ */
+export function chooseShift(pairs: [number, number][], maxShift = MAX_SHIFT): number {
+  const hist = new Map<number, number>();
+  for (const [t, e] of pairs) {
+    const d = e - t;
+    if (Math.abs(d) <= maxShift) hist.set(d, (hist.get(d) ?? 0) + 1);
+  }
+  let best = 0;
+  let bestN = hist.get(0) ?? 0;
+  for (const [d, n] of hist) {
+    if (n > bestN || (n === bestN && (Math.abs(d) < Math.abs(best) || (Math.abs(d) === Math.abs(best) && d < best)))) {
+      best = d;
+      bestN = n;
+    }
+  }
+  return best;
+}
+
+/** Shift from seconds-domain notes (onset-only matching, onsets within `onsetTol`, pitch ignored). */
+export function estimateShift(truth: ScoreNote[], est: Pick<ScoreNote, 'start' | 'end' | 'midi' | 'cents'>[], onsetTol = 0.1): number {
+  if (truth.length === 0 || est.length === 0) return 0;
+  const pairs = matchNotes(truth, est, { offsetRatio: null, pitchMode: 'any', onsetTol });
+  return chooseShift(pairs.map(([i, j]) => [truth[i].midi, est[j].midi]));
+}
+
+/** Shift from tick-domain notes (same start tick = a pair). Used when only the rounded result exists. */
+export function estimateShiftTicks(truth: TickNote[], out: TickNote[]): number {
+  const byStart = new Map<number, TickNote>();
+  for (const o of out) if (!byStart.has(o.startTick)) byStart.set(o.startTick, o);
+  const pairs: [number, number][] = [];
+  for (const t of truth) {
+    const o = byStart.get(t.startTick);
+    if (o) pairs.push([t.midi, o.midi]);
+  }
+  return chooseShift(pairs);
+}
+
+/** 'zero' | 'octave' (a non-zero multiple of 12) | 'other': the only thing reported about the shift for recordings. */
+export function shiftClass(s: number): 'zero' | 'octave' | 'other' {
+  return s === 0 ? 'zero' : s % 12 === 0 ? 'octave' : 'other';
+}
+/** Numeric code of shiftClass for score rows: 0 zero, 1 octave, 2 other. */
+export const SHIFT_CLASS_CODE = { zero: 0, octave: 1, other: 2 } as const;
+
+/** Copy of the analyzer notes with the estimated global shift removed (midi and candidate midis). */
+export function unshiftNotes<T extends { midi: number; candidates?: { midi: number }[] }>(notes: T[], s: number): T[] {
+  if (s === 0) return notes;
+  return notes.map((n) => ({ ...n, midi: n.midi - s, ...(n.candidates ? { candidates: n.candidates.map((c) => ({ ...c, midi: c.midi - s })) } : {}) }));
+}
+/** Same for a quantized melody. */
+export function unshiftQuantized<Q extends { events: unknown[] }>(q: Q, s: number): Q {
+  if (s === 0) return q;
+  const events = (q.events as { kind: string; midi?: number; candidates?: { midi: number }[] }[]).map((e) =>
+    e.kind === 'note' ? { ...e, midi: e.midi! - s, candidates: (e.candidates ?? []).map((c) => ({ ...c, midi: c.midi - s })) } : e,
+  );
+  return { ...q, events } as Q;
+}

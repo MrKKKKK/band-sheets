@@ -3,7 +3,7 @@
 Usage (from spikes/analysis):  python py/hum_intake.py [--inbox recordings/hum-inbox] [--out out] [--dry-run]
 
 The user drops   <anyname>.<audio>   (the humming; mono or stereo, any common sample rate)
-                 <anyname>.txt       (bpm / time signature / start second of bar 1 / singing style / `メロディ:` + the
+                 <anyname>.txt       (bpm / time signature / approx. second of the FIRST SUNG NOTE (`開始:`; `小節頭:` = exact bar-1 head) / singing style / `メロディ:` + the
                                       truth melody in the band-sheets melody alphaTex subset, see parse_hum_txt)
 into recordings/hum-inbox/. For every take this script
   1. parses + validates the .txt (all errors are Japanese) and decodes the audio,
@@ -39,6 +39,7 @@ DURATION_TICKS = {"1": 64, "2": 32, "4": 16, "8": 8, "16": 4, "32": 2}
 STYLES = "abcdef"
 
 KEYS = {"bpm": "bpm", "テンポ": "bpm", "拍子": "time", "time": "time", "開始": "start", "start": "start",
+        "小節頭": "barstart", "barstart": "barstart",
         "歌い方": "style", "style": "style", "メロディ": "melody", "melody": "melody"}
 
 
@@ -274,8 +275,14 @@ def _num(v, ln, what):
     return float(m.group(1))
 
 
+def sec_per_tick(bpm, ts):
+    return 60.0 / bpm / (WHOLE_TICKS / ts[1])
+
+
 def parse_hum_txt(text):
-    """-> dict(bpm, ts, startSec, style, melody). Header lines `key: value` (Japanese or English names, full-width
+    """-> dict(bpm, ts, startSec (bar-1 head, computed), firstNoteSec, startApprox, style, melody, events, bars).
+    `開始:` is the approximate second of the first sung note (rests before it are accounted for); `小節頭:` / `barStart:`
+    gives the bar-1 head directly (exact). Header lines Header lines `key: value` (Japanese or English names, full-width
     characters and CRLF are fine; `#` lines are notes), then a line `メロディ:` (or `melody:`) and the melody text
     (the rest of the file, may start on the same line). Raises HumError (Japanese, line-numbered)."""
     ann = {"ts": [4, 4]}
@@ -307,19 +314,42 @@ def parse_hum_txt(text):
                 raise HumError(f"{ln}行目: 拍子は 4/4 のように書いてください")
             ann["ts"] = [int(mm.group(1)), int(mm.group(2))]
         elif key == "start":
-            ann["startSec"] = _num(val, ln, "開始")
+            ann["firstNoteSec"] = _num(val, ln, "開始")
+        elif key == "barstart":
+            ann["barStartSec"] = _num(val, ln, "小節頭")
         elif key == "style":
             s = re.sub(r"[()\s]", "", val.lower())
             if len(s) != 1 or s not in STYLES:
                 raise HumError(f"{ln}行目: 歌い方は a〜f の 1 文字で書いてください")
             ann["style"] = s
-    for k, name in (("bpm", "bpm"), ("startSec", "開始"), ("style", "歌い方")):
+    for k, name in (("bpm", "bpm"), ("style", "歌い方")):
         if k not in ann:
             raise HumError(f"「{name}:」の行がありません")
+    if "firstNoteSec" in ann and "barStartSec" in ann:
+        raise HumError("「開始:」と「小節頭:」は両方書けません（どちらか 1 つ）")
+    if "firstNoteSec" not in ann and "barStartSec" not in ann:
+        raise HumError("「開始:」の行がありません")
     if melody is None or not "".join(melody).strip():
         raise HumError("「メロディ:」の行とその下のメロディのテキストがありません")
     ann["melody"] = clean_part_text(melody, melody_line)
     ann["events"], ann["bars"] = parse_melody(ann["melody"], ann["ts"])
+    spt = sec_per_tick(ann["bpm"], ann["ts"])
+    if "barStartSec" in ann:  # explicit bar-1 head (synthetic / DAW exports): exact, not approximate
+        ann["startSec"] = ann.pop("barStartSec")
+        ann["startApprox"] = False
+        first = next((e for e in ann["events"] if e["kind"] == "note"), None)
+        if first is None:
+            raise HumError("メロディ: 音符がありません（休符だけ）")
+        ann["firstNoteSec"] = round(ann["startSec"] + first["startTick"] * spt, 6)
+    else:
+        # `開始:` = approximate time of the FIRST SUNG NOTE; bar 1 starts that much earlier than the first note's tick
+        first = next((e for e in ann["events"] if e["kind"] == "note"), None)
+        if first is None:
+            raise HumError("メロディ: 音符がありません（休符だけ）")
+        ann["startSec"] = round(ann["firstNoteSec"] - first["startTick"] * spt, 6)
+        ann["startApprox"] = True
+        if ann["startSec"] < 0:
+            raise HumError("「開始:」が小さすぎます（1 小節目の頭が録音の前にはみ出します。最初の音の秒数を書いてください）")
     return ann
 
 
@@ -328,7 +358,7 @@ def parse_hum_txt(text):
 def build_truth(ann, hid, song, held_out, audio_sec):
     """Truth JSON: the melody in ticks (whole = 64, from bar 1) and in seconds (startSec + tick * secPerTick;
     one beat = 1/den note at `bpm`). Contains the private note sequence: only ever written under recordings/ and out/."""
-    spt = 60.0 / ann["bpm"] / (WHOLE_TICKS / ann["ts"][1])
+    spt = sec_per_tick(ann["bpm"], ann["ts"])
     t0 = ann["startSec"]
     events = []
     notes = []
@@ -342,7 +372,9 @@ def build_truth(ann, hid, song, held_out, audio_sec):
                           "start": ev["start"], "end": ev["end"]})
     return {"name": hid, "song": song, "heldOut": bool(held_out), "style": ann["style"],
             "source": {"kind": "humming", "durationSec": round(audio_sec, 4)},
-            "info": {"bpm": ann["bpm"], "ts": ann["ts"], "startSec": t0},
+            "info": {"bpm": ann["bpm"], "ts": ann["ts"], "startSec": t0,
+                     "startApprox": bool(ann.get("startApprox", False)),
+                     "firstNoteSec": ann["firstNoteSec"]},
             "bars": ann["bars"], "totalTicks": sum(e["ticks"] for e in ann["events"]),
             "notes": notes, "events": events}
 
@@ -451,7 +483,8 @@ def process_take(base, t, rec_dir, out, log=print):
             json.dump(truth, f, indent=1, ensure_ascii=False)
     _merge_manifest(out, {"name": rid, "wav": f"recordings/{rid}.wav", "truth": f"out/rec/{rid}.truth.json",
                           "song": song, "heldOut": held_out, "style": ann["style"], "bpm": ann["bpm"],
-                          "ts": ann["ts"], "startSec": ann["startSec"], "durationSec": round(audio_sec, 4)})
+                          "ts": ann["ts"], "startSec": ann["startSec"], "firstNoteSec": ann["firstNoteSec"],
+                          "startApprox": ann["startApprox"], "durationSec": round(audio_sec, 4)})
     originals = sorted(os.path.basename(p) for p in list(t["audio"].values()) + [t["txt"]])
     odir = os.path.join(rec_dir, "hum-originals")
     os.makedirs(odir, exist_ok=True)
@@ -468,6 +501,49 @@ def process_take(base, t, rec_dir, out, log=print):
     return rid
 
 
+def rebuild_truth(rec_dir, out, log=print):
+    """--rebuild-truth: re-read recordings/hum-originals/<id>.txt for every take in hum-ids.local.json and rewrite
+    <id>.truth.json (recordings/ and out/rec/) and the manifest entry with the current rules. Ids, held-out decisions,
+    WAVs, the registry and heldout-log.jsonl are never touched (nothing is re-decided or logged). Prints per take:
+    id, dev/held-out, bar-1 head shift in beats (rounded to 0.25) versus the previous truth, and whether the notes
+    (ticks / pitches) and the held-out flag are unchanged. Returns the number of failures."""
+    ids = _load_ids(rec_dir)["recordings"]
+    fails = 0
+    for rid in sorted(ids):
+        e = ids[rid]
+        try:
+            txt = os.path.join(rec_dir, "hum-originals", rid + ".txt")
+            if not os.path.exists(txt):
+                raise HumError(".txt が hum-originals にありません")
+            with open(txt, encoding="utf-8") as f:
+                ann = parse_hum_txt(f.read())
+            if ann["style"] != e["style"]:
+                raise HumError("歌い方が登録と違います")
+            old_p = os.path.join(rec_dir, rid + ".truth.json")
+            with open(old_p, encoding="utf-8") as f:
+                old = json.load(f)
+            held = bool(e["heldOut"])
+            truth = build_truth(ann, rid, e["song"], held, old["source"]["durationSec"])
+            same = ([(n["startTick"], n["ticks"], n["midi"]) for n in old["notes"]] ==
+                    [(n["startTick"], n["ticks"], n["midi"]) for n in truth["notes"]] and old["heldOut"] == held)
+            shift = (truth["info"]["startSec"] - old["info"]["startSec"]) / (60.0 / ann["bpm"])
+            for d in (rec_dir, os.path.join(out, "rec")):
+                os.makedirs(d, exist_ok=True)
+                with open(os.path.join(d, rid + ".truth.json"), "w", encoding="utf-8") as f:
+                    json.dump(truth, f, indent=1, ensure_ascii=False)
+            _merge_manifest(out, {"name": rid, "wav": f"recordings/{rid}.wav", "truth": f"out/rec/{rid}.truth.json",
+                                  "song": e["song"], "heldOut": held, "style": ann["style"], "bpm": ann["bpm"],
+                                  "ts": ann["ts"], "startSec": ann["startSec"], "firstNoteSec": ann["firstNoteSec"],
+                                  "startApprox": ann["startApprox"], "durationSec": old["source"]["durationSec"]})
+            log(f"{rid}: [{'ホールドアウト' if held else '開発用'}] 1小節目の頭の移動 {round(shift * 4) / 4:+.2f} 拍 "
+                f"{'OK' if same else 'NG(音符または区分が変わった)'}")
+            fails += 0 if same else 1
+        except (HumError, OSError, KeyError, ValueError) as ex:
+            fails += 1
+            log(f"{rid}: NG {ex}")
+    return fails
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--inbox", default=INBOX)
@@ -475,8 +551,14 @@ def main(argv=None):
     ap.add_argument("--recordings", default=None, help="default: parent of --inbox")
     ap.add_argument("--privacy-root", default=None, help="scan this tree instead of the repository (tests)")
     ap.add_argument("--no-privacy-check", action="store_true")
+    ap.add_argument("--rebuild-truth", action="store_true",
+                    help="rewrite the truth JSONs of the registered takes from recordings/hum-originals/*.txt "
+                         "(ids and held-out decisions untouched, nothing logged)")
     a = ap.parse_args(argv)
     rec_dir = a.recordings or os.path.dirname(os.path.abspath(a.inbox))
+    if a.rebuild_truth:
+        fails = rebuild_truth(rec_dir, a.out)
+        return 1 if fails else 0
     os.makedirs(a.inbox, exist_ok=True)
     takes = I.scan_inbox(a.inbox)
     if not takes:

@@ -6,8 +6,11 @@
  * min, max over the recordings of a group), never a recording id, note sequence or pitch (plan: privacy).
  */
 import {
+  SHIFT_CLASS_CODE,
   dropShortTruth,
   editScript,
+  estimateShift,
+  estimateShiftTicks,
   f0TrackScores,
   gridCandidateHit,
   noteScoreSet,
@@ -15,6 +18,9 @@ import {
   pitchCandidateHit,
   quantScores,
   quantizedToEvents,
+  shiftClass,
+  unshiftNotes,
+  unshiftQuantized,
   type ScoreNote,
   type TickNote,
 } from './score';
@@ -33,11 +39,36 @@ export interface ScoreInput {
   truthTicks?: TickNote[];
   estQuant?: QuantizedMelody;
   /** Relaxed onset tolerance for recordings is already in the variant `onset100ms`. */
+  /**
+   * Remove one global semitone shift (-24..24, octaves included) between estimate and truth before every note
+   * metric / quantized accuracy / edit count / candidate hit (see `estimateShift`). Default false (synthetic
+   * numbers unchanged); recordings pass true. The row always gets `shift.class` (0 zero, 1 octave, 2 other);
+   * the value `shift.semitones` only when `exposeShift` is true (synthetic; never for recordings).
+   */
+  transposeInvariant?: boolean;
+  exposeShift?: boolean;
+}
+
+/** The shift scoreRow would remove for this input: seconds-domain pairs when available, else tick-domain pairs. */
+export function shiftFor(inp: ScoreInput): number {
+  if (inp.truthNotes && inp.estNotes) return estimateShift(inp.truthNotes, inp.estNotes);
+  if (inp.truthTicks && inp.estQuant) {
+    const out = quantizedToEvents(inp.estQuant).filter((e) => e.kind === 'note') as { startTick: number; ticks: number; midi: number }[];
+    return estimateShiftTicks(dropShortTruth(inp.truthTicks), out);
+  }
+  return 0;
 }
 
 /** Flat numbers for one take; keys only present when the matching input was given. */
-export function scoreRow(inp: ScoreInput): Scores {
+export function scoreRow(inp0: ScoreInput): Scores {
   const s: Scores = {};
+  let inp = inp0;
+  if (inp0.transposeInvariant) {
+    const shift = shiftFor(inp0);
+    s['shift.class'] = SHIFT_CLASS_CODE[shiftClass(shift)];
+    if (inp0.exposeShift) s['shift.semitones'] = shift;
+    inp = { ...inp0, ...(inp0.estNotes ? { estNotes: unshiftNotes(inp0.estNotes, shift) } : {}), ...(inp0.estQuant ? { estQuant: unshiftQuantized(inp0.estQuant, shift) } : {}) };
+  }
   if (inp.truthNotes && inp.estNotes) {
     const est: ScoreNote[] = inp.estNotes.map((n) => ({ start: n.start, end: n.end, midi: n.midi, cents: n.cents }));
     for (const [v, r] of Object.entries(noteScoreSet(inp.truthNotes, est))) {
