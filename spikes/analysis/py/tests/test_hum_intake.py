@@ -343,6 +343,34 @@ class TestHumPrivacy(unittest.TestCase):
         self.write("src/leak.json", "[" + ", ".join(map(str, MIDI[2:12])) + "]")
         self.assertEqual(len(self.check()), 1)
 
+    def test_transposed_and_octave_shifted_runs_found(self):
+        # T15 (review S7): same interval sequence at another pitch level
+        for text in ("D4 F#4 A4 F#4 E4 G4 B4 G4 A4",       # +2
+                     "C5 E5 G5 E5 D5 F5 A5 F5 G5",         # +12 (octave)
+                     "G3 B3 D4 B3 A3 C4 E4 C4 D4",         # -5
+                     "C3 E3 G3 E3 D3 F3 A3 F3 G3 E3 C4"):  # -12 plus more
+            self.write("src/leak.md", text + "\n")
+            bad = self.check()
+            self.assertEqual(len(bad), 1, text)
+            self.assertIn("transposed form", bad[0])
+            self.assertNotIn("A4", bad[0])
+        os.remove(os.path.join(self.root, "src", "leak.md"))
+        self.write("src/leak.json", "[" + ", ".join(str(m + 3) for m in MIDI[:9]) + "]")
+        self.assertEqual(len(self.check()), 1)
+        # the exact sequence still reports as before (no "transposed" tag)
+        self.write("src/leak.json", "[" + ", ".join(map(str, MIDI[:9])) + "]")
+        bad = self.check()
+        self.assertEqual(len(bad), 1)
+        self.assertNotIn("transposed", bad[0])
+
+    def test_different_melody_and_plain_patterns_not_flagged(self):
+        self.write("src/ok2.md", "C4 E4 G4 C5 E5 G5 C6 E6 G6\n"          # arpeggio, other intervals
+                                 "60 67 74 81 88 95 102 109 116\n"         # constant +7 steps
+                                 "C4 D4 C4 D4 C4 D4 C4 D4 C4\n")           # alternating
+        self.assertEqual(self.check(), [])
+        self.assertEqual(P.intervals((60, 64, 67)), (4, 3))
+        self.assertFalse(P._distinctive_intervals((2, -2, 2, -2, 2, -2, 2)))
+
     @unittest.skipUnless(shutil.which("git"), "git is not in the analysis image; runs on the host")
     def test_commit_message_and_history(self):
         git = lambda *a: subprocess.run(["git", "-C", self.root, "-c", "user.email=a@b", "-c", "user.name=n", *a],

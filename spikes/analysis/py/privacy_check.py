@@ -19,7 +19,9 @@ Private terms are read at RUNTIME from the gitignored recordings folder (nothing
     the note sequences in recordings/hum-*.truth.json and out/rec/hum-*.truth.json. They are matched against the
     pitch tokens of a scanned file / added diff / commit message as a whole (note names like C4 Bb3 C#5, and bare
     MIDI numbers 21..108, in order, anything else in between ignored), exact pitch. The report only says
-    "humming note sequence (k of n runs)" (once per file / diff / message).
+    "humming note sequence (k of n runs)" (once per file / diff / message). T15: the runs are also compared by their
+    interval sequence (differences between consecutive pitches), so a transposed or octave-shifted copy of a run is
+    found as well ("... transposed form"); interval windows with fewer than 3 distinct intervals are not used.
 Chord runs that are a window of a generic loop (GENERIC_LOOPS, e.g. I-vi-IV-V of the T0 test signal) in any key are
 allowed: they identify nothing and are used by tests.
 Matching ignores case and treats space / _ / - / . as the same. Anonymous names (rec, rec-01 ...) and very short
@@ -274,6 +276,17 @@ def _hum_runs(seq):
     return out
 
 
+def intervals(run):
+    """Semitone differences of consecutive notes: the same for every transposition (octave shifts included)."""
+    return tuple(b - a for a, b in zip(run, run[1:]))
+
+
+def _distinctive_intervals(iv):
+    """An interval window identifies a melody only when it has some variety (a constant or two-valued pattern like
+    +7 +7 +7 or alternating +2 -2 occurs in plain data)."""
+    return len(set(iv)) >= 3
+
+
 def collect_hum(rec_dir):
     """Note runs of the humming truths (recordings/hum-*.truth.json and the copies in <analysis>/out/rec/). Never printed."""
     runs = set()
@@ -382,15 +395,28 @@ class Matcher:
         self.hum_runs = collect_hum(rec_dir)
         self.n_hum = len(self.hum_runs)
         self._hum_set = set(self.hum_runs)
+        # interval sequence -> the run indexes it belongs to (transposed / octave-shifted copies)
+        self._hum_iv = {}
+        for i, r in enumerate(self.hum_runs):
+            iv = intervals(r)
+            if _distinctive_intervals(iv):
+                self._hum_iv.setdefault(iv, set()).add(i)
 
     def hum_hits(self, text):
         """Humming note sequences found in a whole text (file, joined added lines, commit message)."""
         if not self._hum_set:
             return []
         seq = hum_pitches(text)
-        wins = {tuple(seq[k:k + HUM_RUN]) for k in range(len(seq) - HUM_RUN + 1)}
-        found = {i for i, r in enumerate(self.hum_runs) if r in wins}
-        return [f"humming note sequence ({len(found)} of {self.n_hum} runs)"] if found else []
+        wins = [tuple(seq[k:k + HUM_RUN]) for k in range(len(seq) - HUM_RUN + 1)]
+        found = {i for i, r in enumerate(self.hum_runs) if r in set(wins)}
+        moved = set()
+        for w in wins:
+            moved |= self._hum_iv.get(intervals(w), set())
+        moved -= found
+        allf = found | moved
+        if not allf:
+            return []
+        return [f"humming note sequence ({len(allf)} of {self.n_hum} runs" + (", transposed form" if moved else "") + ")"]
 
     def name_hits(self, text):
         n = _norm(text)
