@@ -1,3 +1,4 @@
+// TEMPORARY: T6 re-creates this as src/lib/import/humDraft.ts and then deletes this file.
 /**
  * Spike 4 T6: QuantizedMelody -> the app's melody model (docs/audio-spike4-plan.md section 2 "result").
  *

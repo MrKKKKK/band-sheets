@@ -181,14 +181,8 @@ describe('prior forms', () => {
         rows,
         row: (r: number) => flat.subarray(r * k * k, (r + 1) * k * k),
       };
-      const t0 = performance.now();
       const a = estimateChords(chroma, n, cfg, { prior: flat, perBeat });
-      const t1 = performance.now();
       const b = estimateChords(chroma, n, cfg, { prior: provider, perBeat });
-      const t2 = performance.now();
-      console.log(
-        `[T7c] perBeat=${perBeat} flat ${(t1 - t0).toFixed(0)} ms, provider ${(t2 - t1).toFixed(0)} ms`,
-      );
       expect(b.map((c) => [c.root, c.quality, c.confidence])).toEqual(
         a.map((c) => [c.root, c.quality, c.confidence]),
       );

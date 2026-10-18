@@ -260,30 +260,35 @@ describe('memory and time', () => {
     expect(mem.peak).toBeLessThan(full / 100);
     expect(maxAb).toBeLessThan(full / 4); // chords.ts' own [S, n] buffers only
   }, 120_000);
-  it('5-minute song at 120 BPM: pass 2 time vs pass 1', () => {
-    const nb = 600;
-    const n = 2 * nb;
-    const chroma = randomChroma(n, 31);
-    const boc = barsOf(nb, 0);
-    const keys = randomKeys(nb / 4, 13);
-    let t0 = performance.now();
-    estimateChords(chroma, n, cfg, { perBeat: 2 });
-    const t1 = performance.now() - t0;
-    t0 = performance.now();
-    estimateChordsPass2(chroma, n, cfg, {
-      perBeat: 2,
-      barKeys: keys,
-      barOfBeat: boc,
-    });
-    const t2 = performance.now() - t0;
-    t0 = performance.now();
-    const dense = denseTransition(keys, boc);
-    const tb = performance.now() - t0;
-    t0 = performance.now();
-    estimateChords(chroma, n, cfg, { perBeat: 2, prior: dense });
-    const td = performance.now() - t0;
-    console.log(
-      `[T13] 5 min (nb=${nb}, n=${n}): pass1=${t1.toFixed(0)} ms, pass2 rows=${t2.toFixed(0)} ms, pass2 dense=${td.toFixed(0)} ms (+${tb.toFixed(0)} ms to build ${(dense.byteLength / 1e6).toFixed(0)} MB)`,
-    );
-  }, 120_000);
+  // Timing only (asserts nothing): wall-clock numbers, run with ANALYSIS_PERF=1; CI does not set it.
+  it.skipIf(!process.env.ANALYSIS_PERF)(
+    '5-minute song at 120 BPM: pass 2 time vs pass 1',
+    () => {
+      const nb = 600;
+      const n = 2 * nb;
+      const chroma = randomChroma(n, 31);
+      const boc = barsOf(nb, 0);
+      const keys = randomKeys(nb / 4, 13);
+      let t0 = performance.now();
+      estimateChords(chroma, n, cfg, { perBeat: 2 });
+      const t1 = performance.now() - t0;
+      t0 = performance.now();
+      estimateChordsPass2(chroma, n, cfg, {
+        perBeat: 2,
+        barKeys: keys,
+        barOfBeat: boc,
+      });
+      const t2 = performance.now() - t0;
+      t0 = performance.now();
+      const dense = denseTransition(keys, boc);
+      const tb = performance.now() - t0;
+      t0 = performance.now();
+      estimateChords(chroma, n, cfg, { perBeat: 2, prior: dense });
+      const td = performance.now() - t0;
+      console.log(
+        `[T13] 5 min (nb=${nb}, n=${n}): pass1=${t1.toFixed(0)} ms, pass2 rows=${t2.toFixed(0)} ms, pass2 dense=${td.toFixed(0)} ms (+${tb.toFixed(0)} ms to build ${(dense.byteLength / 1e6).toFixed(0)} MB)`,
+      );
+    },
+    120_000,
+  );
 });
