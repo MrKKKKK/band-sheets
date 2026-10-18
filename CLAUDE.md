@@ -181,6 +181,13 @@ Spike 0 of the audio-import feature (`docs/audio-import-architecture.md` §8.2; 
 - A missing drum bar is silently filled by alphaTab (`bar.isEmpty`); `truth.ts` rejects it.
 - Licenses: soxr/libsndfile (LGPL) and certifi (MPL-2.0) are in the local Python image only; never ship them in the app.
 
+### TS port (spike 3, `spike/3-ts-port`; plan `docs/audio-spike3-plan.md`, review `docs/audio-spike3-review.md`)
+
+- Layout (`spikes/analysis/ts/`): `dsp/` stages, `dsp/analyze.ts` entry, `dsp/config.ts` default config + hash, `browser/` Worker + bench, `parity/` helpers + CI fixture, `tables/` JSON generated from the TOML tables by `py/tools/tables_to_json.py`.
+- TS tests: the vitest command above. CLI: `npx tsx ts/cli.ts <wav|y.f32> -o out.json` (from `spikes/analysis`).
+- Stage dumps (analysis image): `python py/tools/dump_stages.py <variant> --commit ...` (dev synthetic only; refuses heldOut/REC). Parity report: `python py/tools/parity_report.py ... --mode y|wav`. Bench: vite build/preview + the Playwright spec under `ts/browser/`.
+- Gotchas: parity tests skip without `out/parity` except the committed fixture; when TOML tables change, regenerate `ts/tables/*.json` and update the pinned table digests in `config.ts`; `py/dsp` is the reference, so change Python first, then port; files that follow librosa need the ISC one-liner; no network in analysis code (stubNoNetwork tests).
+
 ## Git workflow (GitHub Flow, decided 2026-10-10)
 
 - `main` is what's deployed: every push to `main` publishes to GitHub Pages (`deploy-pages.yml`). It is protected — no direct pushes; changes land through a PR whose `CI` check (`ci.yml`: lint, prettier, `tsc -b`, unit tests, build) passes. Solo project: no review approval required.
