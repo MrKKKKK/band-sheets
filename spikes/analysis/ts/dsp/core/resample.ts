@@ -8,7 +8,7 @@
  * spec in docs/audio-spike3-librosa-notes.md section 7 (centred, no delay; flat passband; folding
  * band at -120 dB or below; zero outside the signal; length ceil(n / 2); x sqrt(2)).
  *
- * Why soxr's edges and not the cheaper 47-tap half-band first used (still here as designHalfBand):
+ * Why soxr's edges and not the cheaper 47-tap half-band first used (removed in T19):
  * the CQT never reads bins above 0.5 x output Nyquist, so in the middle of a signal both filters
  * give the same chroma (+-0.2 %). But at an ABRUPT signal start (the trimmed level-M variants) the
  * first ~10 frames carry the start transient, whose spectrum reaches the transition band; there the
@@ -71,49 +71,6 @@ export function designDecimator(pass = 0.9, stop = 1.0, atten = 140, factor = 2)
   }
   for (let i = 0; i < taps.length; i++) taps[i] /= sum;
   return { taps, half, step: 1 };
-}
-
-/**
- * Half-band low-pass (cutoff at half the input Nyquist), Kaiser-windowed ideal sinc,
- * normalised to unit DC gain. `half` must be odd (so the outermost taps are non-zero).
- */
-export function designHalfBand(half = 23, atten = 140): HalfBand {
-  if (!Number.isInteger(half) || half < 1 || half % 2 === 0) throw new Error(`half must be odd, got ${half}`);
-  const beta = kaiserBeta(atten);
-  const i0b = besselI0(beta);
-  const taps = new Float64Array(2 * half + 1);
-  for (let j = -half; j <= half; j++) {
-    let h: number;
-    if (j === 0) h = 0.5;
-    else if (j % 2 === 0) h = 0;
-    else h = Math.sin((Math.PI * j) / 2) / (Math.PI * j);
-    const r = j / half;
-    const w = besselI0(beta * Math.sqrt(Math.max(0, 1 - r * r))) / i0b;
-    taps[j + half] = h * w;
-  }
-  // Unit DC gain; keep the centre tap at exactly 0.5 by scaling the odd taps only, which also keeps
-  // the half-band symmetry H(w) + H(pi - w) = 1.
-  let odd = 0;
-  for (let j = 1; j <= half; j += 2) odd += 2 * taps[j + half];
-  const s = 0.5 / odd;
-  for (let j = -half; j <= half; j++) if (j % 2 !== 0) taps[j + half] *= s;
-  return { taps, half };
-}
-
-/** |H(e^{i w})| of a centred symmetric FIR, w in radians/sample of the INPUT rate. */
-export function halfBandResponse(hb: HalfBand, w: number): number {
-  const { taps, half } = hb;
-  let s = taps[half];
-  for (let j = 1; j <= half; j++) s += 2 * taps[half + j] * Math.cos(w * j);
-  return Math.abs(s);
-}
-
-let defaultHalfBand: HalfBand | null = null;
-
-/** The 47-tap half-band (designed once); no longer the CQT default (see the header). */
-export function cqtHalfBand(): HalfBand {
-  defaultHalfBand ??= designHalfBand();
-  return defaultHalfBand;
 }
 
 let defaultDecimator: HalfBand | null = null;
@@ -358,7 +315,13 @@ export function sincPlan(from: number, to: number, opts: SincOptions = {}): Sinc
   return { from, to, up, down, width, half, taps };
 }
 
-const planCache = new Map<string, SincPlan>();
+/**
+ * Plan cache: only the LAST plan is kept. A plan's table is `up * width` float64 (8 * up * width
+ * bytes), width = 2 * ceil(len / 2), len = ceil((atten - 7.95) / (2.285 * dw)) + 1, dw = pi * min(1, to/from)
+ * * (stopband - passband), up = to / gcd(from, to). For 44100/48000 -> 22050 that is well under 1 MB, but
+ * unusual rates blow up (44056 Hz -> 30.6 MB, 44101 Hz -> 61.6 MB), so older tables are dropped.
+ */
+let lastPlan: { key: string; plan: SincPlan } | null = null;
 
 /**
  * librosa.resample(x, orig_sr=from, target_sr=to, fix=True, scale=False) with our filter:
@@ -374,10 +337,10 @@ export function resampleSinc(
 ): Float32Array {
   if (from === to) return x;
   const key = `${from}:${to}:${opts.passband}:${opts.stopband}:${opts.atten}`;
-  let plan = planCache.get(key);
+  let plan = lastPlan?.key === key ? lastPlan.plan : undefined;
   if (!plan) {
     plan = sincPlan(from, to, opts);
-    planCache.set(key, plan);
+    lastPlan = { key, plan };
   }
   const { up, down, width, half, taps } = plan;
   const n = x.length;
@@ -424,10 +387,4 @@ export function resampleSinc(
     }
   }
   return out;
-}
-
-/** librosa.load(..., sr=22050, mono=True) from decoded channels at `sr`. */
-export function loadMono22050(channels: readonly Float32Array[], sr: number, mem?: MemTracker): Float32Array {
-  const mono = toMono(channels);
-  return resampleSinc(mono, sr, 22050, {}, mem);
 }

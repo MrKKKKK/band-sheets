@@ -3,15 +3,21 @@ import { MemTracker } from './mem';
 import {
   DecimationChain,
   cqtDecimator,
-  cqtHalfBand,
   decimate2,
   decimate2Fft,
   decimatePow2,
-  designHalfBand,
-  halfBandResponse,
+  type HalfBand,
 } from './resample';
 
 const db = (x: number) => 20 * Math.log10(x);
+
+/** |H(e^{i w})| of a centred symmetric FIR, w in radians/sample of the INPUT rate. */
+function halfBandResponse(hb: HalfBand, w: number): number {
+  const { taps, half } = hb;
+  let s = taps[half];
+  for (let j = 1; j <= half; j++) s += 2 * taps[half + j] * Math.cos(w * j);
+  return Math.abs(s);
+}
 
 describe('cqtDecimator (soxr_hq band edges; librosa notes section 7 spec)', () => {
   const hb = cqtDecimator();
@@ -31,35 +37,6 @@ describe('cqtDecimator (soxr_hq band edges; librosa notes section 7 spec)', () =
     }
     expect(pass).toBeLessThan(1e-4);
     expect(db(stop)).toBeLessThan(-150);
-  });
-});
-
-describe('half-band filter (the first, cheaper design)', () => {
-  const hb = cqtHalfBand();
-
-  it('is symmetric with a 0.5 centre tap and zero even taps', () => {
-    const { taps, half } = hb;
-    expect(taps[half]).toBe(0.5);
-    for (let j = 1; j <= half; j++) {
-      expect(taps[half + j]).toBe(taps[half - j]);
-      if (j % 2 === 0) expect(taps[half + j]).toBe(0);
-    }
-    expect(halfBandResponse(hb, 0)).toBeCloseTo(1, 14);
-  });
-
-  it('passband 0..0.5 x output Nyquist within 1e-4 dB, folding band >= 1.5 x output Nyquist <= -120 dB', () => {
-    let pass = 0;
-    let stop = 0;
-    for (let i = 0; i <= 4000; i++) {
-      pass = Math.max(pass, Math.abs(db(halfBandResponse(hb, (i / 4000) * 0.25 * Math.PI))));
-      stop = Math.max(stop, halfBandResponse(hb, 0.75 * Math.PI + (i / 4000) * 0.25 * Math.PI));
-    }
-    expect(pass).toBeLessThan(1e-4);
-    expect(db(stop)).toBeLessThan(-120);
-  });
-
-  it('rejects an even half length', () => {
-    expect(() => designHalfBand(4)).toThrow();
   });
 });
 

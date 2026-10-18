@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { signalToErrorDb } from '../../parity/compare';
 import { readStage } from '../../parity/stageFile';
 import { decodeWav } from '../../browser/wav';
-import { loadMono22050, resampleSinc, sincPlan, toMono } from './resample';
+import { resampleSinc, sincPlan, toMono } from './resample';
 
 function sine(n: number, sr: number, f: number, amp = 0.5): Float32Array {
   const x = new Float32Array(n);
@@ -49,6 +49,19 @@ describe('resampleSinc', () => {
     expect([sincPlan(48000, 22050).up, sincPlan(48000, 22050).down]).toEqual([147, 320]);
   });
 
+  it('table size = 8 * up * width bytes (the formula in the plan-cache comment)', () => {
+    const p = sincPlan(48000, 22050);
+    expect(p.taps.byteLength).toBe(8 * p.up * p.width);
+    expect(p.taps.byteLength).toBeLessThan(1e6);
+  });
+
+  it('the one-plan cache keeps results identical when the rate alternates', () => {
+    const x = Float32Array.from({ length: 2000 }, (_, i) => Math.sin(i * 0.05));
+    const a = resampleSinc(x, 48000, 22050);
+    resampleSinc(x, 32000, 22050);
+    expect(Array.from(resampleSinc(x, 48000, 22050))).toEqual(Array.from(a));
+  });
+
   it.each([44100, 48000, 32000, 16000])('a 1 kHz sine from %i Hz keeps amplitude and phase (SNR > 100 dB inside)', (from) => {
     const x = sine(from, from, 1000); // 1 s
     const y = resampleSinc(x, from, 22050);
@@ -81,11 +94,11 @@ const VARIANTS: [string, string][] = [
 ];
 const avail = VARIANTS.filter(([v, w]) => existsSync(join(OUT, 'parity', v, 'y.f32')) && existsSync(join(OUT, w)));
 
-describe.skipIf(avail.length === 0)('loadMono22050 vs librosa.load (soxr_hq), dev synthetic 44.1 kHz renders', () => {
+describe.skipIf(avail.length === 0)('toMono + resampleSinc(22050) vs librosa.load (soxr_hq), dev synthetic 44.1 kHz renders', () => {
   for (const [v, wav] of avail) {
     it(`${v}: same length, signal-to-error >= 70 dB`, () => {
       const w = decodeWav(readFileSync(join(OUT, wav)));
-      const y = loadMono22050(w.channels, w.sampleRate);
+      const y = resampleSinc(toMono(w.channels), w.sampleRate, 22050);
       const ref = readStage(join(OUT, 'parity', v), 'y').data;
       expect(y.length).toBe(ref.length);
       const snr = signalToErrorDb(y, ref);
