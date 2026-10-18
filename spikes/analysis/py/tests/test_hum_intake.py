@@ -111,6 +111,13 @@ class TestStartRule(unittest.TestCase):
         self.assertEqual((t["info"]["startSec"], t["info"]["firstNoteSec"], t["info"]["startApprox"]), (2.0, 2.5, True))
         self.assertAlmostEqual(t["notes"][0]["start"], 2.5)
 
+    def test_bar_head_before_audio_is_allowed(self):
+        a = H.parse_hum_txt(self.txt("開始: 0.2秒"))  # pickup bar: head 0.3 s before the recording
+        self.assertAlmostEqual(a["startSec"], -0.3)
+        t = H.build_truth(a, "hum-01-a", "hum-01", False, 10.0)
+        self.assertTrue(t["info"]["barStartBeforeAudio"])
+        self.assertAlmostEqual(t["notes"][0]["start"], 0.2)
+
     def test_first_note_at_bar_head_and_long_rest(self):
         a = H.parse_hum_txt(self.txt("開始: 3", ":2 r :4 r r | :4 C4 D4 E4 F4 |".replace(":2 r :4 r r", ":1 r")))
         self.assertAlmostEqual(a["startSec"], 3.0 - 2.0)  # a whole rest = 4 beats = 2 s
@@ -129,8 +136,8 @@ class TestStartRule(unittest.TestCase):
             H.parse_hum_txt(self.txt("開始: 3\n小節頭: 2"))
         with self.assertRaises(H.HumError):  # neither
             H.parse_hum_txt(self.txt(""))
-        with self.assertRaises(H.HumError):  # bar head would be before the recording
-            H.parse_hum_txt(self.txt("開始: 0.2秒"))
+        with self.assertRaises(H.HumError):  # first note beyond the audio
+            H.build_truth(H.parse_hum_txt(self.txt("開始: 20")), "hum-01-a", "hum-01", False, 10.0)
         with self.assertRaises(H.HumError):  # rests only
             H.parse_hum_txt(self.txt("開始: 2", ":1 r |"))
 

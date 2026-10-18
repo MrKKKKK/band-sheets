@@ -348,8 +348,6 @@ def parse_hum_txt(text):
             raise HumError("メロディ: 音符がありません（休符だけ）")
         ann["startSec"] = round(ann["firstNoteSec"] - first["startTick"] * spt, 6)
         ann["startApprox"] = True
-        if ann["startSec"] < 0:
-            raise HumError("「開始:」が小さすぎます（1 小節目の頭が録音の前にはみ出します。最初の音の秒数を書いてください）")
     return ann
 
 
@@ -358,6 +356,8 @@ def parse_hum_txt(text):
 def build_truth(ann, hid, song, held_out, audio_sec):
     """Truth JSON: the melody in ticks (whole = 64, from bar 1) and in seconds (startSec + tick * secPerTick;
     one beat = 1/den note at `bpm`). Contains the private note sequence: only ever written under recordings/ and out/."""
+    if ann["firstNoteSec"] > audio_sec:
+        raise HumError("「開始:」が録音の長さを超えています")
     spt = sec_per_tick(ann["bpm"], ann["ts"])
     t0 = ann["startSec"]
     events = []
@@ -374,7 +374,8 @@ def build_truth(ann, hid, song, held_out, audio_sec):
             "source": {"kind": "humming", "durationSec": round(audio_sec, 4)},
             "info": {"bpm": ann["bpm"], "ts": ann["ts"], "startSec": t0,
                      "startApprox": bool(ann.get("startApprox", False)),
-                     "firstNoteSec": ann["firstNoteSec"]},
+                     "firstNoteSec": ann["firstNoteSec"],
+                     "barStartBeforeAudio": ann["startSec"] < 0},
             "bars": ann["bars"], "totalTicks": sum(e["ticks"] for e in ann["events"]),
             "notes": notes, "events": events}
 
