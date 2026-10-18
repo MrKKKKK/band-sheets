@@ -118,3 +118,8 @@
   margin: 0 auto;
   background: var(--border);
 }
+
+/* Dash lines (audio-integration-plan §3.6): monospace so `-` counts line up. */
+.dash {
+  font-family: var(--font-chord);
+}

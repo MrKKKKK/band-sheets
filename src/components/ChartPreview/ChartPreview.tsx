@@ -1,3 +1,4 @@
+import { isDashLine, meterOf, validateDashLine } from '../../lib/dashChart';
 import { isRawLine, type Song } from '../../lib/song';
 import { ChordLyricLine } from '../ChordLyricLine/ChordLyricLine';
 import styles from './ChartPreview.module.css';
@@ -6,8 +7,9 @@ export type ChartPreviewProps = {
   song: Song;
 };
 
-/** Read-only chord chart: section headings, chord/lyric lines, raw lines. */
+/** Read-only chord chart (editor preview): headings, chord/lyric lines, raw lines; dash lines that fail validation get a warning list. */
 export function ChartPreview({ song }: ChartPreviewProps) {
+  const meter = meterOf(song.meta.time);
   return (
     <div className={styles.preview}>
       {song.chart.map((section, si) => {
@@ -40,7 +42,25 @@ export function ChartPreview({ song }: ChartPreviewProps) {
                   <div key={key} className={styles.blank} aria-hidden="true" />
                 );
               }
-              return <ChordLyricLine key={key} line={line} lineKey={key} />;
+              const errors = isDashLine(line)
+                ? validateDashLine(line, meter)
+                : [];
+              if (errors.length === 0)
+                return <ChordLyricLine key={key} line={line} lineKey={key} />;
+              // Editor-only hint (no live region / alert): the line renders as is.
+              return (
+                <div key={key}>
+                  <ChordLyricLine line={line} lineKey={key} />
+                  <ul
+                    className={styles.dashWarning}
+                    data-testid={`dash-warning-${key}`}
+                  >
+                    {errors.map((e, i) => (
+                      <li key={i}>{e}</li>
+                    ))}
+                  </ul>
+                </div>
+              );
             })}
           </section>
         );

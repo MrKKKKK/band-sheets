@@ -87,3 +87,33 @@ export const Narrow: Story = {
     ),
   ],
 };
+
+/** Dash lines (§3.6): monospace; a line that fails validation gets a warning. */
+export const DashLines: Story = {
+  args: {
+    song: parseSong(
+      [
+        '{title: t}',
+        '{time: 4/4}',
+        '{start_of_verse: A}',
+        '|[C]--------|[C]----[F]----|[G]--------|[G]----[G7]----|',
+        '|[C]--------|[C]---[F]----|[G]---------|[N.C.]--------|',
+        '[C]きらきら[F]ひかる',
+        '{end_of_verse}',
+        '',
+      ].join('\n'),
+    ),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.queryByTestId('dash-warning-0-0')).toBeNull();
+    const w = canvas.getByTestId('dash-warning-0-1');
+    expect(w).toHaveTextContent('2小節目');
+    expect(w).toHaveTextContent('3小節目');
+    expect(w).not.toHaveAttribute('role');
+    expect(canvas.queryByTestId('dash-warning-0-2')).toBeNull();
+    expect(getComputedStyle(canvas.getByTestId('line-0-0')).fontFamily).toMatch(
+      /mono/i,
+    );
+  },
+};

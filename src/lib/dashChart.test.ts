@@ -3,6 +3,7 @@ import {
   barUnits,
   dashBarCount,
   isDashLine,
+  meterOf,
   parseDashLine,
   validateDashLine,
   writeDashBar,
@@ -336,5 +337,14 @@ describe('writeDashLine / writeDashChart', () => {
         ['G7', 11],
       ],
     ]);
+  });
+});
+
+describe('meterOf', () => {
+  it('reads n/d and falls back to 4/4', () => {
+    expect(meterOf('3/4')).toEqual({ num: 3, den: 4 });
+    expect(meterOf(' 6 / 8 ')).toEqual({ num: 6, den: 8 });
+    expect(meterOf(undefined)).toEqual({ num: 4, den: 4 });
+    expect(meterOf('abc')).toEqual({ num: 4, den: 4 });
   });
 });

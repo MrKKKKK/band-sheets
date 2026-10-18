@@ -24,6 +24,12 @@ export interface DashMeter {
   den: number;
 }
 
+/** Meter of `{time: n/d}`; anything missing or malformed is 4/4. */
+export function meterOf(time: string | undefined): DashMeter {
+  const m = /^\s*(\d+)\s*\/\s*(\d+)\s*$/.exec(time ?? '');
+  return m ? { num: Number(m[1]), den: Number(m[2]) } : { num: 4, den: 4 };
+}
+
 /** Sixteenths per bar of `ts`, or null when not a whole number (>0). */
 export function barUnits(ts: DashMeter): number | null {
   const { num, den } = ts;
