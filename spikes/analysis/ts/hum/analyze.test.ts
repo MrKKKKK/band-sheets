@@ -8,7 +8,7 @@ import { AnalysisInputError, analyzeHum, resolveStart, validateHumInfo } from '.
 import { humConfigHash } from './config';
 import { cliInfo, firstNoteTickFromTruthInfo, parseArgs, parseInfoTxt, variantStart } from './cli';
 import { melodyRoundTrip } from './toMelody';
-import type { HumInfo } from './types';
+import type { HumInfo, HumInput } from './types';
 
 const SR = 44100;
 const INFO: HumInfo = { bpm: 120, ts: [4, 4], startSec: 1 };
@@ -144,7 +144,7 @@ describe('T15 S10: analyzer output survives the app melody model (splitAtBars ->
   beforeEach(() => stubNoNetwork());
   afterEach(() => vi.unstubAllGlobals());
   const midis = [60, 62, 64, 65, 67, 69, 71, 72, 71, 69];
-  const starts: [string, HumInfo][] = [
+  const starts: [string, HumInput][] = [
     ['bar head', INFO],
     ['first note + tick', { bpm: 120, ts: [4, 4], firstNoteSec: 1.02, firstNoteTick: 0 }],
     ['first note only', { bpm: 120, ts: [4, 4], firstNoteSec: 1.03 }],
