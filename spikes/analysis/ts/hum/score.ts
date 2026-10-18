@@ -387,8 +387,25 @@ export function keyboardSteps(truth: TickEvent[]): number {
  *                       pitch if the truth pitch is neither of the two)
  * Trailing rests are ignored on both sides. Minimum by dynamic programming, ties broken in the order
  * substitute, split, merge, delete, insert (only matters for the per-operation counts, not for `edits`).
+ *
+ * LOWER BOUND (review S1): the app's melody editor has NO split / merge operation (KeyM / KeyV there act on lyric
+ * syllables, src/lib/melodyLyrics.ts). With the default costs above a split / merge counts 1 step, so `edits` is a
+ * lower bound of the work in the app. `opts.splitCost` / `opts.mergeCost` re-price them; the "app-ops" variant
+ * (scoreRow keys `edit.appOps.*`) uses 2 for both: split = change duration + insert a note, merge = delete a note +
+ * change duration. Still not counted: finding the wrong place and moving the cursor to it.
  */
-export function editScript(truthEv: TickEvent[], outEv: TickEvent[]): EditResult {
+export interface EditCosts {
+  /** default 1 */
+  splitCost?: number;
+  /** default 1 */
+  mergeCost?: number;
+}
+/** Costs of the operations the app really has (split = duration + insert, merge = delete + duration). */
+export const APP_OPS_COSTS: Required<EditCosts> = { splitCost: 2, mergeCost: 2 };
+
+export function editScript(truthEv: TickEvent[], outEv: TickEvent[], costs: EditCosts = {}): EditResult {
+  const SPLIT = costs.splitCost ?? 1;
+  const MERGE = costs.mergeCost ?? 1;
   const T = truthEv.slice();
   const O = outEv.slice();
   while (T.length && T[T.length - 1].kind === 'rest') T.pop();
@@ -415,7 +432,7 @@ export function editScript(truthEv: TickEvent[], outEv: TickEvent[]): EditResult
         const a = T[i];
         const b = T[i + 1];
         if (o.kind === 'note' && a.kind === 'note' && b.kind === 'note' && a.ticks + b.ticks === o.ticks) {
-          best = Math.min(best, 1 + (a.midi !== o.midi ? 1 : 0) + (b.midi !== o.midi ? 1 : 0) + dp[i + 2][j + 1]);
+          best = Math.min(best, SPLIT + (a.midi !== o.midi ? 1 : 0) + (b.midi !== o.midi ? 1 : 0) + dp[i + 2][j + 1]);
         }
       }
       if (i < n && j < m - 1) {
@@ -423,7 +440,7 @@ export function editScript(truthEv: TickEvent[], outEv: TickEvent[]): EditResult
         const b = O[j + 1];
         const t = T[i];
         if (t.kind === 'note' && a.kind === 'note' && b.kind === 'note' && a.ticks + b.ticks === t.ticks) {
-          best = Math.min(best, 1 + (t.midi !== a.midi && t.midi !== b.midi ? 1 : 0) + dp[i + 1][j + 2]);
+          best = Math.min(best, MERGE + (t.midi !== a.midi && t.midi !== b.midi ? 1 : 0) + dp[i + 1][j + 2]);
         }
       }
       if (j < m) best = Math.min(best, 1 + dp[i][j + 1]);
@@ -461,7 +478,7 @@ export function editScript(truthEv: TickEvent[], outEv: TickEvent[]): EditResult
       const b = T[i + 1];
       if (o.kind === 'note' && a.kind === 'note' && b.kind === 'note' && a.ticks + b.ticks === o.ticks) {
         const extra = (a.midi !== o.midi ? 1 : 0) + (b.midi !== o.midi ? 1 : 0);
-        if (1 + extra + dp[i + 2][j + 1] === cur) {
+        if (SPLIT + extra + dp[i + 2][j + 1] === cur) {
           counts.split++;
           counts.pitch += extra;
           i += 2;
@@ -476,7 +493,7 @@ export function editScript(truthEv: TickEvent[], outEv: TickEvent[]): EditResult
       const t = T[i];
       if (t.kind === 'note' && a.kind === 'note' && b.kind === 'note' && a.ticks + b.ticks === t.ticks) {
         const extra = t.midi !== a.midi && t.midi !== b.midi ? 1 : 0;
-        if (1 + extra + dp[i + 1][j + 2] === cur) {
+        if (MERGE + extra + dp[i + 1][j + 2] === cur) {
           counts.merge++;
           counts.pitch += extra;
           i += 1;

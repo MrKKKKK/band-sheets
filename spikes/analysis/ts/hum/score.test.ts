@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  APP_OPS_COSTS,
   KEYBOARD_DEFAULT_TICKS,
   dropShortTruth,
   editScript,
@@ -294,5 +295,26 @@ describe('rounded-note accuracy and candidates', () => {
     ];
     close(pitchCandidateHit(t, est, 1), 1 / 3);
     close(pitchCandidateHit(t, est, 2), 2 / 3);
+  });
+});
+
+describe('T15 S1: split / merge priced as the app can do them', () => {
+  const split = { truth: [tn(0, 4, 60), tn(4, 4, 60)], out: [tn(0, 8, 60)] }; // one output note must become two
+  const merge = { truth: [tn(0, 8, 60)], out: [tn(0, 4, 60), tn(4, 4, 60)] };
+  it('default: 1 step (lower bound); app ops: 2 steps; counts name the operation', () => {
+    for (const c of [split, merge]) {
+      const lower = editScript(ev(c.truth), ev(c.out));
+      const app = editScript(ev(c.truth), ev(c.out), APP_OPS_COSTS);
+      expect(lower.edits).toBe(1);
+      expect(app.edits).toBe(2);
+      expect(lower.keyboardSteps).toBe(app.keyboardSteps);
+    }
+    expect(editScript(ev(split.truth), ev(split.out)).counts.split).toBe(1);
+    expect(editScript(ev(merge.truth), ev(merge.out)).counts.merge).toBe(1);
+  });
+  it('app-ops cost never below the lower bound and equal when no split / merge is used', () => {
+    const truth = [tn(0, 4, 60), tn(4, 4, 62), tn(8, 8, 64)];
+    const out = [tn(0, 4, 60), tn(4, 4, 63), tn(8, 4, 64)];
+    expect(editScript(ev(truth), ev(out), APP_OPS_COSTS).edits).toBe(editScript(ev(truth), ev(out)).edits);
   });
 });

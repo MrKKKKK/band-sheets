@@ -7,6 +7,7 @@
  */
 import {
   SHIFT_CLASS_CODE,
+  APP_OPS_COSTS,
   dropShortTruth,
   editScript,
   estimateShift,
@@ -106,6 +107,10 @@ export function scoreRow(inp0: ScoreInput): Scores {
     s['edit.perNote'] = e.editsPerNote;
     s['edit.keyboardSteps'] = e.keyboardSteps;
     s['edit.ratioToKeyboard'] = e.ratioToKeyboard;
+    // S1: split / merge priced as the app can do them (2 steps each); `edit.*` above counts them 1 (lower bound).
+    const ea = editScript(notesToEvents(truth), outEv, APP_OPS_COSTS);
+    s['edit.appOps.count'] = ea.edits;
+    s['edit.appOps.ratioToKeyboard'] = ea.ratioToKeyboard;
     const gridOut = inp.estQuant.events.filter((x) => x.kind === 'note').map((x) => x as Extract<(typeof inp.estQuant.events)[number], { kind: 'note' }>);
     s['gridCand.k1'] = gridCandidateHit(truth, gridOut, 1);
     s['gridCand.k2'] = gridCandidateHit(truth, gridOut, 2);

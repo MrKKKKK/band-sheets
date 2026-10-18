@@ -133,6 +133,7 @@ function main() {
     `- commit: \`${commit}\``,
     `- config hash: \`${hash}\` (default config, \`cli.ts --all --split tuning,dev --f0-track\`)`,
     `- variants: ${rows.length} (tuning ${rows.filter((r) => r.split === 'tuning').length}, dev ${rows.filter((r) => r.split === 'dev').length}); held-out not read`,
+    '- note F pitch = the WRITTEN note (score MIDI, T15 M1); the old sung-pitch F is `noteF_sungPitch.*` in rows.json. Edit counts treat split / merge as 1 step (lower bound: the app has no such operation); `edit.appOps.*` prices them 2 (S1).',
     '- truth: sung-time notes for note F / f0 / segmentation / pitch errors; score-time ticks for quantized accuracy and edits. Truth notes shorter than a 16th are dropped.',
     '',
   ];

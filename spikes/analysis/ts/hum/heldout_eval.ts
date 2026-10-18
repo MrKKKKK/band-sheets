@@ -16,16 +16,16 @@ import { join } from 'node:path';
 import { decodeWav } from '../browser/wav';
 import { resampleSinc, toMono } from '../dsp/core/resample';
 import { analyzeHum, resolveStart } from './analyze';
-import { errorTypes, scoreTake as scoreSynTake, type TruthNote } from './baseline';
+import { scoreTake as scoreSynTake } from './baseline';
 import { firstNoteTickFromTruthInfo, variantStart } from './cli';
 import { heldOutRunBlock } from './heldout_log';
 import { humConfigHash, resolveHumConfig, type HumConfig } from './config';
 import { estimateF0 } from './f0';
 import { extractNotes, frameLevelDb } from './notes';
 import { quantize } from './quantize';
-import { scoreRow, shiftFor, type Scores } from './report';
-import { unshiftNotes, unshiftQuantized } from './score';
-import type { HumInput, HumNote, QuantizedMelody } from './types';
+import { recScore, type RecTruth } from './rec_score';
+import type { Scores } from './report';
+import type { HumInput } from './types';
 
 const SA = join(import.meta.dirname, '..', '..');
 const HUM = join(SA, 'out', 'hum');
@@ -73,37 +73,6 @@ function synScore(v: SynVariant, cfg: HumConfig): { both: Scores; bar: Scores; f
 
 /* ------------------------------------------------------------------ recordings */
 interface RecVariant { name: string; heldOut: boolean; style: string; song: string; truth: string; wav: string; bpm: number; ts: [number, number] }
-interface RecTruth { heldOut: boolean; info: { bpm: number; ts: [number, number]; startSec: number; firstNoteSec: number }; notes: TruthNote[] }
-
-function recScore(truth: RecTruth, notes: HumNote[], q: QuantizedMelody, base: 'given' | 'grid'): Scores {
-  const tr = truth.notes;
-  const d = q.startSec - truth.info.startSec;
-  const truthAll = base === 'given' ? tr : tr.map((n) => ({ ...n, start: n.start + d, end: n.end + d }));
-  const truthNotes = truthAll.filter((n) => n.ticks >= 4);
-  const input = {
-    truthNotes: truthNotes.map((n) => ({ start: n.start, end: n.end, midi: n.midi })),
-    estNotes: notes,
-    truthTicks: truthAll.map((n) => ({ startTick: n.startTick, ticks: n.ticks, midi: n.midi })),
-    estQuant: q,
-    transposeInvariant: true,
-  };
-  const s = scoreRow(input);
-  const shift = shiftFor(input);
-  const un = unshiftNotes(notes, shift);
-  Object.assign(s, errorTypes(truthNotes, un, unshiftQuantized(q, shift)));
-  const ov = (a: { start: number; end: number }, b: { start: number; end: number }) => Math.min(a.end, b.end) - Math.max(a.start, b.start);
-  const hit = (a: { start: number; end: number }, b: { start: number; end: number }) => ov(a, b) > 0.3 * Math.min(a.end - a.start, b.end - b.start);
-  let same = 0;
-  for (const e of un) {
-    const cov = truthNotes.filter((x) => hit(x, e));
-    for (let i = 1; i < cov.length; i++) if (cov[i].midi === cov[i - 1].midi) same++;
-  }
-  s['seg.missedSplit.samePitch'] = same;
-  s.nTruth = truthNotes.length;
-  s.nEst = notes.length;
-  return s;
-}
-
 function main() {
   const final = process.argv.includes('--final-heldout');
   const selftest = process.argv.includes('--selftest');
