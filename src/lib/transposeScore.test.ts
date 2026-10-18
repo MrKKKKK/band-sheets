@@ -1,6 +1,7 @@
 import { importer, model, Settings } from '@coderline/alphatab';
 import { describe, expect, it } from 'vitest';
 import { partsToAlphaTex } from './partsToAlphaTex';
+import { disambiguateChordCase, restoreChordNames } from './chordCase';
 import { transposeScore } from './transposeScore';
 
 function read(tex: string): model.Score {
@@ -77,5 +78,27 @@ describe('transposeScore', () => {
     const n = s.tracks[0].staves[0].bars[0].voices[0].beats[0].notes[0];
     expect(n.realValue).toBe(63);
     expect(n.accidentalMode).toBe(model.NoteAccidentalMode.Default);
+  });
+});
+
+describe('transposeScore keeps chord quality case', () => {
+  const names = (s: model.Score) =>
+    [...s.tracks[0].staves[0].bars.flatMap((b) => b.voices[0].beats)].map(
+      (b) => b.chord?.name,
+    );
+  const TEX = (chords: string[]) =>
+    `.\n\\track "M"\n\\ts 4 4\n\\ks c\n${chords.map((c) => `:4 C4{ch "${c}"}`).join(' ')} |\n`;
+  const CHORDS = ['C#M7', 'C#m7', 'DbM7', 'C#M7/G#', 'CmM7', 'C#m7-5', 'CM9'];
+
+  it('works after disambiguate -> restore, both directions', () => {
+    for (const [semi, expected] of [
+      [1, ['DM7', 'Dm7', 'DM7', 'DM7/A', 'DbmM7', 'Dm7-5', 'DbM9']],
+      [-1, ['CM7', 'Cm7', 'CM7', 'CM7/G', 'BmM7', 'Cm7-5', 'BM9']],
+    ] as const) {
+      const s = read(disambiguateChordCase(TEX(CHORDS)));
+      restoreChordNames(s);
+      transposeScore(s, semi);
+      expect(names(s)).toEqual(expected);
+    }
   });
 });
