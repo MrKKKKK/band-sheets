@@ -6,6 +6,7 @@ import {
   updateChord,
   updateLyricLine,
 } from '../../lib/chartEdit';
+import { isDashLine } from '../../lib/dashChart';
 import { applyLyrics, lyricsText } from '../../lib/lyrics';
 import { paletteGroups } from '../../lib/palette';
 import { isRawLine, type LyricLine, type Song } from '../../lib/song';
@@ -336,7 +337,7 @@ export function EasyEditor({
                         />
                       );
                     }
-                    if (lineLyrics(line).trim() === '') {
+                    if (lineLyrics(line).trim() === '' || isDashLine(line)) {
                       return (
                         <div key={key} className={styles.readOnly}>
                           <ChordLyricLine line={line} lineKey={key} />
