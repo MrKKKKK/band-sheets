@@ -27,6 +27,7 @@ import { pathToFileURL } from 'node:url';
 import { decodeWav } from '../browser/wav';
 import { toMono } from '../dsp/core/resample';
 import { AnalysisInputError, analyzeHum } from './analyze';
+import { heldOutRefusal } from './heldout_guard';
 import type { HumInput } from './types';
 
 const OUT = join(import.meta.dirname, '..', '..', 'out', 'hum');
@@ -187,15 +188,21 @@ function runAll(a: CliArgs, commit: string | undefined): void {
   process.stderr.write(`done: ${n} variants (${a.splits.join(',')}, start ${a.startMode}${a.startMode === 'bar' ? '' : ` ${a.startErrorBeats} beats`}), config ${hash}, commit ${commit ?? '-'}, out ${outDir}\n`);
 }
 
-/** Refuses a manifest held-out wav (or its truth) and anything under a recordings/ directory without being asked for it by --all. */
+/** Refuses held-out synthetic variants and held-out recordings (single-file mode; same policy as --all). See heldout_guard.ts. */
 function refuseHeldOut(input: string): void {
-  try {
-    const manifest = JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8')) as { variants: ManifestVariant[] };
-    const b = basename(input);
-    if (manifest.variants.some((v) => (v.heldOut || v.split === 'heldOut') && v.wav === b)) throw new UsageError('held-out variants are never analyzed here');
-  } catch (e) {
-    if (e instanceof UsageError) throw e;
-  }
+  const readJson = <T>(path: string, pick: (j: any) => T): T | null => {
+    try {
+      return pick(JSON.parse(readFileSync(path, 'utf8')));
+    } catch {
+      return null;
+    }
+  };
+  const reason = heldOutRefusal(input, {
+    syn: readJson(join(OUT, 'manifest.json'), (j) => j.variants),
+    rec: readJson(join(OUT, '..', 'rec', 'manifest.hum.json'), (j) => j.variants),
+    ids: readJson(join(OUT, '..', '..', 'recordings', 'hum-ids.local.json'), (j) => j.recordings),
+  });
+  if (reason) throw new UsageError(reason);
 }
 
 /** The HumInput of a single-file run: command line first, then the .txt; exactly one of the start forms. */
@@ -222,6 +229,7 @@ function main(argv: string[]): void {
   if (a.all) return runAll(a, commit);
   if (!a.input) throw new UsageError('no input wav (or --all)');
   refuseHeldOut(a.input);
+  if (a.truthInfo) refuseHeldOut(a.truthInfo);
   const fromTxt = a.info ? parseInfoTxt(readFileSync(a.info, 'utf8')) : {};
   let firstNoteTick = a.firstNoteTick;
   if (a.truthInfo) firstNoteTick ??= firstNoteTickFromTruthInfo((JSON.parse(readFileSync(a.truthInfo, 'utf8')) as { info: Parameters<typeof firstNoteTickFromTruthInfo>[0] }).info);
