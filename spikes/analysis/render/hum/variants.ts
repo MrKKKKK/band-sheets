@@ -1,4 +1,4 @@
-// Spike 4 T1: humming variants = melody x level H0..H3 x seed 1..7 (docs/audio-spike4-plan.md section 4).
+// Spike 4 T1/T1b: humming variants = melody x level H0..H4 x seed 1..7 (docs/audio-spike4-plan.md section 4).
 //
 // Splits by seed: tuning 1-3, dev 4-5, held-out 6-7 (`heldOut: true`; their synthesis streams are also
 // salted differently, so no draw is shared with a tuning/dev variant). The seed fixes the melody (rand),
@@ -15,17 +15,26 @@
 //   H3  H2 with larger offsets (sigma 25-40 c, onset sigma 40-60 ms), closed-mouth "n" hum (soft onsets,
 //       repeated same-pitch notes joined by shallow loudness dips only), weak fundamental (-15..-25 dB),
 //       louder breath, pink noise 20 dB, room reverb (RT60 0.3-0.7 s), click bleed from the headphones.
+//   H4  "realistic" (T1b, from the look-point-1 diagnosis of the dev recordings): H3's degradations, sung either
+//       as the closed-mouth "n" (tuning biased flat, -50..-15 c) or an open "la" (tuning -40..+40 c), plus
+//       (see RealismParams) a scoop on EVERY note that does not start with a portamento (100-300 c below,
+//       100-250 ms; same-pitch repeats inside a phrase scoop too), portamento between different pitches
+//       (80-200 ms), an occasional overshoot after the scoop/portamento, slow intra-note pitch wander
+//       (+-30-60 c, period 200-500 ms), vibrato +-25-50 c (50-100 c peak to peak) with an irregular rate and
+//       depth, per-note pitch sigma 40-60 c (clipped at +-100 c) and, sometimes, phrase-final notes cut short
+//       (breath). H0..H3 are bit-identical to T1 (H4 draws only from its own streams; the new code paths
+//       run only when `realism` is set).
 
 import type { MelodyEvent } from '../../../../src/lib/melody';
 import { prng } from '../prng';
 import { fixedMelody, MELODY_IDS, randomMelody, toRegister, type MelodyId, type Register } from './melodies';
 
-export type HumLevel = 0 | 1 | 2 | 3;
+export type HumLevel = 0 | 1 | 2 | 3 | 4;
 export type HumSplit = 'tuning' | 'dev' | 'heldOut';
 export type Articulation = 'gap' | 'la' | 'ta' | 'n';
 export type Vowel = 'a' | 'n';
 
-export const HUM_LEVELS: HumLevel[] = [0, 1, 2, 3];
+export const HUM_LEVELS: HumLevel[] = [0, 1, 2, 3, 4];
 export const HUM_SEEDS = [1, 2, 3, 4, 5, 6, 7];
 export const SAMPLE_RATE = 44100;
 /** Silence after the last bar line (release + reverb tail). */
@@ -162,6 +171,35 @@ export interface SynthParams {
   reverbRt60: number | null;
   /** Click bleed level re the voice peak (dB), or null for none. */
   clickDb: number | null;
+  /** H4 only (absent below, so the H0..H3 truths are unchanged): the "realistic" singer. */
+  realism?: RealismParams;
+}
+
+/**
+ * H4 traits on top of the base parameters (in H4 the base also has scoopProb 1, scoopCents 100-300,
+ * scoopSec 0.1-0.25, glideSec 0.08-0.2 = portamento, vibDepthCents 25-50).
+ */
+export interface RealismParams {
+  /** 'n' = closed-mouth hum (H3 sound, flat tuning), 'la' = open vowel. */
+  hum: 'n' | 'la';
+  /** Per-note pitch offset clip (cents), instead of PITCH_CLIP_CENTS. */
+  pitchClipCents: number;
+  /** The onset transition (scoop or portamento) takes at most this fraction of the note. */
+  transitionMaxFrac: number;
+  /** Probability of an overshoot after the transition, its size (cents) and length (s). */
+  overshootProb: number;
+  overshootCents: [number, number];
+  overshootSec: [number, number];
+  /** Slow intra-note wander: amplitude (cents) and period (s) ranges, drawn per note. */
+  wanderCents: [number, number];
+  wanderSec: [number, number];
+  /** Vibrato irregularity: per-note depth factor 1 +- depthDev, rate modulated by +- rateDev with a period in rateModSec. */
+  vibDepthDev: number;
+  vibRateDev: number;
+  vibRateModSec: [number, number];
+  /** A phrase-final note is cut short (breath) with this probability, by this fraction of its length. */
+  breathShortProb: number;
+  breathShort: [number, number];
 }
 
 export const PITCH_CLIP_CENTS = 45;
@@ -222,7 +260,7 @@ export function synthParams(v: HumVariant): SynthParams {
     closureSec: uni(r, 0.03, 0.05),
   };
   if (v.level === 1) return h1;
-  const hard = v.level === 3;
+  const hard = v.level >= 3;
   const h2: SynthParams = {
     ...h1,
     pitchSigmaCents: hard ? uni(r, 25, 40) : uni(r, 15, 25),
@@ -238,7 +276,7 @@ export function synthParams(v: HumVariant): SynthParams {
     noiseSnrDb: hard ? 20 : 30,
   };
   if (!hard) return h2;
-  return {
+  const h3: SynthParams = {
     ...h2,
     articulation: 'n',
     vowel: 'n',
@@ -250,5 +288,40 @@ export function synthParams(v: HumVariant): SynthParams {
     dipSec: uni(r, 0.06, 0.1),
     reverbRt60: uni(r, 0.3, 0.7),
     clickDb: uni(r, -32, -24),
+  };
+  if (v.level === 3) return h3;
+  // ---- H4 (more draws from the same synth-h4 stream; H3 never reaches this) ----
+  const hum: 'n' | 'la' = r() < 0.5 ? 'n' : 'la';
+  const open: Partial<SynthParams> =
+    hum === 'n'
+      ? {}
+      : { articulation: 'la', vowel: 'a', attackSec: uni(r, 0.03, 0.06), releaseSec: uni(r, 0.03, 0.06), dipDb: uni(r, 6, 12), repeatDipDb: uni(r, 10, 16), dipSec: uni(r, 0.05, 0.08) };
+  return {
+    ...h3,
+    ...open,
+    pitchSigmaCents: uni(r, 40, 60),
+    tuningCents: hum === 'n' ? uni(r, -50, -15) : uni(r, -40, 40),
+    glideSec: [0.08, 0.2],
+    scoopProb: 1,
+    scoopCents: [100, 300],
+    scoopSec: [0.1, 0.25],
+    vibRateHz: uni(r, 4.5, 6.5),
+    vibDepthCents: uni(r, 25, 50),
+    vibMinSec: 0.35,
+    realism: {
+      hum,
+      pitchClipCents: 100,
+      transitionMaxFrac: 0.6,
+      overshootProb: 0.3,
+      overshootCents: [20, 60],
+      overshootSec: [0.08, 0.16],
+      wanderCents: [30, 60],
+      wanderSec: [0.2, 0.5],
+      vibDepthDev: 0.3,
+      vibRateDev: 0.15,
+      vibRateModSec: [0.5, 1.2],
+      breathShortProb: 0.35,
+      breathShort: [0.2, 0.45],
+    },
   };
 }

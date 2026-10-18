@@ -3,7 +3,10 @@
 // <name>.truth.json is an AnalysisResult (render/types.ts) with
 //   melody.notes      SUNG-time notes (after jitter): {start, end, midi, confidence: 1, cents, startTick, ticks}
 //                     `midi` = the score pitch, `cents` = where it was actually sung relative to `midi`
-//                     (per-note offset + tuning + drift at the note centre; vibrato/glides/jitter excluded).
+//                     (per-note offset + tuning + drift at the note centre; vibrato/glides/jitter excluded;
+//                     H4 adds the mean of the note's slow wander after its onset transition).
+//                     H4 only: `transitionSec` = length of the onset scoop/portamento (+ overshoot) from
+//                     `start`; the scoop belongs to its note, so `start` stays the intended onset.
 //                     start = onset of the note (attack start, or the boundary inside a legato phrase),
 //                     end = next boundary or end of the release. For f0/segmentation scoring.
 //   melody.quantized  SCORE-time notes: a QuantizedMelody (ts/hum/types.ts) on the 16th grid from bar 1,
@@ -14,7 +17,7 @@
 //                     and voiced = 0 outside phrases and where the envelope is below VOICED_ENV.
 //   hum.score         the score: MelodyEvent[] (pitch strings, ticks), its alphaTex body (serializeMelody),
 //                     register, transposition, key (rand only).
-//   hum.variant       name, melody, level 'H0'..'H3', seed, split, heldOut.
+//   hum.variant       name, melody, level 'H0'..'H4', seed, split, heldOut.
 //   hum.synth         the drawn SynthParams (articulation, vowel, sigmas, SNR, RT60, click bleed, ...).
 // Synthetic only: no recording, no private chart is ever written here.
 
@@ -39,6 +42,8 @@ export interface SungTruthNote {
   cents: number;
   startTick: number;
   ticks: number;
+  /** H4 only (see top). */
+  transitionSec?: number;
 }
 
 export interface HumTruth extends Omit<AnalysisResult, 'melody'> {
@@ -96,6 +101,7 @@ export function buildHumTruth(v: HumVariant, score: HumScore, p: SynthParams, pe
     cents: Math.round(perf.centsAt((n.start + n.end) / 2, j) * 100) / 100,
     startTick: perf.scoreNotes[j].startTick,
     ticks: perf.scoreNotes[j].ticks,
+    ...(n.real ? { transitionSec: r6(n.real.settleSec) } : {}),
   }));
   return {
     format: 'band-sheets-analysis',

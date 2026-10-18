@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cleanGenerated, gitCommit, mergeManifestVariants } from '../manifest';
-import { checkH0, checkSung, sungTolerance, type NoteCheck } from './check';
+import { checkH0, checkSung, excursionStats, sungTolerance, type ExcursionStats, type NoteCheck } from './check';
 import { renderHum } from './render';
 import { F0_HOP_SEC, HUM_SYNTH_VERSION } from './truth';
 import { allHumVariants, HUM_LEVELS, SAMPLE_RATE, TAIL_SEC, type HumSplit } from './variants';
@@ -45,7 +45,7 @@ if (ONLY === undefined) {
 
 const entries: Record<string, unknown>[] = [];
 const times: number[] = [];
-const checks: { level: number; name: string; c: NoteCheck }[] = [];
+const checks: { level: number; name: string; split: HumSplit; c: NoteCheck; x: ExcursionStats | null }[] = [];
 const t0 = performance.now();
 for (const v of selected) {
   const t = performance.now();
@@ -77,7 +77,7 @@ for (const v of selected) {
   });
   if (CHECK) {
     const c = v.level === 0 ? checkH0(r.samples, SAMPLE_RATE, r.truth) : checkSung(r.samples, SAMPLE_RATE, r.truth, sungTolerance(r.truth));
-    checks.push({ level: v.level, name: v.name, c });
+    checks.push({ level: v.level, name: v.name, split: v.split, c, x: v.heldOut ? null : excursionStats(r.truth) });
   }
 }
 const totalMs = performance.now() - t0;
@@ -126,6 +126,17 @@ if (CHECK) {
     console.log(
       `check H${l}: ${sum((c) => c.passed)}/${sum((c) => c.checked)} notes within tolerance (${sum((c) => c.skipped)} skipped as too short), max |err| ${max.toFixed(l === 0 ? 6 : 2)} cents`,
     );
+    for (const sp of ['tuning', 'dev'] as HumSplit[]) {
+      const xs = cs.filter((c) => c.split === sp && c.x !== null).map((c) => c.x!);
+      if (xs.length === 0) continue;
+      const n = xs.reduce((a, x) => a + x.notes, 0);
+      const pct = (k: number) => `${((100 * k) / n).toFixed(1)} %`;
+      const runs = xs.reduce((a, x) => a + x.runs, 0);
+      const med = [...xs.map((x) => x.medianRunSec)].sort((a, b) => a - b)[xs.length >> 1];
+      console.log(
+        `  excursions H${l} ${sp}: notes with a 30-300 ms run off their main semitone ${pct(xs.reduce((a, x) => a + x.withExcursion, 0))}, after the onset transition ${pct(xs.reduce((a, x) => a + x.withInnerExcursion, 0))}, run >= 100 ms ${pct(xs.reduce((a, x) => a + x.withLongExcursion, 0))} (${runs} runs, median of per-variant median ${(med * 1000).toFixed(0)} ms, ${n} notes)`,
+      );
+    }
     for (const c of cs) if (c.c.passed < c.c.checked) {
       failed++;
       console.error(`  FAIL ${c.name}: ${c.c.passed}/${c.c.checked} (tol ${c.c.tolCents.toFixed(1)} c, max ${c.c.maxAbsCents.toFixed(1)} c)`);

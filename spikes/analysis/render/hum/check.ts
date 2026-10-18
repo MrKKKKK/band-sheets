@@ -7,6 +7,14 @@
 //   TRUTH-GUIDED difference-function search (only periods within +-3 semitones of the truth are tried),
 //   because it checks the truth against the audio, not an analyzer. The start of the note (glide/scoop)
 //   and its last 20 % are left out; notes leaving less than 40 ms are skipped and counted.
+//   H4 (T1b): tol = the level's per-note sigma (40-60 c); the frames left out at the start are the note's own
+//   onset transition (truth `transitionSec`: scoop or portamento + overshoot) or the attack, whichever is longer.
+// - excursionStats (T1b sanity stat): share of truth notes whose frame f0 truth leaves the note's main semitone
+//   (the most common rounded MIDI value inside the note) for a 30-300 ms run, i.e. what makes an analyzer
+//   split a sung note into pitch-differing fragments (look point 1: 32 % extra splits on the recordings).
+//   To count fragments rather than flicker at a semitone boundary, the frame pitch is first smoothed with a
+//   5-frame (58 ms) running median, and a run (frames more than 50 c from the main semitone) only counts when
+//   it gets at least EXCURSION_MARGIN_CENTS beyond the boundary.
 
 import type { HumTruth } from './truth';
 
@@ -94,7 +102,8 @@ export function checkSung(x: ArrayLike<number>, sr: number, truth: HumTruth, tol
   let skipped = 0;
   for (const n of truth.melody.notes) {
     const L = n.end - n.start;
-    const a = n.start + Math.max(0.25 * L, lead);
+    const skip = n.transitionSec === undefined ? lead : Math.max(n.transitionSec, s.attackSec) + 0.02;
+    const a = n.start + Math.max(0.25 * L, skip);
     const b = n.end - 0.2 * L;
     if (b - a < 0.04) {
       skipped++;
@@ -132,4 +141,76 @@ function summarize(notes: number, errs: number[], skipped: number, tolCents: num
 /** The tolerance of the sung check for a variant's truth. */
 export function sungTolerance(truth: HumTruth): number {
   return Math.max(truth.hum.synth.pitchSigmaCents, 10);
+}
+
+export interface ExcursionStats {
+  notes: number;
+  /** Notes with at least one 30-300 ms run off their main semitone (anywhere in the note). */
+  withExcursion: number;
+  /** Same, counting only runs that start after the onset transition (H4 transitionSec, else the T1 lead). */
+  withInnerExcursion: number;
+  /** Notes with such a run of at least LONG_EXCURSION_SEC (closer to the recordings' fragments: median 174 ms). */
+  withLongExcursion: number;
+  /** All such runs and their median length (s). */
+  runs: number;
+  medianRunSec: number;
+}
+
+export const EXCURSION_MARGIN_CENTS = 15;
+export const LONG_EXCURSION_SEC = 0.1;
+
+/** The T1b sanity stat (see top) on the frame f0 truth. */
+export function excursionStats(truth: HumTruth, minSec = 0.03, maxSec = 0.3, marginCents = EXCURSION_MARGIN_CENTS): ExcursionStats {
+  const f0 = truth.hum.f0;
+  const s = truth.hum.synth;
+  const lead = Math.max(s.glideSec[1], s.scoopSec[1], s.attackSec);
+  let withExcursion = 0;
+  let withInner = 0;
+  let withLong = 0;
+  const lens: number[] = [];
+  for (const n of truth.melody.notes) {
+    const i0 = Math.max(0, Math.ceil((n.start - f0.t0) / f0.hopSec));
+    const i1 = Math.min(f0.hz.length - 1, Math.floor((n.end - f0.t0) / f0.hopSec));
+    const raw: number[] = [];
+    const idx: number[] = [];
+    for (let i = i0; i <= i1; i++) {
+      if (!f0.voiced[i]) continue;
+      raw.push(69 + 12 * Math.log2(f0.hz[i] / 440));
+      idx.push(i);
+    }
+    if (raw.length === 0) continue;
+    const pitch = raw.map((_x, k) => median(raw.slice(Math.max(0, k - 2), k + 3)));
+    const semis = pitch.map(Math.round);
+    const count = new Map<number, number>();
+    for (const m of semis) count.set(m, (count.get(m) ?? 0) + 1);
+    let main = semis[0];
+    for (const [m, c] of count) if (c > count.get(main)! || (c === count.get(main)! && Math.abs(m - n.midi) < Math.abs(main - n.midi))) main = m;
+    const innerFrom = n.start + (n.transitionSec ?? lead);
+    let any = false;
+    let inner = false;
+    let long = false;
+    let k = 0;
+    while (k < semis.length) {
+      if (semis[k] === main) {
+        k++;
+        continue;
+      }
+      let e = k;
+      while (e + 1 < semis.length && semis[e + 1] !== main && idx[e + 1] === idx[e] + 1) e++;
+      const len = (e - k + 1) * f0.hopSec;
+      let far = 0;
+      for (let q = k; q <= e; q++) far = Math.max(far, Math.abs(pitch[q] - main));
+      if (len >= minSec && len <= maxSec && far >= 0.5 + marginCents / 100) {
+        lens.push(len);
+        any = true;
+        if (len >= LONG_EXCURSION_SEC) long = true;
+        if (f0.t0 + idx[k] * f0.hopSec >= innerFrom) inner = true;
+      }
+      k = e + 1;
+    }
+    if (any) withExcursion++;
+    if (inner) withInner++;
+    if (long) withLong++;
+  }
+  return { notes: truth.melody.notes.length, withExcursion, withInnerExcursion: withInner, withLongExcursion: withLong, runs: lens.length, medianRunSec: lens.length ? median(lens) : 0 };
 }

@@ -11,6 +11,10 @@
 //   - breaths and click times.
 // The same functions drive the synthesis (voice.ts) and the frame f0 truth (truth.ts), so the truth is
 // exact by construction.
+// H4 (p.realism, T1b) uses its own pitch contour (pitchAtReal below): every note starts with a scoop from
+// below or, after a different pitch inside a phrase, a portamento; an optional overshoot follows; a slow
+// per-note wander and an irregular vibrato ride on top. The sung note still starts at the intended onset
+// (the scoop belongs to its note). H0..H3 take exactly the T1 code path.
 
 import type { MelodyEvent } from '../../../../src/lib/melody';
 import { midiOf } from './melodies';
@@ -48,6 +52,29 @@ export interface SungNote {
   vibrato: boolean;
   /** Linear loudness dip factor (0..1) at this note's start inside a phrase. */
   dip: number;
+  /** H4 only: the per-note realism draws. */
+  real?: NoteRealism;
+}
+
+/** H4 per-note contour draws (see RealismParams). */
+export interface NoteRealism {
+  /** 'scoop' from below or 'porta' from the previous note's target. */
+  kind: 'scoop' | 'porta';
+  /** Scoop / portamento length (s), already capped to transitionMaxFrac of the note. */
+  transSec: number;
+  /** Overshoot (cents, signed: in the direction of the approach; 0 = none) and its length (s); it starts at 0.6 transSec. */
+  overCents: number;
+  overSec: number;
+  /** End of the whole onset transition (s after the start): max(transSec, 0.6 transSec + overSec). */
+  settleSec: number;
+  wanderCents: number;
+  wanderSec: number;
+  wanderPhase: number;
+  /** Mean of the wander over the steady middle of the note (see perform) in cents; part of the truth `cents`. */
+  wanderMeanCents: number;
+  vibDepthCents: number;
+  vibRateModSec: number;
+  vibRatePhase: number;
 }
 
 export interface Phrase {
@@ -122,6 +149,8 @@ export function perform(v: HumVariant, score: HumScore, p: SynthParams): Perform
   const notes = scoreNotes(score.events, score.bpm, startSec);
   const rt = streamOf(v, `timing-h${v.level}`);
   const rp = streamOf(v, `pitch-h${v.level}`);
+  const rbs = p.realism ? streamOf(v, `breathshort-h${v.level}`) : null;
+  const pitchClip = p.realism ? p.realism.pitchClipCents : PITCH_CLIP_CENTS;
 
   // ---- onsets ----
   const starts: number[] = [];
@@ -139,7 +168,11 @@ export function perform(v: HumVariant, score: HumScore, p: SynthParams): Perform
     const dur = n.scoreEnd - n.scoreStart;
     const gapMin = p.articulation === 'gap' ? Math.min(0.05, 0.25 * dur) : p.articulation === 'ta' ? p.closureSec : 0;
     if (!n.restAfter) return starts[i + 1] - gapMin;
-    const early = p.endEarly[0] + (p.endEarly[1] - p.endEarly[0]) * rt();
+    let early = p.endEarly[0] + (p.endEarly[1] - p.endEarly[0]) * rt();
+    if (p.realism && rbs !== null && rbs() < p.realism.breathShortProb) {
+      const [lo, hi] = p.realism.breathShort;
+      early = Math.max(early, lo + (hi - lo) * rbs());
+    }
     let e = n.scoreEnd + p.onsetBiasSec - Math.max(p.source === 'sine' ? gapMin : 0.03, early * dur);
     if (i + 1 < notes.length) e = Math.min(e, starts[i + 1] - 0.05);
     return Math.max(e, starts[i] + Math.max(0.5 * dur, 0.05));
@@ -159,7 +192,7 @@ export function perform(v: HumVariant, score: HumScore, p: SynthParams): Perform
 
   // ---- pitch draws ----
   const sung: SungNote[] = notes.map((n, i) => {
-    const devCents = clip(gauss(rp) * p.pitchSigmaCents, PITCH_CLIP_CENTS);
+    const devCents = clip(gauss(rp) * p.pitchSigmaCents, pitchClip);
     const scoop = rp() < p.scoopProb;
     return {
       score: i,
@@ -183,10 +216,60 @@ export function perform(v: HumVariant, score: HumScore, p: SynthParams): Perform
       if (x > 0) {
         const db = sung[j].midi === sung[j - 1].midi ? p.repeatDipDb : p.dipDb;
         sung[j].dip = 1 - 10 ** (-db / 20);
-        sung[j].scoopCents = 0;
+        // H4: a same-pitch repeat is re-attacked with a scoop; a pitch change gets a portamento instead.
+        if (!(p.realism && sung[j].midi === sung[j - 1].midi)) sung[j].scoopCents = 0;
       }
     }),
   );
+
+  // ---- H4 per-note realism draws (own stream) ----
+  if (p.realism) {
+    const R = p.realism;
+    const rr = streamOf(v, `real-h${v.level}`);
+    const u = (lo: number, hi: number) => lo + (hi - lo) * rr();
+    sung.forEach((n, j) => {
+      const L = n.end - n.start;
+      const first = phrases[n.phrase].notes[0] === j;
+      const kind: 'scoop' | 'porta' = first || n.scoopCents > 0 ? 'scoop' : 'porta';
+      if (kind === 'scoop' && n.scoopCents === 0) n.scoopCents = u(p.scoopCents[0], p.scoopCents[1]);
+      const transSec = Math.min(kind === 'scoop' ? n.scoopSec : n.glideSec, R.transitionMaxFrac * L);
+      let overCents = 0;
+      let overSec = 0;
+      const over = rr() < R.overshootProb;
+      const oc = u(R.overshootCents[0], R.overshootCents[1]);
+      const os = Math.min(u(R.overshootSec[0], R.overshootSec[1]), R.transitionMaxFrac * L - 0.6 * transSec);
+      const dir = kind === 'scoop' ? 1 : Math.sign(n.target - sung[j - 1].target) || 1;
+      if (over && os >= 0.03) {
+        overCents = dir * oc;
+        overSec = os;
+      }
+      const settleSec = Math.max(transSec, 0.6 * transSec + overSec);
+      const wanderCents = u(R.wanderCents[0], R.wanderCents[1]);
+      const wanderSec = u(R.wanderSec[0], R.wanderSec[1]);
+      const wanderPhase = u(0, 2 * Math.PI);
+      const w = (2 * Math.PI) / wanderSec;
+      // mean over the steady middle of the note (after the transition/attack, before the last 20 %);
+      // render/hum/check.ts measures the same span
+      let a = Math.max(0.25 * L, Math.max(settleSec, p.attackSec) + 0.02);
+      let b = 0.8 * L;
+      if (b - a < 0.04) [a, b] = [settleSec, Math.max(L, settleSec + 1e-3)];
+      const wanderMeanCents = (wanderCents * (Math.cos(w * a + wanderPhase) - Math.cos(w * b + wanderPhase))) / (w * (b - a));
+      n.real = {
+        kind,
+        transSec,
+        overCents,
+        overSec,
+        settleSec,
+        wanderCents,
+        wanderSec,
+        wanderPhase,
+        wanderMeanCents,
+        vibDepthCents: p.vibDepthCents * (1 + R.vibDepthDev * (2 * rr() - 1)),
+        vibRateModSec: u(R.vibRateModSec[0], R.vibRateModSec[1]),
+        vibRatePhase: u(0, 2 * Math.PI),
+      };
+    });
+  }
 
   // ---- micro jitter (smoothed noise, 1 ms grid) ----
   const nJ = Math.ceil((durationSec + 2) / JITTER_STEP) + 2;
@@ -231,6 +314,32 @@ export function perform(v: HumVariant, score: HumScore, p: SynthParams): Perform
   };
   const centsAt = (t: number, j: number) => sung[j].devCents + p.tuningCents + driftAt(t);
 
+  // H4: scoop / portamento, overshoot, wander, irregular vibrato (see NoteRealism).
+  const rateDev = p.realism?.vibRateDev ?? 0;
+  const pitchAtReal = (t: number, j: number): number => {
+    const n = sung[j];
+    const q = n.real!;
+    const dt = t - n.start;
+    let c = driftAt(t) + jitterAt(t) + q.wanderCents * Math.sin((2 * Math.PI * dt) / q.wanderSec + q.wanderPhase);
+    if (dt < q.transSec) {
+      const f = 1 - rc(dt / q.transSec);
+      if (q.kind === 'scoop') c -= n.scoopCents * f;
+      else c += (sung[j - 1].target - n.target) * 100 * f;
+    }
+    const o = dt - 0.6 * q.transSec;
+    if (q.overSec > 0 && o > 0 && o < q.overSec) c += q.overCents * Math.sin((Math.PI * o) / q.overSec) ** 2;
+    const v0 = Math.max(0.15, q.settleSec);
+    if (n.vibrato && dt > v0) {
+      // phase of a rate f(t) = f0 (1 + m sin(2 pi t / P + ph)), integrated in closed form
+      const P = q.vibRateModSec;
+      const ph = q.vibRatePhase;
+      const phase = 2 * Math.PI * p.vibRateHz * (dt + ((rateDev * P) / (2 * Math.PI)) * (Math.cos(ph) - Math.cos((2 * Math.PI * dt) / P + ph)));
+      c += q.vibDepthCents * rc((dt - v0) / 0.2) * Math.sin(phase);
+    }
+    return n.target + c / 100;
+  };
+  const centsAtReal = (t: number, j: number) => centsAt(t, j) + sung[j].real!.wanderMeanCents;
+
   const envAt = (t: number, k: number, j: number): number => {
     const ph = phrases[k];
     if (t < ph.start || t > ph.end) return 0;
@@ -259,7 +368,21 @@ export function perform(v: HumVariant, score: HumScore, p: SynthParams): Perform
   const clicks: { t: number; down: boolean }[] = [];
   for (let b = 0; score.leadSec + b * beatSec < durationSec - 1e-9; b++) clicks.push({ t: score.leadSec + b * beatSec, down: b % 4 === 0 });
 
-  return { bpm: score.bpm, beatSec, startSec, durationSec, totalTicks, scoreNotes: notes, sung, phrases, breaths, clicks, pitchAt, envAt, centsAt };
+  return {
+    bpm: score.bpm,
+    beatSec,
+    startSec,
+    durationSec,
+    totalTicks,
+    scoreNotes: notes,
+    sung,
+    phrases,
+    breaths,
+    clicks,
+    pitchAt: p.realism ? pitchAtReal : pitchAt,
+    envAt,
+    centsAt: p.realism ? centsAtReal : centsAt,
+  };
 }
 
 /** Index of the sung note of phrase k sounding at time t (the last one whose start <= t). */

@@ -84,3 +84,60 @@ describe('perform', () => {
     expect(perf.clicks[4].t).toBeCloseTo(perf.startSec, 12);
   });
 });
+
+describe('perform H4 (realistic)', () => {
+  it('every note starts with a scoop or (after a different pitch in a phrase) a portamento; onsets stay the sung onsets', () => {
+    for (const name of ['syn-h4-saints-s1', 'syn-h4-rand-s4', 'syn-h4-kirakira-s5']) {
+      const { perf, p } = run(name);
+      perf.sung.forEach((n, j) => {
+        const q = n.real!;
+        const L = n.end - n.start;
+        const first = perf.phrases[n.phrase].notes[0] === j;
+        const same = !first && perf.sung[j - 1].midi === n.midi;
+        expect(q.kind).toBe(first || same ? 'scoop' : 'porta');
+        expect(q.transSec).toBeLessThanOrEqual(0.6 * L + 1e-9);
+        expect(q.settleSec).toBeLessThanOrEqual(0.6 * L + 1e-9);
+        expect(Math.abs(n.devCents)).toBeLessThanOrEqual(100);
+        expect(q.wanderCents).toBeGreaterThanOrEqual(30);
+        expect(q.wanderCents).toBeLessThanOrEqual(60);
+        const at0 = perf.pitchAt(n.start, j);
+        if (q.kind === 'scoop') {
+          expect(n.scoopCents).toBeGreaterThanOrEqual(100);
+          expect(n.scoopCents).toBeLessThanOrEqual(300);
+          // starts (about) scoopCents below the target; wander/drift can move it by < 1 semitone
+          expect(n.target - at0).toBeGreaterThan(n.scoopCents / 100 - 1);
+        } else expect(Math.abs(at0 - perf.sung[j - 1].target)).toBeLessThan(1);
+        expect(n.start).toBeGreaterThanOrEqual(perf.scoreNotes[j].scoreStart + p.onsetBiasSec - 2.5 * p.onsetSigmaSec - 1e-9);
+      });
+    }
+  });
+  it('the contour inside the steady part averages to the truth cents within the vibrato/jitter spread', () => {
+    const { perf } = run('syn-h4-etude-s2');
+    perf.sung.forEach((n, j) => {
+      const L = n.end - n.start;
+      const a = n.start + Math.max(0.25 * L, n.real!.settleSec + 0.1);
+      const b = n.end - 0.2 * L;
+      if (b - a < 0.2) return;
+      let s = 0;
+      const k = 200;
+      for (let i = 0; i < k; i++) s += perf.pitchAt(a + ((b - a) * (i + 0.5)) / k, j);
+      const ref = n.midi + perf.centsAt((n.start + n.end) / 2, j) / 100;
+      expect(Math.abs(s / k - ref) * 100).toBeLessThan(30);
+    });
+  });
+  it('sometimes cuts a phrase-final note short (breath)', () => {
+    let cut = 0;
+    let total = 0;
+    for (const s of [1, 2, 3]) {
+      const { perf } = run(`syn-h4-saints-s${s}`);
+      perf.sung.forEach((n, i) => {
+        const sn = perf.scoreNotes[i];
+        if (!sn.restAfter) return;
+        total++;
+        if (n.end - n.start < 0.75 * (sn.scoreEnd - sn.scoreStart)) cut++;
+      });
+    }
+    expect(cut).toBeGreaterThan(0);
+    expect(cut).toBeLessThan(total);
+  });
+});

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { checkH0, checkSung, guidedF0, sungTolerance, zeroCrossingHz } from './check';
+import { checkH0, checkSung, excursionStats, guidedF0, sungTolerance, zeroCrossingHz } from './check';
 import { midiToHz } from './contour';
 import { renderHum } from './render';
 import { F0_HOP_SEC, VOICED_ENV } from './truth';
@@ -11,7 +11,7 @@ const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 
 describe('renderHum', () => {
   it('same seed -> bit-identical wav (every level)', () => {
-    for (const l of [0, 1, 2, 3]) {
+    for (const l of [0, 1, 2, 3, 4]) {
       const v = find(`syn-h${l}-kirakira-s2`);
       expect(sha(renderHum(v).wav)).toBe(sha(renderHum(v).wav));
     }
@@ -20,6 +20,12 @@ describe('renderHum', () => {
     const a = sha(renderHum(find('syn-h3-kirakira-s2')).wav);
     expect(sha(renderHum(find('syn-h3-kirakira-s3')).wav)).not.toBe(a);
     expect(sha(renderHum(find('syn-h2-kirakira-s2')).wav)).not.toBe(a);
+  });
+  it('H0..H3 stay bit-identical to T1 (bdea309) after adding H4', () => {
+    expect(sha(renderHum(find('syn-h1-saints-s4')).wav)).toBe('a3193a4ff6b8ccae02270497113805780248a24a5db821b3e4bb4bc56b2ceaa4');
+    const r = renderHum(find('syn-h3-rand-s7'));
+    expect(sha(r.wav)).toBe('13462f39e44d1f4d83d82e396f24deb2f878c634231f3072163383376b815b42');
+    expect(sha(Buffer.from(JSON.stringify(r.truth)))).toBe('3a9361701e8c37e2f638b1524f3eceb53cdda08fd477ca2f6bf01e427de0d57a');
   });
   it('renders a variant in under 1 s and does not clip', () => {
     const t = performance.now();
@@ -99,6 +105,25 @@ describe('checks (truth vs audio)', () => {
       expect(c.checked).toBeGreaterThan(0.6 * c.notes); // short notes (all glide) are skipped
       expect(c.passed).toBe(c.checked);
     }
+  });
+  it('H4: median f0 inside every sung note within sigma, onset transitions left out', () => {
+    for (const name of ['syn-h4-kirakira-s1', 'syn-h4-rand-s2', 'syn-h4-saints-s4']) {
+      const r = renderHum(find(name));
+      expect(r.clipped).toBe(0);
+      for (const n of r.truth.melody.notes) expect(n.transitionSec).toBeGreaterThan(0);
+      const c = checkSung(r.samples, SAMPLE_RATE, r.truth, sungTolerance(r.truth));
+      expect(c.tolCents).toBeGreaterThanOrEqual(40);
+      expect(c.checked).toBeGreaterThan(0.5 * c.notes);
+      expect(c.passed).toBe(c.checked);
+    }
+  });
+  it('excursionStats: none on H0, many long ones on H4 (scoops and wander cross semitone boundaries)', () => {
+    const h0 = excursionStats(renderHum(find('syn-h0-rand-s4')).truth);
+    expect([h0.withExcursion, h0.runs]).toEqual([0, 0]);
+    const h3 = excursionStats(renderHum(find('syn-h3-rand-s4')).truth);
+    const h4 = excursionStats(renderHum(find('syn-h4-rand-s4')).truth);
+    expect(h4.withLongExcursion).toBeGreaterThan(0.3 * h4.notes);
+    expect(h4.withLongExcursion).toBeGreaterThan(h3.withLongExcursion);
   });
   it('the check catches a wrong truth (shifted pitch, or score-time instead of sung-time pitch)', () => {
     const r = renderHum(find('syn-h3-kirakira-s4'));
