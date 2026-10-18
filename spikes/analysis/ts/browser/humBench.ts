@@ -11,8 +11,17 @@ interface Row {
   label: string;
   inputSr: number;
   summary: HumRunSummary;
+  /** click -> result (decode + transfer + analysis), main-thread clock */
+  wallMs: number;
+  decodeMs: number;
+  ticks: number;
+  maxTickGapMs: number;
 }
-const bench: { ready: boolean; runs: Row[]; error?: { message: string; code?: string } } = { ready: false, runs: [] };
+const bench: { ready: boolean; runs: Row[]; fileDone: number; error?: { message: string; code?: string } } = {
+  ready: false,
+  runs: [],
+  fileDone: 0,
+};
 (window as unknown as { __humBench: typeof bench }).__humBench = bench;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -20,6 +29,21 @@ const statusEl = $('status');
 const errorEl = $('error');
 const fileEl = $<HTMLInputElement>('file');
 const runEl = $<HTMLButtonElement>('run');
+const timerEl = $('timer');
+
+// UI timer: keeps ticking while the Worker analyses (a stalled main thread shows as a big gap between ticks).
+let ticks = 0;
+let maxGap = 0;
+let lastTick = performance.now();
+const t0 = lastTick;
+setInterval(() => {
+  const now = performance.now();
+  maxGap = Math.max(maxGap, now - lastTick);
+  lastTick = now;
+  ticks++;
+  timerEl.textContent = ((now - t0) / 1000).toFixed(1);
+}, 50);
+
 const worker = new Worker(new URL('./humWorker.ts', import.meta.url), { type: 'module' });
 let nextId = 1;
 
@@ -50,7 +74,12 @@ function parseTs(s: string): [number, number] | null {
   return m ? [Number(m[1]), Number(m[2])] : null;
 }
 
-function analyse(label: string, mono: Float32Array, sr: number, info: HumRunRequest['info']): Promise<Row> {
+function analyse(
+  label: string,
+  mono: Float32Array,
+  sr: number,
+  info: HumRunRequest['info'],
+): Promise<Pick<Row, 'label' | 'inputSr' | 'summary'>> {
   const id = nextId++;
   return new Promise((resolve, reject) => {
     worker.onmessage = (e: MessageEvent<HumWorkerMessage>) => {
@@ -102,8 +131,14 @@ runEl.addEventListener('click', async () => {
   runEl.disabled = true;
   try {
     statusEl.textContent = '読み込み中…';
+    const tStart = performance.now();
+    const ticks0 = ticks;
+    maxGap = 0;
+    lastTick = tStart;
     const { mono, sr } = await decode(await file.arrayBuffer());
-    addRow(await analyse(`file ${bench.runs.length + 1}`, mono, sr, info));
+    const decodeMs = performance.now() - tStart;
+    const r = await analyse(`file ${bench.runs.length + 1}`, mono, sr, info);
+    addRow({ ...r, decodeMs, wallMs: performance.now() - tStart, ticks: ticks - ticks0, maxTickGapMs: maxGap });
     statusEl.textContent = '完了';
   } catch (e) {
     const err = e as Error & { code?: string };
@@ -112,6 +147,7 @@ runEl.addEventListener('click', async () => {
     statusEl.textContent = '失敗';
   } finally {
     runEl.disabled = false;
+    bench.fileDone++;
   }
 });
 
