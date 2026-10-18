@@ -18,6 +18,7 @@
  */
 import FFT from 'fft.js';
 import { RealFft } from './fft';
+import { pairwiseSum } from './npmath';
 import type { MemTracker } from './mem';
 import { decimate2Fft, decimatePow2, type DecimationChain, type HalfBand } from './resample';
 import { StftFramer } from './stft';
@@ -169,7 +170,7 @@ export function kernelBank(
       mags[k] = f32(Math.hypot(re[k], im[k]));
     }
     // util.sparsify_rows (float32 like numpy on complex64 input)
-    const norm = pairwiseSumF32(mags);
+    const norm = pairwiseSum(mags, 0, mags.length, f32);
     sorted.set(mags);
     sorted.sort();
     let cum = 0;
@@ -190,27 +191,6 @@ export function kernelBank(
     rows.push(row);
   }
   return { nFft, rows };
-}
-
-/** numpy's pairwise float32 sum of a contiguous array. */
-function pairwiseSumF32(a: Float32Array, start = 0, n = a.length - start): number {
-  if (n < 8) {
-    let res = 0;
-    for (let i = 0; i < n; i++) res = f32(res + a[start + i]);
-    return res;
-  }
-  if (n <= 128) {
-    const r = new Float64Array(8);
-    for (let j = 0; j < 8; j++) r[j] = a[start + j];
-    let i = 8;
-    for (; i < n - (n % 8); i += 8) for (let j = 0; j < 8; j++) r[j] = f32(r[j] + a[start + i + j]);
-    let res = f32(f32(f32(r[0] + r[1]) + f32(r[2] + r[3])) + f32(f32(r[4] + r[5]) + f32(r[6] + r[7])));
-    for (; i < n; i++) res = f32(res + a[start + i]);
-    return res;
-  }
-  let n2 = Math.floor(n / 2);
-  n2 -= n2 % 8;
-  return f32(pairwiseSumF32(a, start, n2) + pairwiseSumF32(a, start + n2, n - n2));
 }
 
 export interface CqtPlan {

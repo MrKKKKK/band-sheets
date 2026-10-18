@@ -7,10 +7,11 @@
  *
  * numpy parity: scores in KEYS order (majors C..B, then minors C..B); Python sorts by -score with a stable
  * sort, so on an exact tie the earlier key in KEYS wins (here: strict `>` scan in KEYS order). Sums use
- * numpy's pairwise order (npSum) where numpy uses it; dot products / norms go through BLAS in numpy, so
+ * numpy's pairwise order (pairwiseSum) where numpy uses it; dot products / norms go through BLAS in numpy, so
  * those agree to ~1e-16 relative, not bit-for-bit.
  */
 import { NOTE_NAMES } from './chords';
+import { pairwiseSum } from './core/npmath';
 
 export const MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88] as const;
 export const MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.6, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17] as const;
@@ -30,31 +31,10 @@ export interface GlobalKey {
   confidence: number; // 0-1: gap between the best and the second-best correlation
 }
 
-/** numpy's pairwise sum of a contiguous float64 run (n <= 128 path: 8 accumulators, then the tail). */
-export function npSum(a: ArrayLike<number>, start = 0, n = a.length - start): number {
-  if (n < 8) {
-    let s = 0; // numpy starts from -0.0; identical for any non-empty sum of finite values except all -0.0
-    for (let i = 0; i < n; i++) s += a[start + i];
-    return s;
-  }
-  if (n <= 128) {
-    const r = new Float64Array(8);
-    for (let j = 0; j < 8; j++) r[j] = a[start + j];
-    let i = 8;
-    for (; i < n - (n % 8); i += 8) for (let j = 0; j < 8; j++) r[j] += a[start + i + j];
-    let res = r[0] + r[1] + (r[2] + r[3]) + (r[4] + r[5] + (r[6] + r[7]));
-    for (; i < n; i++) res += a[start + i];
-    return res;
-  }
-  let n2 = Math.floor(n / 2);
-  n2 -= n2 % 8;
-  return npSum(a, start, n2) + npSum(a, start + n2, n - n2);
-}
-
 function corr(a: ArrayLike<number>, b: ArrayLike<number>): number {
   const n = a.length;
-  const ma = npSum(a) / n;
-  const mb = npSum(b) / n;
+  const ma = pairwiseSum(a) / n;
+  const mb = pairwiseSum(b) / n;
   let saa = 0;
   let sbb = 0;
   let sab = 0;
@@ -91,7 +71,7 @@ export function estimateKey(chroma: ArrayLike<number>, n: number): GlobalKey {
   const row = new Float64Array(n);
   for (let j = 0; j < 12; j++) {
     for (let t = 0; t < n; t++) row[t] = Math.max(chroma[j * n + t], 0); // np.clip(c, 0, None)
-    pcp[j] = npSum(row);
+    pcp[j] = pairwiseSum(row);
   }
   let lo = Infinity;
   let hi = -Infinity;
@@ -99,7 +79,7 @@ export function estimateKey(chroma: ArrayLike<number>, n: number): GlobalKey {
     lo = Math.min(lo, v);
     hi = Math.max(hi, v);
   }
-  if (n === 0 || npSum(pcp) <= 0 || hi - lo <= 0) return { tonic: 'C', mode: 'major', confidence: 0 };
+  if (n === 0 || pairwiseSum(pcp) <= 0 || hi - lo <= 0) return { tonic: 'C', mode: 'major', confidence: 0 };
   const s = keyScores(pcp);
   // stable sort by -score: best = first max in KEYS order, second = first max among the rest
   let best = 0;

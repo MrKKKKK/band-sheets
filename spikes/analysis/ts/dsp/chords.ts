@@ -11,14 +11,15 @@
  *
  * Float choices follow Python: chroma is widened to float64, scores/Viterbi/posterior all float64.
  * Sums that numpy does along axis 0 are plain sequential adds over the 12 rows; mean() goes through
- * `numpySum`. The template matmul (BLAS in numpy) is a plain 12-term sum, so scores can differ from
+ * `pairwiseSum` (core/npmath). The template matmul (BLAS in numpy) is a plain 12-term sum, so scores can differ from
  * Python by an ulp; only exact score ties could notice (templates are 0/1 patterns, ties are real).
  *
  * Pass 1 (prior = null) consumes only `col_chroma` and `per_beat`: bounds/bass are used only by
  * bass_root/slash/harmonics, which are off in the default config (adec583eb3c6). Pass 2 takes the
  * theory prior ([nBeats or nCols, k, k] log bonus; computing it is harmony.ts, a later task).
  */
-import { attachCandidates, chordPosterior, numpySum, type Candidate } from './posterior';
+import { pairwiseSum } from './core/npmath';
+import { attachCandidates, chordPosterior, type Candidate } from './posterior';
 import * as vocab from './vocab';
 import type { ChordState } from './vocab';
 
@@ -396,7 +397,7 @@ export function mergeChords(chords: readonly ColumnChord[], cfg: ChordsConfig, p
   }
   const confs = Float64Array.from(chords, (c) => c.confidence);
   return runs.map((r) => {
-    const conf = numpySum(confs, r.a, r.b - r.a) / (r.b - r.a);
+    const conf = pairwiseSum(confs, r.a, r.b - r.a) / (r.b - r.a);
     return {
       startBeat: r.a,
       endBeat: r.b,

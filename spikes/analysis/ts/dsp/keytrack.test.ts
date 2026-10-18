@@ -6,7 +6,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { estimateKey, keyScores, npSum } from './keyest';
+import { estimateKey, keyScores } from './keyest';
 import { estimate, fitMatrix, keyIndex, neutralMatrix, phrases, QUALITIES, resolutions, type KeyChord } from './keytrack';
 
 interface Case {
@@ -26,15 +26,6 @@ const TONES: Record<string, number[]> = {
 };
 const chordsOf = (c: Case): KeyChord[] => c.root.map((r, i) => ({ root: r < 0 ? null : r, quality: c.quality[i] }));
 const barsOf = (n: number, phase: number) => Array.from({ length: n }, (_, i) => Math.floor((i - phase) / 4));
-
-describe('npSum', () => {
-  it('follows numpy pairwise order (8 accumulators)', () => {
-    const a = [1e16, 1, 1, 1, 1, 1, 1, 1, 1, -1e16];
-    // numpy: ((r0+r1)+(r2+r3))+((r4+r5)+(r6+r7)) + a8 + a9, r_i = a_i
-    expect(npSum(a)).toBe(1e16 + 1 + (1 + 1) + (1 + 1 + (1 + 1)) + 1 + -1e16);
-    expect(npSum([1, 2, 3])).toBe(6);
-  });
-});
 
 describe('keyest', () => {
   it('C major scale profile -> C major; flat / silent -> C major 0', () => {

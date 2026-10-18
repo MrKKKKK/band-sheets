@@ -17,7 +17,8 @@
  * Python, so paths are bit-identical; the posterior's sums differ from numpy only in summation order (~1e-16).
  */
 import keyFitJson from '../tables/key_fit.json' with { type: 'json' };
-import { npSum, type Mode } from './keyest';
+import { pairwiseSum } from './core/npmath';
+import type { Mode } from './keyest';
 
 export const MAX_PASSES = 4;
 export const NOT_CONVERGED_WARNING = 'keytrack-not-converged';
@@ -334,7 +335,7 @@ function logsumexp(get: (i: number) => number, n: number, pairwise: boolean): nu
   const e = new Float64Array(n);
   for (let i = 0; i < n; i++) e[i] = Math.exp(get(i) - m);
   let s: number;
-  if (pairwise) s = npSum(e);
+  if (pairwise) s = pairwiseSum(e);
   else {
     s = e[0];
     for (let i = 1; i < n; i++) s += e[i];

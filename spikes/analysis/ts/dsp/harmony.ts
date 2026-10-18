@@ -17,14 +17,14 @@
  * beat row on the per_beat columns of that beat (np.repeat), which chords.ts does with rowDiv = perBeat.
  *
  * Floats follow Python: b = (strength * max(conf, 0)) * tier, np.maximum at a key change, row normalization
- * shift = log(sum_j exp(b[i, j]) / (k - 1)) with numpy's pairwise row sum (posterior.numpySum).
+ * shift = log(sum_j exp(b[i, j]) / (k - 1)) with numpy's pairwise row sum (core/npmath.pairwiseSum).
  */
 import harmonyJson from '../tables/harmony.json' with { type: 'json' };
 import { estimateChords, type ChordsConfig, type ColumnChord, type PriorRows } from './chords';
 import type { MemTracker } from './core/mem';
+import { pairwiseSum } from './core/npmath';
 import type { Mode } from './keyest';
 import type { BarKey } from './keytrack';
-import { numpySum } from './posterior';
 import * as vocab from './vocab';
 import type { ChordState } from './vocab';
 
@@ -186,7 +186,7 @@ export function normalizeRows(b: Float64Array, k: number, e: Float64Array = new 
     const o = i * k;
     for (let j = 0; j < k; j++) e[j] = Math.exp(b[o + j]);
     e[i] = 0;
-    const shift = Math.log(numpySum(e, 0, k) / (k - 1));
+    const shift = Math.log(pairwiseSum(e, 0, k) / (k - 1));
     for (let j = 0; j < k; j++) b[o + j] -= shift;
     b[o + i] = 0;
   }

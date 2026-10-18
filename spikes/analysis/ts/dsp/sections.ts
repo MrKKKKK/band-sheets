@@ -14,7 +14,8 @@
  * means and sums, sequential sums for axis-0 means, argmax = first index, np.median = mean of the
  * two middle values, np.hanning symmetric. Dot products (BLAS in numpy) are plain sequential sums.
  */
-import { hanningSym, median, pairwiseSum, roundHalfEven } from './beats';
+import { hanningSym, median } from './beats';
+import { pairwiseSum, roundHalfEven } from './core/npmath';
 import { lastBeatEnd } from './chroma';
 import { RealFft } from './core/fft';
 

@@ -9,7 +9,8 @@ import {
   mergeSegments,
   type ColumnChord,
 } from './chords';
-import { chordPosterior, numpySum } from './posterior';
+import { pairwiseSum } from './core/npmath';
+import { chordPosterior } from './posterior';
 import * as vocab from './vocab';
 
 // reference values from numpy 2.x (a[i] = ((i * 7919) % 1000) / 1000 / 3; sum and mean)
@@ -38,12 +39,12 @@ const C = [0, 4, 7];
 const G = [7, 11, 2];
 const G7 = [7, 11, 2, 5];
 
-describe('numpySum', () => {
+describe('pairwiseSum (numpy sums)', () => {
   for (const [n, sum, mean] of NUMPY_SUMS) {
     it(`matches numpy for n=${n}`, () => {
       const a = Float64Array.from({ length: n }, (_, i) => ((i * 7919) % 1000) / 1000 / 3);
-      expect(numpySum(a, 0, n)).toBe(sum);
-      expect(numpySum(a, 0, n) / n).toBe(mean);
+      expect(pairwiseSum(a, 0, n)).toBe(sum);
+      expect(pairwiseSum(a, 0, n) / n).toBe(mean);
     });
   }
 });

@@ -17,7 +17,8 @@ import { chordName, chordText, DEFAULT_CHORDS_CONFIG, NOTE_NAMES, type ChordSegm
 import { columnTimes } from './chroma';
 import { configHash, configSummary, type AnalyzerConfig } from './config';
 import type { Downbeats } from './downbeat';
-import { npSum, type GlobalKey } from './keyest';
+import { pairwiseSum } from './core/npmath';
+import type { GlobalKey } from './keyest';
 import type { BarKey } from './keytrack';
 import type { Section } from './sections';
 
@@ -209,6 +210,6 @@ export function keyRuns(barKeys: readonly BarKey[]): KeyRun[] {
     runs.push({ startBar: bk.bar, tonic, mode: bk.mode, confidence: 0.0 });
     confs.push([bk.confidence]);
   }
-  runs.forEach((r, i) => (r.confidence = npSum(confs[i]) / confs[i].length)); // np.mean
+  runs.forEach((r, i) => (r.confidence = pairwiseSum(confs[i]) / confs[i].length)); // np.mean
   return runs;
 }

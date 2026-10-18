@@ -3,43 +3,14 @@
  *
  *   chordPosterior(emis, k, n, stay, nMove) -> Float64Array [k, n], each column sums to 1
  *   segmentCandidates / attachCandidates     top-k states of a merged segment
- *   numpySum(a, off, n)                      numpy's add.reduce summation order (see below)
  *
  * Plain scaled forward-backward in float64. The matrix products numpy does with BLAS
  * (a.T @ alpha) are plain loops here; the order of those sums differs, so posteriors agree
  * to ~1e-15, not bit-for-bit.
  */
 import type { ChordSegment } from './chords';
+import { pairwiseSum } from './core/npmath';
 import { states as vocabStates, type ChordState, type VocabConfig } from './vocab';
-
-/**
- * numpy's float64 sum of a contiguous run: pairwise summation (8-way unrolled blocks of up to 128,
- * split in halves above that). np.mean = this / n.
- * Mean-of-confidences and mean-posterior in the Python code go through it, so the ULPs match.
- */
-export function numpySum(a: ArrayLike<number>, off: number, n: number): number {
-  if (n === 0) return 0;
-  return pairwise(a, off, n);
-}
-
-function pairwise(a: ArrayLike<number>, off: number, n: number): number {
-  if (n < 8) {
-    let res = 0;
-    for (let i = 0; i < n; i++) res += a[off + i];
-    return res;
-  }
-  if (n <= 128) {
-    const r = [0, 1, 2, 3, 4, 5, 6, 7].map((j) => a[off + j]);
-    let i = 8;
-    for (; i < n - (n % 8); i += 8) for (let j = 0; j < 8; j++) r[j] += a[off + i + j];
-    let res = r[0] + r[1] + (r[2] + r[3]) + (r[4] + r[5] + (r[6] + r[7]));
-    for (; i < n; i++) res += a[off + i];
-    return res;
-  }
-  let n2 = Math.floor(n / 2);
-  n2 -= n2 % 8;
-  return pairwise(a, off, n2) + pairwise(a, off + n2, n - n2);
-}
 
 /** emis: log emission scores [k, n] (the caller passes BETA * emis_w * scores). */
 export function chordPosterior(
@@ -125,7 +96,7 @@ export function segmentCandidates(
   const a = Math.max(start, 0);
   const b = Math.min(end, n);
   if (b <= a || k < 1) return [];
-  const mean = sts.map((_, i) => numpySum(post.subarray(i * n, (i + 1) * n), a, b - a) / (b - a));
+  const mean = sts.map((_, i) => pairwiseSum(post.subarray(i * n, (i + 1) * n), a, b - a) / (b - a));
   const order = sts
     .map((_, i) => i)
     .sort((i, j) => (mean[i] !== mean[j] ? (mean[j] > mean[i] ? 1 : -1) : i - j))

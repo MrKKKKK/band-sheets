@@ -9,6 +9,7 @@
  */
 import { cqtMagnitudeStream, cqtPlan, estimateTuning } from './core/cqt';
 import { MemTracker } from './core/mem';
+import { roundHalfEven } from './core/npmath';
 import { DecimationChain, type HalfBand } from './core/resample';
 
 /** Empirical: librosa CQT chroma (norm=None) of a unit-amplitude sine sums to ~80. */
@@ -50,11 +51,6 @@ export function cqToChromaMap(nInput: number, bpo: number, fmin: number): Int8Ar
     out[b] = (((c + roll) % 12) + 12) % 12;
   }
   return out;
-}
-
-function roundHalfEven(x: number): number {
-  const r = Math.round(x);
-  return r - x === 0.5 && r % 2 !== 0 ? r - 1 : r;
 }
 
 export interface ChromaCqtOptions {

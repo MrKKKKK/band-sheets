@@ -9,9 +9,7 @@ import {
   hanningSym,
   localmax,
   median,
-  pairwiseSum,
   prior,
-  roundHalfEven,
   stdDdof1F32,
   tempoFrequencies,
   trackBeats,
@@ -45,10 +43,6 @@ function clickTrack(bpm: number, seconds: number, start = 0.25 * SR) {
 }
 
 describe('numpy / librosa helpers', () => {
-  it('roundHalfEven matches np.round', () => {
-    expect([10.5, 11.5, -0.5, 0.5, 1.5, 2.4, 2.6, 21 / 2].map(roundHalfEven)).toEqual([10, 12, -0, 0, 2, 2, 3, 10]);
-  });
-
   it('localmax: never index 0, the end when above its left neighbour, flat peaks at the left edge', () => {
     expect(Array.from(localmax([3, 1, 2, 2, 1, 5]))).toEqual([0, 0, 1, 0, 0, 1]);
   });
@@ -62,9 +56,7 @@ describe('numpy / librosa helpers', () => {
     expect(Array.from(w).map((v) => +v.toFixed(12))).toEqual([0, 0.5, 1, 0.5, 0]);
   });
 
-  it('pairwiseSum equals the plain sum for exact values, and float32 std is close to the float64 one', () => {
-    const a = Array.from({ length: 300 }, (_, i) => i);
-    expect(pairwiseSum(a)).toBe((299 * 300) / 2);
+  it('float32 std is close to the float64 one', () => {
     const x = Float32Array.from({ length: 1000 }, (_, i) => Math.sin(i) * 3);
     let m = 0;
     for (const v of x) m += v;
