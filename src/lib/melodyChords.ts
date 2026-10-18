@@ -1,4 +1,5 @@
 import { graphemes, lineLyrics } from './chartEdit';
+import { isDashLine } from './dashChart';
 import { isValidChordText } from './chordText';
 import { cleanTexText, type MelodyEvent } from './melody';
 import { isRawLine, type Song } from './song';
@@ -63,8 +64,9 @@ export function chartChords(song: Song, label: string): ChartChords {
   const marks: Mark[] = [];
   for (const line of section.lines) {
     if (isRawLine(line)) continue;
-    // Same lines as chartSyllables: blank / chord-only lines carry no lyrics.
-    const orphan = lineLyrics(line).trim() === '';
+    // Same lines as chartSyllables: blank / chord-only / dash lines carry no
+    // lyrics (their chords are not copied in v1).
+    const orphan = lineLyrics(line).trim() === '' || isDashLine(line);
     const start = chars.length;
     let pos = start;
     const own: Mark[] = [];

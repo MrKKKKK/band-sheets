@@ -1,4 +1,5 @@
 import { lineLyrics } from './chartEdit';
+import { isDashLine } from './dashChart';
 import { isRawLine } from './song';
 import type { ChartLine, ChartSection, LyricLine, Song } from './song';
 
@@ -11,7 +12,7 @@ import type { ChartLine, ChartSection, LyricLine, Song } from './song';
  */
 
 function lyricOf(line: ChartLine): string | undefined {
-  if (isRawLine(line)) return undefined;
+  if (isRawLine(line) || isDashLine(line)) return undefined;
   const text = lineLyrics(line);
   return text.trim() === '' ? undefined : text;
 }

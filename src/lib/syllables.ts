@@ -1,4 +1,5 @@
 import { graphemes, lineLyrics } from './chartEdit';
+import { isDashLine } from './dashChart';
 import { isRawLine } from './song';
 import type { ChartLine, Song } from './song';
 
@@ -148,7 +149,7 @@ export function syllableSpans(chars: readonly string[]): SyllableSpan[] {
 }
 
 function lyricOf(line: ChartLine): string | undefined {
-  if (isRawLine(line)) return undefined;
+  if (isRawLine(line) || isDashLine(line)) return undefined;
   const text = lineLyrics(line);
   return text.trim() === '' ? undefined : text;
 }

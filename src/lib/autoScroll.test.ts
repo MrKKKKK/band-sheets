@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseSong } from './parseSong';
 import type { ChartSection } from './song';
 import {
   DEFAULT_TEMPO,
@@ -316,5 +317,25 @@ describe('estimateChartBars (sections without bars: chord count)', () => {
   });
   it('is empty for no chart section', () => {
     expect(estimateChartBars(undefined, b44)).toEqual([]);
+  });
+});
+
+describe('lineBarCount of dash lines', () => {
+  const dash = (text: string) => {
+    const song = parseSong(`{start_of_verse: A}\n${text}\n{end_of_verse}\n`);
+    return song.chart[0].lines[0];
+  };
+  it('counts the | delimited bars, not the chords', () => {
+    expect(
+      lineBarCount(
+        dash('|[C]--------|[C]----[F]----|[G]--------|[G]----[G7]----|'),
+      ),
+    ).toBe(4);
+    expect(lineBarCount(dash('|[C]--------|[G]--------|'))).toBe(2);
+    expect(lineBarCount(dash('| [C][G] |'))).toBe(1);
+  });
+  it('keeps the old rule for non-dash lines', () => {
+    expect(lineBarCount(dash('[C]--------[G]--------'))).toBe(2);
+    expect(lineBarCount(dash('きらきら | ひかる'))).toBe(1);
   });
 });
