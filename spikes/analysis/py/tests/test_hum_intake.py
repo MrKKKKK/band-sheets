@@ -1,0 +1,250 @@
+"""Tests for hum_intake.py and the humming part of privacy_check.py. Generic fake inputs only (made-up melody)."""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+import numpy as np
+import soundfile as sf
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import hum_intake as H  # noqa: E402
+import privacy_check as P  # noqa: E402
+
+MELODY = """:4 C4 E4 G4 E4 |
+:8 D4 F4 A4 F4 G4 E4 C5 r |
+:2 B3 :4 D5 G4 |"""
+MIDI = [60, 64, 67, 64, 62, 65, 69, 65, 67, 64, 72, 59, 74, 67]
+TXT = f"""# note: fake
+bpm: 120
+拍子: 4/4
+開始: 2秒
+歌い方: a
+メロディ:
+{MELODY}
+"""
+TS = [4, 4]
+
+
+def tone_wav(path, sec=8.0, sr=48000, channels=2):
+    t = np.arange(int(sec * sr)) / sr
+    y = 0.3 * np.sin(2 * np.pi * 220 * t)
+    sf.write(path, np.stack([y] * channels, axis=1), sr, subtype="PCM_16")
+
+
+class TestMelody(unittest.TestCase):
+    def test_events_ticks_and_rest(self):
+        ev, bars = H.parse_melody(MELODY, TS)
+        self.assertEqual(bars, 3)
+        self.assertEqual([e["midi"] for e in ev if e["kind"] == "note"], MIDI)
+        self.assertEqual(ev[0], {"kind": "note", "startTick": 0, "ticks": 16, "midi": 60})
+        rest = [e for e in ev if e["kind"] == "rest"]
+        self.assertEqual(rest, [{"kind": "rest", "startTick": 64 + 56, "ticks": 8}])
+        self.assertEqual(ev[-1]["startTick"] + ev[-1]["ticks"], 192)
+
+    def test_tie_dot_accidentals_effects_and_glued_duration(self):
+        ev, _ = H.parse_melody(':4 Bb3{d lyrics "ら ら"} C#4.8 r.8 :4 r :8 C#4 | :2 C#4{t} :2 C4 |', TS)
+        self.assertEqual([(e["kind"], e["ticks"], e.get("midi")) for e in ev],
+                         [("note", 24, 58), ("note", 8, 61), ("rest", 24, None), ("note", 40, 61), ("note", 32, 60)])
+        ev, _ = H.parse_melody(":4 C4{ch \"C\"} r :2 r | :2 r :4 r C4 |", TS)
+        self.assertEqual(ev[1]["ticks"], 96)  # rests merge, also across the bar line
+
+    def test_errors_are_japanese(self):
+        for bad in (":4 C4 E4 G4 | :4 C4 D4 E4 F4 |", ":4 C4 D4 E4 F4 | :4 c4 |", "C4 D4 |", ":4 C4 :8 {tu 3} |",
+                    ":4 C4 D4 E4 F4 | | :4 C4 |", ":4 C4 r{t} |", "\\ts 4 4 :4 C4 |",
+                    ":4 C4{tu 3} D4{tu 3} E4{tu 3} F4 |", ":4 C4 D4 E4 F4 | :4 C4 D4 E4 F4 G4 |"):
+            with self.assertRaises(H.HumError, msg=bad):
+                H.parse_melody(bad, TS)
+
+    def test_short_last_bar_ok_middle_not(self):
+        H.parse_melody(":4 C4 D4 E4 F4 | :4 C4 |", TS)
+        with self.assertRaises(H.HumError):
+            H.parse_melody(":4 C4 | :4 C4 D4 E4 F4 |", TS)
+
+
+class TestTxt(unittest.TestCase):
+    def test_parse(self):
+        a = H.parse_hum_txt(TXT)
+        self.assertEqual((a["bpm"], a["ts"], a["startSec"], a["style"], a["bars"]), (120.0, [4, 4], 2.0, "a", 3))
+
+    def test_aliases_fullwidth_crlf_inline_melody(self):
+        a = H.parse_hum_txt("テンポ：90\r\ntime: 3/4\r\nstart: 1.5s\r\nstyle: (b)\r\nmelody: :4 C4 D4 E4 |\r\n")
+        self.assertEqual((a["bpm"], a["ts"], a["startSec"], a["style"]), (90.0, [3, 4], 1.5, "b"))
+
+    def test_errors(self):
+        for bad in (TXT.replace("bpm: 120\n", ""), TXT.replace("開始: 2秒\n", ""), TXT.replace("歌い方: a", "歌い方: z"),
+                    TXT.replace("bpm: 120", "bpm: abc"), TXT.split("メロディ:")[0], TXT.replace("拍子: 4/4", "拍子: 4/5"),
+                    "xyz\n" + TXT):
+            with self.assertRaises(H.HumError, msg=bad):
+                H.parse_hum_txt(bad)
+
+    def test_truth_seconds(self):
+        a = H.parse_hum_txt(TXT)
+        t = H.build_truth(a, "hum-01-a", "hum-01", False, 10.0)
+        n = t["notes"]
+        self.assertEqual([x["midi"] for x in n], MIDI)
+        # 120 bpm: a quarter = 0.5 s, a tick = 1/32 s; bar 1 starts at 2 s
+        self.assertAlmostEqual(n[0]["start"], 2.0)
+        self.assertAlmostEqual(n[1]["start"], 2.5)
+        self.assertAlmostEqual(n[4]["start"], 2.0 + 64 / 32)
+        self.assertAlmostEqual(n[-1]["end"], 2.0 + 192 / 32)
+        self.assertEqual(t["totalTicks"], 192)
+
+
+class TestIntake(unittest.TestCase):
+    def setUp(self):
+        self.t = tempfile.TemporaryDirectory()
+        self.rec = os.path.join(self.t.name, "recordings")
+        self.out = os.path.join(self.t.name, "out")
+        self.inbox = os.path.join(self.rec, "hum-inbox")
+        os.makedirs(self.inbox)
+        self.logs = []
+
+    def tearDown(self):
+        self.t.cleanup()
+
+    def drop(self, name, style="a", txt=None):
+        tone_wav(os.path.join(self.inbox, name + ".wav"))
+        with open(os.path.join(self.inbox, name + ".txt"), "w", encoding="utf-8") as f:
+            f.write(txt or TXT.replace("歌い方: a", f"歌い方: {style}"))
+
+    def run_intake(self):
+        return H.main(["--inbox", self.inbox, "--out", self.out, "--privacy-root", self.t.name])
+
+    def test_ids_heldout_log_outputs_and_no_original_names(self):
+        self.drop("Fake Title One_a", "a")
+        self.drop("Fake Title One_b", "b")
+        self.drop("Another Fake Title_c", "c")  # sorts first: song hum-01
+        self.assertEqual(self.run_intake(), 0)
+        ids = json.load(open(os.path.join(self.rec, "hum-ids.local.json")))["recordings"]
+        self.assertEqual(sorted(ids), ["hum-01-c", "hum-02-a", "hum-02-b"])
+        held = {k: v["heldOut"] for k, v in ids.items()}
+        self.assertEqual(held, {"hum-01-c": False, "hum-02-a": True, "hum-02-b": True})  # even song = held-out, shared
+        # log written (same file as spike 2), one register line per take, before outputs
+        lines = [json.loads(l) for l in open(os.path.join(self.out, "results", "heldout-log.jsonl"))]
+        self.assertEqual([(l["kind"], l["input"], l["take"], l["heldOut"]) for l in lines],
+                         [("register", "hum", "hum-01-c", False), ("register", "hum", "hum-02-a", True),
+                          ("register", "hum", "hum-02-b", True)])
+        # outputs
+        for rid in ids:
+            y, sr = sf.read(os.path.join(self.rec, rid + ".wav"))
+            self.assertEqual((sr, y.ndim), (44100, 1))
+            self.assertAlmostEqual(len(y) / sr, 8.0, places=2)
+            for d in (self.rec, os.path.join(self.out, "rec")):
+                tr = json.load(open(os.path.join(d, rid + ".truth.json")))
+                self.assertEqual([n["midi"] for n in tr["notes"]], MIDI)
+                self.assertEqual(tr["heldOut"], held[rid])
+        man = json.load(open(os.path.join(self.out, "rec", "manifest.hum.json")))
+        self.assertEqual([v["name"] for v in man["variants"]], ["hum-01-c", "hum-02-a", "hum-02-b"])
+        self.assertEqual(os.listdir(self.inbox), [])
+        self.assertEqual(len(os.listdir(os.path.join(self.rec, "hum-originals"))), 6)
+        # no original name in anything but ids.local.json / hum-originals / hum-inbox
+        for d, _, fns in os.walk(self.t.name):
+            if "hum-originals" in d:
+                continue
+            for fn in fns:
+                self.assertNotIn("Title", fn)
+                if fn != "hum-ids.local.json":
+                    self.assertNotIn(b"Title", open(os.path.join(d, fn), "rb").read(), fn)
+
+    def test_second_run_keeps_numbers_and_decisions(self):
+        self.drop("Aaa_a", "a")
+        self.assertEqual(self.run_intake(), 0)
+        self.drop("Aaa_b", "b")  # same song later: same id and decision
+        self.drop("Bbb_c", "c")
+        self.assertEqual(self.run_intake(), 0)
+        ids = json.load(open(os.path.join(self.rec, "hum-ids.local.json")))["recordings"]
+        self.assertEqual({k: v["heldOut"] for k, v in ids.items()},
+                         {"hum-01-a": False, "hum-01-b": False, "hum-02-c": True})
+
+    def test_bad_txt_registers_nothing(self):
+        self.drop("Bad_a", txt=TXT.replace("bpm: 120", "bpm: x"))
+        out = []
+        self.assertEqual(self.run_intake(), 1)
+        self.assertFalse(os.path.exists(os.path.join(self.rec, "hum-ids.local.json")))
+        self.assertFalse(os.path.exists(os.path.join(self.out, "results", "heldout-log.jsonl")))
+        self.assertEqual(len(os.listdir(self.inbox)), 2)
+
+
+class TestHumPrivacy(unittest.TestCase):
+    def setUp(self):
+        self.t = tempfile.TemporaryDirectory()
+        self.root = self.t.name
+        self.rec = os.path.join(self.root, "recordings")
+        os.makedirs(self.rec)
+        a = H.parse_hum_txt(TXT)
+        truth = H.build_truth(a, "hum-01-a", "hum-01", False, 8.0)
+        with open(os.path.join(self.rec, "hum-01-a.truth.json"), "w") as f:
+            json.dump(truth, f, indent=1)
+        self.write("src/ok.md", "scale C4 D4 E4 F4 G4 A4 B4 C5, numbers 60 62 64 65 67 69 71 72, key C4 E4 G4\n")
+
+    def tearDown(self):
+        self.t.cleanup()
+
+    def write(self, rel, text):
+        p = os.path.join(self.root, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def check(self):
+        return P.check(self.root, self.rec, check_log=False)
+
+    def test_clean_and_runs_collected(self):
+        self.assertEqual(self.check(), [])
+        self.assertTrue(P.collect_hum(self.rec))
+
+    def test_note_names_found_without_echo(self):
+        self.write("src/leak.md", "melody: :4 C4 E4 G4 E4 | :8 D4 F4 A4 F4 G4\n")
+        bad = self.check()
+        self.assertEqual(len(bad), 1)
+        self.assertIn("humming note sequence", bad[0])
+        self.assertNotIn("C4", bad[0])
+
+    def test_flats_sharps_and_rests_between(self):
+        self.write("src/leak.md", "C4 E4 G4 E4 r D4 F4 A4 F4 G4 E4 C5")
+        self.assertEqual(len(self.check()), 1)
+        # enharmonic spelling is the same MIDI number: B3 = Cb4
+        self.write("src/leak.md", "C4 E4 G4 E4 D4 F4 A4 F4 G4 E4 C5 Cb4 D5")
+        self.assertEqual(len(self.check()), 1)
+
+    def test_midi_numbers_and_pretty_json(self):
+        self.write("src/leak.json", json.dumps({"notes": [{"midi": m} for m in MIDI[:9]]}, indent=1))
+        self.assertEqual(len(self.check()), 1)
+        self.write("src/leak.json", "[" + ", ".join(map(str, MIDI[2:12])) + "]")
+        self.assertEqual(len(self.check()), 1)
+
+    @unittest.skipUnless(shutil.which("git"), "git is not in the analysis image; runs on the host")
+    def test_commit_message_and_history(self):
+        git = lambda *a: subprocess.run(["git", "-C", self.root, "-c", "user.email=a@b", "-c", "user.name=n", *a],
+                                        check=True, capture_output=True)
+        git("init", "-q", "-b", "base")
+        self.write("src/a.txt", "x\n")
+        git("add", "src/a.txt")
+        git("commit", "-q", "-m", "init")
+        git("checkout", "-q", "-b", "feat")
+        self.write("src/b.json", json.dumps({"midi": MIDI[:9]}, indent=1))
+        git("add", "src/b.json")
+        git("commit", "-q", "-m", "add C4 E4 G4 E4 D4 F4 A4 F4 G4")
+        git("rm", "-q", "-f", "src/b.json")
+        git("commit", "-q", "-m", "remove")
+        bad = P.check(self.root, self.rec, check_log=True, base="base", history=True)
+        self.assertTrue(any(b.startswith("commit ") and "humming" in b for b in bad), bad)
+        self.assertTrue(any(b.startswith("history ") and "humming" in b for b in bad), bad)
+
+    def test_hum_names_are_anonymous_and_original_names_are_terms(self):
+        with open(os.path.join(self.rec, "hum-ids.local.json"), "w") as f:
+            json.dump({"recordings": {"hum-01-a": {"original": "Fake Hum Title", "originalFiles": ["Fake Hum Title_a.wav"]}}}, f)
+        terms, _ = P.collect_terms(self.rec)
+        self.assertIn("fake hum title", terms)
+        self.write("src/hum-01-a.md", "hum-01-a is fine\n")
+        self.assertEqual(self.check(), [])
+        self.write("src/t.md", "see Fake Hum Title here\n")
+        self.assertEqual(len(self.check()), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
