@@ -206,7 +206,8 @@ describe('extractNotes on hand-made f0 tracks', () => {
 
   it('octave fix: a short note 12 above both neighbours is moved, the reading kept as a candidate', () => {
     const { track, levelDb } = makeTrack(1.2, notesPitch([[0.1, 0.4, 60], [0.45, 0.6, 74], [0.65, 1.0, 62]]));
-    const r = extractNotes(track, levelDb, INFO);
+    // the 150 ms note is > 1 16th: the rule is tested with the pre-T9 reach of 4 16ths (default is 1 since T9)
+    const r = extractNotes(track, levelDb, INFO, resolveHumConfig({ pitch: { octaveFixMaxSixteenths: 4 } }));
     expect(r.notes.map((n) => n.midi)).toEqual([60, 62, 62]);
     expect(r.notes[1].candidates).toContainEqual({ midi: 74, confidence: expect.any(Number), octaveFixed: true });
     expect(r.stats.octaveFixedNotes).toBe(1);

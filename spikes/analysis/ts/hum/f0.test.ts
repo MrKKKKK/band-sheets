@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_HUM_CONFIG, resolveHumConfig } from './config';
+import { resolveHumConfig } from './config';
 import { DEFAULT_OCTAVE_CHECK, differenceDirect, estimateF0, NO_OCTAVE_CHECK, octaveCheck, parabolicLag, voicingDecision, yinGeometry, YinFrameAnalyzer, yinPick, yinProb } from './f0';
 
 const SR = 22050;
@@ -152,7 +152,8 @@ describe('estimateF0 input handling and voicing', () => {
   });
 
   it('voicingDecision: level gate against the noise floor and gap bridging', () => {
-    const cfg = DEFAULT_HUM_CONFIG;
+    // rule values fixed here (the T9 defaults are 6 dB / 20 ms)
+    const cfg = resolveHumConfig({ voicing: { noiseMarginDb: 10, bridgeGapMs: 30 } });
     const hz = new Array(20).fill(200);
     const level = new Array(20).fill(-20);
     for (let i = 0; i < 6; i++) level[i] = -60; // noise floor -60

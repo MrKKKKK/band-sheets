@@ -85,4 +85,4 @@ describe('hum types', () => {
   });
 });
 
-const PINNED = 'dd32455ac43d';
+const PINNED = '0326ed5fd6c4';

@@ -1,7 +1,11 @@
 /**
  * Spike 4 T0: humming analyzer config (docs/audio-spike4-plan.md section 2 table, design decision 2).
  *
- * All values are PROVISIONAL (from the plan; tuned on synthetic audio only, baseline frozen at T8).
+ * Values from the plan, frozen as the T8 baseline (hum-v0, 2d3c76d270cd), then tuned in T9 on the synthetic tuning
+ * split only and confirmed on dev (hum-v1; see the T9 comments at each changed value). Searched but NOT changed
+ * (ts/hum/tune.ts, out/hum/t9/): trimFraction .3/.35, glide 16, refFrames 48, medianFrames 3, biasMethod 'trunc'
+ * (better on tuning, worse on dev), endExtendFraction .5 (H0 quant drops), pyin (tuning H2 drops), octaveCheckRatio .5
+ * (no tuning effect; dev H3 better: left to T10).
  * configHash() = SHA-256 (first 12 hex) over the canonical JSON (sorted keys, compact; same helpers as the
  * spike-3 ts/dsp/config.ts), so the key order of an object never changes the hash. Numbers are written the
  * way pyCanonicalJson does (integral -> int, else Python float repr): keep that stable when editing defaults.
@@ -112,7 +116,9 @@ export interface HumConfig {
 export const HUM_CONFIG_GROUPS = ['audio', 'f0', 'voicing', 'segment', 'pitch', 'grid'] as const;
 
 export const DEFAULT_HUM_CONFIG: HumConfig = deepFreeze({
-  name: 'hum-v0',
+  // T9 (tuned on the synthetic TUNING split with ts/hum/tune.ts, confirmed on DEV; T8 baseline = 'hum-v0', 2d3c76d270cd).
+  // Each changed value says why; 'tuning'/'dev' numbers are per-level means of F onset / quant exact / edits per keyboard step.
+  name: 'hum-v1',
   audio: { sr: 22050 },
   f0: {
     win: 1024,
@@ -130,21 +136,38 @@ export const DEFAULT_HUM_CONFIG: HumConfig = deepFreeze({
     octaveCheckMinD: 0.02,
     pyinBeta: [2, 18],
   },
-  voicing: { noiseMarginDb: 10.0, noisePercentile: 0.1, minVoicedProb: 0.5, bridgeGapMs: 30 },
+  voicing: {
+    // T9: 10 -> 6. The 20 dB-noise H3 takes lost quiet note ends / soft "n~" onsets to the level gate; H3 F onset
+    // tuning .864 -> .879, dev .801 -> .814 (with the other T9 values); H0-H2 unchanged.
+    noiseMarginDb: 6.0,
+    noisePercentile: 0.1,
+    // T9: 0.5 -> 0.4. Fewer dropped frames in breathy H3 notes; dev H1 F onset .978 -> .983 (alone), H2/H3 quant up.
+    minVoicedProb: 0.4,
+    // T9: 30 -> 20. A shorter bridge keeps the short closure gaps between same-pitch repeats as boundaries
+    // (H3 tuning quant exact .394 -> .412 in the first search; removing it from the final set: dev H3 quant .464 -> .449).
+    bridgeGapMs: 20,
+  },
   segment: {
     medianFrames: 5,
     moveSemitones: 0.6,
     minMoveMs: 60,
-    glideSemitonesPerSec: 12.0,
+    // T9: 12 -> 14. Vibrato/scoop flanks of H2/H3 voices were "not stable", so the reference settled late and short
+    // notes were merged; H2 F onset tuning .955 -> .991, dev .967 -> .996, H3 dev .818 -> .858. 16 was better on tuning
+    // but dropped dev H1 F onset .978 -> .928 (not adopted).
+    glideSemitonesPerSec: 14.0,
     minNoteSixteenths: 0.5,
     splitOnDips: true,
-    dipDb: 6.0,
+    // T9: 6 -> 5 (G1 priority: same-pitch repeats on closed-mouth "n~", H3). H3 quant exact tuning .354 -> .388 (alone),
+    // removing it from the final set: dev H3 F onset .858 -> .831. 4.5 / 5.5 were worse on tuning.
+    dipDb: 5.0,
     noteHmm: false,
     refFrames: 36,
     settleFrames: 3,
     joinGapMs: 80,
     vibratoWindowMs: 200,
-    vibratoSwingSemitones: 0.15,
+    // T9: 0.15 -> 0.2. The vibrato guard blocked real dips after pitch noise of H2/H3 (+-15 cents counted as a swing);
+    // tuning H3 quant exact .404 -> .416, H2 .855 -> .862 (leave-one-out); dev unchanged.
+    vibratoSwingSemitones: 0.2,
   },
   pitch: {
     trimFraction: 0.25,
@@ -152,7 +175,9 @@ export const DEFAULT_HUM_CONFIG: HumConfig = deepFreeze({
     candidatesMax: 3,
     boundaryCents: 20,
     octaveFix: true,
-    octaveFixMaxSixteenths: 4,
+    // T9: 4 -> 1 (T5 proposal: the rule only ever moved correct notes on synthetic). Tuning unchanged; dev H0 F onset
+    // .996 -> 1.000 (the one dev H0/H1 octave error was this rule).
+    octaveFixMaxSixteenths: 1,
     keyPrior: false,
   },
   grid: {

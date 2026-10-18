@@ -2,10 +2,12 @@
  * Spike 4 T8: synthetic baseline driver. Scores out/hum/results/<name>.json (cli.ts --all --f0-track) against the
  * synthetic truths and writes out/hum/baseline/{report.md,rows.json}. Tuning + dev only; held-out is never read.
  *
- *   npx tsx ts/hum/baseline.ts
+ *   npx tsx ts/hum/baseline.ts [--results out/hum/results] [--out out/hum/baseline] [--title "..."]
+ * T9: the scoring is exported (scoreTake) for ts/hum/tune.ts; --results/--out score another result set the same way.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { renderReport, scoreRow, type ReportRow, type Scores } from './report';
 import { dropShortTruth, editScript, matchNotes, notesToEvents, quantizedToEvents, type ScoreNote, type TickNote } from './score';
 import type { FrameF0Track, HumNote, QuantizedMelody } from './types';
@@ -13,11 +15,11 @@ import type { FrameF0Track, HumNote, QuantizedMelody } from './types';
 const OUT = join(import.meta.dirname, '..', '..', 'out', 'hum');
 const sung = (n: { midi: number; cents?: number }) => n.midi + (n.cents ?? 0) / 100;
 
-interface Variant { name: string; melody: string; level: string; seed: number; split: string; heldOut: boolean; audioSec: number; truth: string }
-interface TruthNote { start: number; end: number; midi: number; cents?: number; startTick: number; ticks: number }
+export interface Variant { name: string; melody: string; level: string; seed: number; split: string; heldOut: boolean; audioSec: number; truth: string }
+export interface TruthNote { start: number; end: number; midi: number; cents?: number; startTick: number; ticks: number }
 
 /** Error-type counts for one take (all counts of truth notes unless noted). */
-function errorTypes(truth: TruthNote[], est: HumNote[], estQ: QuantizedMelody): Scores {
+export function errorTypes(truth: TruthNote[], est: HumNote[], estQ: QuantizedMelody): Scores {
   const c: Scores = {};
   const add = (k: string, v = 1) => (c[k] = (c[k] ?? 0) + v);
   const T: ScoreNote[] = truth.map((n) => ({ start: n.start, end: n.end, midi: n.midi, cents: n.cents }));
@@ -68,11 +70,36 @@ function errorTypes(truth: TruthNote[], est: HumNote[], estQ: QuantizedMelody): 
   return c;
 }
 
-function sum(rows: { scores: Scores }[], k: string) {
+export function sum(rows: { scores: Scores }[], k: string) {
   return rows.reduce((a, r) => a + (r.scores[k] ?? 0), 0);
 }
 
+/** All scores of one synthetic take (truth JSON of render/hum) for the analyzer's notes, quantized melody and f0. */
+export function scoreTake(tr: { melody: { notes: TruthNote[] }; hum: { f0: unknown } }, estNotes: HumNote[], estQ: QuantizedMelody, estF0?: FrameF0Track): Scores {
+  const truthAll: TruthNote[] = tr.melody.notes;
+  const truthNotes = truthAll.filter((n) => n.ticks >= 4); // TICKS_PER_16TH = 4
+  const scores = scoreRow({
+    truthNotes: truthNotes.map((n) => ({ start: n.start, end: n.end, midi: n.midi, cents: n.cents })),
+    estNotes,
+    ...(estF0 ? { truthF0: tr.hum.f0 as FrameF0Track, estF0 } : {}),
+    truthTicks: truthAll.map((n) => ({ startTick: n.startTick, ticks: n.ticks, midi: n.midi })),
+    estQuant: estQ,
+  });
+  Object.assign(scores, errorTypes(truthNotes, estNotes, estQ));
+  scores.nTruth = truthNotes.length;
+  scores.nEst = estNotes.length;
+  return scores;
+}
+
+function arg(name: string, def: string): string {
+  const i = process.argv.indexOf(name);
+  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : def;
+}
+
 function main() {
+  const resultsDir = resolve(arg('--results', join(OUT, 'results')));
+  const outDir = resolve(arg('--out', join(OUT, 'baseline')));
+  const title = arg('--title', 'Spike 4 T8: synthetic baseline');
   const manifest = JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8')) as { variants: Variant[] };
   const rows: (ReportRow & { split: string; melody: string; msPerSec: number; stagesMsPerSec: Record<string, number> })[] = [];
   let commit = '';
@@ -80,24 +107,10 @@ function main() {
   for (const v of manifest.variants) {
     if (v.heldOut || v.split === 'heldOut') continue;
     const tr = JSON.parse(readFileSync(join(OUT, v.truth), 'utf8'));
-    const res = JSON.parse(readFileSync(join(OUT, 'results', `${v.name}.json`), 'utf8'));
+    const res = JSON.parse(readFileSync(join(resultsDir, `${v.name}.json`), 'utf8'));
     commit = res.hum.meta.commit;
     hash = res.hum.meta.configHash;
-    const truthAll: TruthNote[] = tr.melody.notes;
-    const truthNotes = truthAll.filter((n) => n.ticks >= 4); // TICKS_PER_16TH = 4 (checked below)
-    const estNotes: HumNote[] = res.melody.notes;
-    const estQ: QuantizedMelody = res.melody.quantized;
-    const scores = scoreRow({
-      truthNotes: truthNotes.map((n) => ({ start: n.start, end: n.end, midi: n.midi, cents: n.cents })),
-      estNotes,
-      truthF0: tr.hum.f0,
-      estF0: res.hum.f0 as FrameF0Track,
-      truthTicks: truthAll.map((n) => ({ startTick: n.startTick, ticks: n.ticks, midi: n.midi })),
-      estQuant: estQ,
-    });
-    Object.assign(scores, errorTypes(truthNotes, estNotes, estQ));
-    scores.nTruth = truthNotes.length;
-    scores.nEst = estNotes.length;
+    const scores = scoreTake(tr, res.melody.notes, res.melody.quantized, res.hum.f0 as FrameF0Track);
     const tm = res.hum.meta.timings;
     const stagesMsPerSec: Record<string, number> = {};
     for (const [k, ms] of Object.entries(tm.stagesMs as Record<string, number>)) stagesMsPerSec[k] = ms / tm.audioSec;
@@ -107,7 +120,7 @@ function main() {
   const f3 = (x: number) => (Number.isFinite(x) ? x.toFixed(3) : '-');
   const pct = (a: number, b: number) => (b ? `${((100 * a) / b).toFixed(1)}%` : '-');
   const md: string[] = [
-    '# Spike 4 T8: synthetic baseline',
+    `# ${title}`,
     '',
     `- commit: \`${commit}\``,
     `- config hash: \`${hash}\` (default config, \`cli.ts --all --split tuning,dev --f0-track\`)`,
@@ -159,11 +172,11 @@ function main() {
   const worst = Math.max(...rows.map((r) => r.msPerSec));
   md.push('', `Slowest take: ${worst.toFixed(1)} ms per audio second (1 min = ${(worst * 60 / 1000).toFixed(2)} s on this Node, no browser/Worker overhead; resample dominates).`, '');
 
-  const dir = join(OUT, 'baseline');
+  const dir = outDir;
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'report.md'), md.join('\n'), 'utf8');
   writeFileSync(join(dir, 'rows.json'), JSON.stringify({ commit, configHash: hash, rows }, null, 1) + '\n', 'utf8');
   process.stderr.write(`baseline: ${rows.length} rows, config ${hash}, commit ${commit}\n`);
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main();
