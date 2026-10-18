@@ -1,4 +1,5 @@
 import { graphemes, lineLyrics } from './chartEdit';
+import { parseTimeSignature } from './partsToAlphaTex';
 import { isRawLine } from './song';
 import type { ChartLine, LyricLine } from './song';
 
@@ -24,10 +25,15 @@ export interface DashMeter {
   den: number;
 }
 
-/** Meter of `{time: n/d}`; anything missing or malformed is 4/4. */
+/**
+ * Meter of `{time: n/d}`: the app's `parseTimeSignature` (same as the viewer
+ * and auto-scroll), 4/4 when missing, invalid, or not a whole number of
+ * sixteenths per bar.
+ */
 export function meterOf(time: string | undefined): DashMeter {
-  const m = /^\s*(\d+)\s*\/\s*(\d+)\s*$/.exec(time ?? '');
-  return m ? { num: Number(m[1]), den: Number(m[2]) } : { num: 4, den: 4 };
+  const ts = parseTimeSignature(time);
+  const meter = ts ? { num: ts[0], den: ts[1] } : { num: 4, den: 4 };
+  return barUnits(meter) === null ? { num: 4, den: 4 } : meter;
 }
 
 /** Sixteenths per bar of `ts`, or null when not a whole number (>0). */
@@ -174,58 +180,117 @@ function dashes(units: number): string {
   return '-'.repeat(Math.floor(units / 2)) + (units % 2 === 1 ? '=' : '');
 }
 
-/**
- * Text of one bar (no `|`). Starts at a chord: the first chord is moved to
- * the bar start; chords snapped to the same sixteenth collapse (the earlier
- * one has length 0 and is merged into its neighbour), equal neighbours are
- * merged; a bar with no chord becomes `[N.C.]` over the whole bar.
- */
-export function writeDashBar(
+interface WrittenBar {
+  text: string;
+  /** Chord sounding at the end of the bar (carried into the next bar). */
+  last: string;
+  /** A chord that snapped to the very end of the bar, if any. */
+  overflow?: string;
+}
+
+function layoutBar(
   chords: readonly DashChordInput[],
-  ts: DashMeter,
-): string {
-  const total = barUnits(ts);
-  if (total === null) throw new Error(`unsupported meter ${ts.num}/${ts.den}`);
-  const snapped = chords
-    .map((c, i) => ({
+  total: number,
+  carry: string | undefined,
+): WrittenBar {
+  const snapped = chords.map((c, i) => {
+    if (!Number.isFinite(c.start))
+      throw new Error(`invalid chord start: ${c.start}`);
+    return {
       chord: c.chord,
       start: Math.min(total, Math.max(0, Math.round(c.start))),
       i,
-    }))
-    .sort((a, b) => a.start - b.start || a.i - b.i);
+    };
+  });
+  if (snapped.length === 0)
+    return { text: `[${NO_CHORD}]${dashes(total)}`, last: NO_CHORD };
+  snapped.sort((a, b) => a.start - b.start || a.i - b.i);
+  const overflow = snapped.find((c) => c.start === total)?.chord;
   // Zero-length chords (same snapped start as the next one, or at the end).
   const kept = snapped.filter(
     (c, k) => c.start < total && snapped[k + 1]?.start !== c.start,
   );
-  if (kept.length === 0) return `[${NO_CHORD}]${dashes(total)}`;
-  kept[0] = { ...kept[0], start: 0 };
+  if (kept.length === 0)
+    return { text: `[${NO_CHORD}]${dashes(total)}`, last: NO_CHORD };
+  if (kept[0].start > 0 && carry !== undefined)
+    kept.unshift({ chord: carry, start: 0, i: -1 });
+  else kept[0] = { ...kept[0], start: 0 };
   const merged: { chord: string; start: number }[] = [];
   for (const c of kept)
     if (merged[merged.length - 1]?.chord !== c.chord) merged.push(c);
-  return merged
+  const text = merged
     .map((c, k) => {
       const end = merged[k + 1]?.start ?? total;
       return `[${c.chord}]${dashes(end - c.start)}`;
     })
     .join('');
+  return { text, last: merged[merged.length - 1].chord, overflow };
 }
 
-/** `|bar|bar|…|` for the given bars. */
+function writeBars(
+  bars: readonly (readonly DashChordInput[])[],
+  ts: DashMeter,
+  carry: string | undefined,
+): { texts: string[]; carry: string | undefined } {
+  const total = barUnits(ts);
+  if (total === null) throw new Error(`unsupported meter ${ts.num}/${ts.den}`);
+  const texts: string[] = [];
+  let prev = carry;
+  for (const bar of bars) {
+    const w = layoutBar(bar, total, prev);
+    texts.push(w.text);
+    prev = w.overflow ?? w.last;
+  }
+  return { texts, carry: prev };
+}
+
+/**
+ * Text of one bar (no `|`). Contract (also for `writeDashLine` /
+ * `writeDashChart`, which are what T3 should call):
+ * - Chord positions are snapped to the sixteenth grid; chords snapped to the
+ *   same sixteenth collapse (the earlier one has length 0 and is dropped),
+ *   equal neighbours merge. `length` is ignored: each chord runs to the next.
+ * - A bar always starts with a chord. If the first chord starts after 0, the
+ *   `carry` chord (the previous bar's last sounding chord) is written at 0;
+ *   without `carry` (the very first bar) the first chord is moved to 0.
+ * - A chord that snaps to the end of the bar is not written here;
+ *   `writeDashChart` carries it into the next bar's position 0.
+ * - A bar with no chords is silence: `[N.C.]` over the whole bar.
+ * Callers validate input: a non-finite `start` throws, and chord names must
+ * not contain `[` or `]` (they would break the output).
+ */
+export function writeDashBar(
+  chords: readonly DashChordInput[],
+  ts: DashMeter,
+  carry?: string,
+): string {
+  return writeBars([chords], ts, carry).texts[0];
+}
+
+/** `|bar|bar|…|` for the given bars (see `writeDashBar` for the contract). */
 export function writeDashLine(
   bars: readonly (readonly DashChordInput[])[],
   ts: DashMeter,
+  carry?: string,
 ): string {
-  return `|${bars.map((b) => writeDashBar(b, ts)).join('|')}|`;
+  return `|${writeBars(bars, ts, carry).texts.join('|')}|`;
 }
 
-/** Splits bars into lines of `barsPerLine` (default 4; the last may be shorter). */
+/**
+ * Splits bars into lines of `barsPerLine` (default 4; the last may be
+ * shorter), carrying chords across bars and lines as in `writeDashBar`.
+ */
 export function writeDashChart(
   bars: readonly (readonly DashChordInput[])[],
   ts: DashMeter,
   barsPerLine = 4,
 ): string[] {
   const lines: string[] = [];
-  for (let i = 0; i < bars.length; i += barsPerLine)
-    lines.push(writeDashLine(bars.slice(i, i + barsPerLine), ts));
+  let carry: string | undefined;
+  for (let i = 0; i < bars.length; i += barsPerLine) {
+    const w = writeBars(bars.slice(i, i + barsPerLine), ts, carry);
+    carry = w.carry;
+    lines.push(`|${w.texts.join('|')}|`);
+  }
   return lines;
 }

@@ -122,4 +122,6 @@
 /* Dash lines (audio-integration-plan §3.6): monospace so `-` counts line up. */
 .dash {
   font-family: var(--font-chord);
+  /* JetBrains Mono joins `--`, `|-`, `==`… into one glyph (also turns off calt). */
+  font-variant-ligatures: none;
 }

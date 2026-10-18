@@ -348,3 +348,102 @@ describe('meterOf', () => {
     expect(meterOf('abc')).toEqual({ num: 4, den: 4 });
   });
 });
+
+describe('writer carries chords across bars', () => {
+  it('writes the carry chord at 0 when the first chord starts late', () => {
+    expect(writeDashBar([{ chord: 'F', start: 8 }], t44, 'C')).toBe(
+      '[C]----[F]----',
+    );
+    // Very first bar (no carry): the first chord moves to 0.
+    expect(writeDashBar([{ chord: 'F', start: 8 }], t44)).toBe('[F]--------');
+  });
+  it('carries the previous bar last chord in writeDashChart', () => {
+    const lines = writeDashChart(
+      [[{ chord: 'C', start: 0 }], [{ chord: 'G', start: 4 }], []],
+      t44,
+    );
+    expect(lines).toEqual(['|[C]--------|[C]--[G]------|[N.C.]--------|']);
+  });
+  it('carries across lines', () => {
+    const bars = [
+      [{ chord: 'C', start: 0 }],
+      [{ chord: 'C', start: 0 }],
+      [{ chord: 'C', start: 0 }],
+      [{ chord: 'C', start: 0 }],
+      [{ chord: 'G', start: 8 }],
+    ];
+    expect(writeDashChart(bars, t44)[1]).toBe('|[C]----[G]----|');
+  });
+  it('moves a chord that snaps to the bar end into the next bar', () => {
+    const lines = writeDashChart(
+      [
+        [
+          { chord: 'C', start: 0 },
+          { chord: 'G', start: 15.8 },
+        ],
+        [{ chord: 'F', start: 4 }],
+      ],
+      t44,
+    );
+    expect(lines).toEqual(['|[C]--------|[G]--[F]------|']);
+    // ...and is simply replaced when the next bar starts with its own chord.
+    expect(
+      writeDashChart(
+        [
+          [
+            { chord: 'C', start: 0 },
+            { chord: 'G', start: 16 },
+          ],
+          [{ chord: 'F', start: 0 }],
+        ],
+        t44,
+      ),
+    ).toEqual(['|[C]--------|[F]--------|']);
+  });
+  it('keeps an empty bar as N.C. and carries the N.C. forward', () => {
+    expect(writeDashChart([[], [{ chord: 'G', start: 8 }]], t44)[0]).toBe(
+      '|[N.C.]--------|[N.C.]----[G]----|',
+    );
+  });
+  it('throws on a non-finite start', () => {
+    expect(() => writeDashBar([{ chord: 'C', start: NaN }], t44)).toThrow();
+  });
+});
+
+describe('meterOf falls back to 4/4 for invalid meters', () => {
+  it.each(['0/4', '4/3', '7/32', '4/0', '', '3/4/4'])('%s', (t) => {
+    expect(meterOf(t)).toEqual({ num: 4, den: 4 });
+  });
+  it('keeps valid ones', () => {
+    expect(meterOf('6/8')).toEqual({ num: 6, den: 8 });
+  });
+});
+
+describe('what is (not) a dash line — pinned behaviour', () => {
+  it('lines with only | are dash lines with no bars', () => {
+    for (const t of ['|', '||', '| |']) {
+      const l = line(t);
+      expect(isDashLine(l)).toBe(true);
+      expect(dashBarCount(l)).toBe(0);
+    }
+  });
+  it('full-width or look-alike characters make it a normal line', () => {
+    for (const t of [
+      '｜[C]--------｜',
+      '|[C]ーーーーーーーー|',
+      '|[C]————————|',
+      '|[C]－－－－－－－－|',
+    ])
+      expect(isDashLine(line(t))).toBe(false);
+  });
+  it('a line without | is not a dash line', () => {
+    expect(isDashLine(line('[C]--------[G]--------'))).toBe(false);
+  });
+  it('| [C] [G] [Am] [F] | is ONE bar split equally', () => {
+    const l = line('| [C] [G] [Am] [F] |');
+    expect(dashBarCount(l)).toBe(1);
+    const r = parseDashLine(l, t44);
+    expect(r.errors).toEqual([]);
+    expect(r.bars[0].chords.map((c) => c.length)).toEqual([4, 4, 4, 4]);
+  });
+});
