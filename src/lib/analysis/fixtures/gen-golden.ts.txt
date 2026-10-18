@@ -1,0 +1,67 @@
+// Run from <research worktree>/spikes/analysis:  npx tsx <this file> <gold dir> <out dir>
+// Synthetic input only: render/cli.ts `etude-full-t140-straight` (alphaTab + sonivox) and render/hum/cli.ts `syn-h0-saints-s1`
+// (tuning split, not held out). Both are cropped, resampled and stored as 16-bit mono PCM wav (see fixtures/README in the test header).
+import { readFileSync, writeFileSync } from 'node:fs';
+import { decodeWav } from './ts/browser/wav';
+import { analyze } from './ts/dsp/analyze';
+import { resampleSinc, toMono } from './ts/dsp/core/resample';
+import { analyzeHum } from './ts/hum/analyze';
+
+const [gold, out] = process.argv.slice(2);
+
+function wavBytes(x: Int16Array, sr: number): Uint8Array {
+  const b = new Uint8Array(44 + x.length * 2);
+  const v = new DataView(b.buffer);
+  const tag = (o: number, s: string) => [...s].forEach((c, i) => (b[o + i] = c.charCodeAt(0)));
+  tag(0, 'RIFF'); v.setUint32(4, 36 + x.length * 2, true); tag(8, 'WAVE'); tag(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, sr, true);
+  v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); tag(36, 'data'); v.setUint32(40, x.length * 2, true);
+  x.forEach((s, i) => v.setInt16(44 + i * 2, s, true));
+  return b;
+}
+function toInt16(y: Float32Array): Int16Array {
+  const o = new Int16Array(y.length);
+  for (let i = 0; i < y.length; i++) o[i] = Math.max(-32768, Math.min(32767, Math.round(y[i] * 32767)));
+  return o;
+}
+/** The decode the app test uses: header 44 bytes, int16 LE / 32768. */
+function readBack(b: Uint8Array): { y: Float32Array; sr: number } {
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const n = (b.byteLength - 44) / 2;
+  const y = new Float32Array(n);
+  for (let i = 0; i < n; i++) y[i] = v.getInt16(44 + i * 2, true) / 32768;
+  return { y, sr: v.getUint32(24, true) };
+}
+function load(path: string): { y: Float32Array; sr: number } {
+  const w = decodeWav(new Uint8Array(readFileSync(path)));
+  return { y: toMono(w.channels), sr: w.sampleRate };
+}
+function strip(r: any) {
+  if (r.analyzer) delete r.analyzer.timingsSec;
+  if (r.hum?.meta) delete r.hum.meta.timings;
+  return r;
+}
+
+// chords: first 7 s at 22050 Hz
+{
+  const { y, sr } = load(`${gold}/chords2/etude/etude-full-t140-straight.wav`);
+  const y22 = resampleSinc(y.subarray(0, 7 * sr), sr, 22050);
+  const bytes = wavBytes(toInt16(y22), 22050);
+  writeFileSync(`${out}/chords.wav`, bytes);
+  const rb = readBack(bytes);
+  const { result } = analyze(rb.y, { timings: false } as any);
+  writeFileSync(`${out}/chords.expected.json`, JSON.stringify(strip(JSON.parse(JSON.stringify(result))), null, 1) + '\n');
+}
+// hum: 8 s starting 94500 samples in (2.142857 s), 11025 Hz; bar 1 is at 2.642966 - 2.142857 s
+{
+  const { y, sr } = load(`${gold}/hum/syn-h0-saints-s1.wav`);
+  if (sr !== 44100) throw new Error('expected 44100');
+  const a = 94500;
+  const y11 = resampleSinc(y.subarray(a, a + 8 * sr), sr, 11025);
+  const bytes = wavBytes(toInt16(y11), 11025);
+  writeFileSync(`${out}/hum.wav`, bytes);
+  const rb = readBack(bytes);
+  const info = { bpm: 116, ts: [4, 4] as [number, number], startSec: 2.642966 - a / sr };
+  const r = analyzeHum(rb.y, rb.sr, info, { f0Track: true, sourceKind: 'synthetic' });
+  writeFileSync(`${out}/hum.expected.json`, JSON.stringify({ info, result: strip(JSON.parse(JSON.stringify(r))) }, null, 1) + '\n');
+}
