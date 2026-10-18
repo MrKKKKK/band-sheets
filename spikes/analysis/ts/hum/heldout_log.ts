@@ -42,3 +42,17 @@ export function heldOutRunBlock(g: HeldOutGuardInput): string | null {
   if (hasHumRescore(lines)) return 'a hum rescore-m1 line already exists in the heldout log: refusing to run again';
   return null;
 }
+
+/**
+ * Command line -> mode. Exactly one of --selftest / --final-heldout; `--rescore-m1` is only valid together with
+ * --final-heldout (it selects the one-time synthetic re-score instead of the look-3 run).
+ */
+export type HeldOutMode = 'selftest' | 'final-heldout' | 'rescore-m1';
+export function parseHeldOutMode(argv: string[]): HeldOutMode {
+  const final = argv.includes('--final-heldout');
+  const selftest = argv.includes('--selftest');
+  const rescore = argv.includes('--rescore-m1');
+  if (final === selftest) throw new Error('give exactly one of --final-heldout / --selftest');
+  if (rescore && !final) throw new Error('--rescore-m1 needs --final-heldout');
+  return rescore ? 'rescore-m1' : final ? 'final-heldout' : 'selftest';
+}

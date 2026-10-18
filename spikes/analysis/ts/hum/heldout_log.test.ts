@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { heldOutRunBlock, type HeldOutGuardInput } from './heldout_log';
+import { heldOutRunBlock, parseHeldOutMode, type HeldOutGuardInput } from './heldout_log';
 
 const L = (o: object) => JSON.stringify(o);
 const SPIKE2 = L({ kind: 'look', input: 'rec', lookPoint: 3 }); // another spike's look 3 must not count
@@ -31,5 +31,17 @@ describe('heldOutRunBlock', () => {
     expect(heldOutRunBlock({ ...r, porcelain: '?? x' })).toMatch(/clean/);
     expect(heldOutRunBlock({ ...r, logText: RESCORE + '\n' })).toMatch(/no hum look-3/);
     expect(heldOutRunBlock({ ...base, logText: RESCORE + '\n' })).toBeNull(); // final is not blocked by a rescore line alone
+  });
+});
+
+describe('parseHeldOutMode', () => {
+  it('picks the mode and refuses ambiguous / incomplete command lines', () => {
+    expect(parseHeldOutMode(['--selftest'])).toBe('selftest');
+    expect(parseHeldOutMode(['--final-heldout'])).toBe('final-heldout');
+    expect(parseHeldOutMode(['--rescore-m1', '--final-heldout'])).toBe('rescore-m1');
+    expect(() => parseHeldOutMode([])).toThrow();
+    expect(() => parseHeldOutMode(['--selftest', '--final-heldout'])).toThrow();
+    expect(() => parseHeldOutMode(['--rescore-m1'])).toThrow();
+    expect(() => parseHeldOutMode(['--rescore-m1', '--selftest'])).toThrow();
   });
 });

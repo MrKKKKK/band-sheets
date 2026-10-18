@@ -3,6 +3,10 @@
  *
  *   npx tsx ts/hum/heldout_eval.ts --final-heldout     the final run (refuses if a look-3 line already exists in the log)
  *   npx tsx ts/hum/heldout_eval.ts --selftest          same pipeline on the DEV synthetic variants + DEV recordings; no log line
+ *   npx tsx ts/hum/heldout_eval.ts --rescore-m1 --final-heldout
+ *        T15, once: re-score the SYNTHETIC held-out variants under the M1 definition (note F pitch = written note) with the
+ *        frozen config. Refuses unless: config hash frozen, clean tree, the hum look-3 line exists, no hum rescore line
+ *        yet. Never touches recordings. Aggregates per level to stdout and one appended log line (kind rescore-m1).
  *
  * Mirrors ts/hum/calibrate_eval.ts: recordings run through analyzeHum with firstNoteSec + firstNoteTick from the truth
  * info only, transposeInvariant scoring, "grid" time base (truth placed on the analyzer's quantized.startSec) and the
@@ -14,15 +18,12 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { decodeWav } from '../browser/wav';
-import { resampleSinc, toMono } from '../dsp/core/resample';
-import { analyzeHum, resolveStart } from './analyze';
-import { scoreTake as scoreSynTake } from './baseline';
-import { firstNoteTickFromTruthInfo, variantStart } from './cli';
-import { heldOutRunBlock } from './heldout_log';
+import { toMono } from '../dsp/core/resample';
+import { analyzeHum } from './analyze';
+import { firstNoteTickFromTruthInfo } from './cli';
+import { aggregateByLevel, synScore, type SynVariant } from './syn_score';
+import { RESCORE_KIND, heldOutRunBlock, parseHeldOutMode } from './heldout_log';
 import { humConfigHash, resolveHumConfig, type HumConfig } from './config';
-import { estimateF0 } from './f0';
-import { extractNotes, frameLevelDb } from './notes';
-import { quantize } from './quantize';
 import { recScore, type RecTruth } from './rec_score';
 import type { Scores } from './report';
 import type { HumInput } from './types';
@@ -32,7 +33,6 @@ const HUM = join(SA, 'out', 'hum');
 const OUTDIR = join(HUM, 't11');
 const LOG = join(SA, 'out', 'results', 'heldout-log.jsonl');
 const FROZEN = 'f7a35fb44ae5';
-const SR = 22050;
 const METRICS = ['noteF.onset', 'noteF.onsetOffset', 'noteF.onsetPitchClass', 'noteF.onsetSemitone', 'noteF.onset100ms', 'quant.exactAcc', 'edit.perNote', 'edit.ratioToKeyboard', 'pitchCand.k2', 'gridCand.k2'];
 const ERR = ['nTruth', 'nEst', 'seg.extraSplit', 'seg.missedSplit', 'seg.missedSplit.samePitch', 'seg.missed', 'seg.spurious', 'pitch.matched', 'pitch.ok', 'pitch.semitone', 'pitch.octave', 'pitch.other', 'quant.pairs', 'quant.onsetSlot', 'quant.duration', 'quant.restVsLegato.filledRest', 'quant.restVsLegato.cutLegato'];
 const SHIFT_NAME = ['0', 'octave', 'other'];
@@ -50,36 +50,48 @@ function gitOut(args: string[]): string | null {
   }
 }
 
-/* ------------------------------------------------------------------ synthetic */
-interface SynVariant { name: string; level: string; split: string; heldOut: boolean; wav: string; truth: string; bpm: number; ts: [number, number]; startSec: number }
-
-function synScore(v: SynVariant, cfg: HumConfig): { both: Scores; bar: Scores; first: Scores } {
-  const truth = JSON.parse(readFileSync(join(HUM, v.truth), 'utf8'));
-  const wav = decodeWav(new Uint8Array(readFileSync(join(HUM, v.wav))));
-  const x = resampleSinc(toMono(wav.channels), wav.sampleRate, SR);
-  const f = estimateF0(x, SR, cfg);
-  const level = frameLevelDb(x, SR, f.track);
-  const infos = [variantStart(v, 'bar', 0), variantStart(v, 'first-note', -0.7, truth)];
-  const rows = infos.map((info) => {
-    const nr = extractNotes(f.track, level, info, cfg);
-    const st = resolveStart(info);
-    const q = quantize(nr.notes, { bpm: info.bpm, ts: info.ts, startSec: st.startSec, firstNoteSec: st.firstNoteSec, firstNoteTick: st.firstNoteTick }, cfg.grid);
-    return scoreSynTake(truth as never, nr.notes, q);
-  });
-  const both: Scores = {};
-  for (const k of new Set(rows.flatMap((r) => Object.keys(r)))) both[k] = mean(rows, k);
-  return { both, bar: rows[0], first: rows[1] };
-}
-
 /* ------------------------------------------------------------------ recordings */
 interface RecVariant { name: string; heldOut: boolean; style: string; song: string; truth: string; wav: string; bpm: number; ts: [number, number] }
+/** T15: the one-time synthetic re-score (see the file header). Synthetic only; dev synthetic runs alongside as the reference. */
+function rescoreM1(cfg: HumConfig, hash: string): void {
+  const block = heldOutRunBlock({ run: 'rescore-m1', configHash: hash, frozenHash: FROZEN, logText: existsSync(LOG) ? readFileSync(LOG, 'utf8') : null, porcelain: gitOut(['status', '--porcelain']) });
+  if (block) throw new Error(block);
+  const commit = gitOut(['rev-parse', 'HEAD']);
+  const man = JSON.parse(readFileSync(join(HUM, 'manifest.json'), 'utf8')) as { variants: SynVariant[] };
+  const KEYS = [...METRICS, 'noteF_sungPitch.onset', 'edit.appOps.ratioToKeyboard'];
+  const run = (sel: SynVariant[]) => aggregateByLevel(sel, cfg, KEYS);
+  const held = man.variants.filter((v) => v.heldOut && v.split === 'heldOut');
+  const dev = man.variants.filter((v) => v.split === 'dev' && !v.heldOut);
+  const heldRes = run(held);
+  const devRes = run(dev);
+  const line = {
+    time: new Date().toISOString().replace(/\.\d+Z$/, '+00:00'),
+    kind: RESCORE_KIND,
+    input: 'hum',
+    lookPoint: 3,
+    variants: held.map((v) => v.name),
+    commit,
+    dirty: false,
+    diffHash: null,
+    configHash: hash,
+    dspName: 'hum-v3',
+    dspConfig: null,
+    includeHeldOut: true,
+    metrics: { synthetic: heldRes, syntheticDevReference: devRes },
+    note: 'T15 one-time re-score of the SYNTHETIC held-out variants under the M1 definition (note F pitch = written note; noteF_sungPitch.onset is the old definition), frozen hum-v3, driver ts/hum/heldout_eval.ts --rescore-m1 --final-heldout. Recordings not run. Mean of bar-head start and first-note -0.7 beat start per level; aggregates only.',
+  };
+  for (const [name, res] of [['heldOut', heldRes], ['dev', devRes]] as const) for (const [L, m] of Object.entries(res)) process.stdout.write(`rescore-m1 ${name} ${L}: ${JSON.stringify(m)}\n`);
+  appendFileSync(LOG, JSON.stringify(line) + '\n');
+  process.stdout.write('log line written\n');
+}
+
 function main() {
-  const final = process.argv.includes('--final-heldout');
-  const selftest = process.argv.includes('--selftest');
-  if (final === selftest) throw new Error('give exactly one of --final-heldout / --selftest');
+  const mode = parseHeldOutMode(process.argv);
+  const final = mode === 'final-heldout';
   const cfg = resolveHumConfig();
   const hash = humConfigHash(cfg);
   if (hash !== FROZEN) throw new Error(`not the frozen hum-v3 config: ${hash}`);
+  if (mode === 'rescore-m1') return rescoreM1(cfg, hash);
   const commit = gitOut(['rev-parse', 'HEAD']);
   if (final) {
     const block = heldOutRunBlock({ run: 'final-heldout', configHash: hash, frozenHash: FROZEN, logText: existsSync(LOG) ? readFileSync(LOG, 'utf8') : null, porcelain: gitOut(['status', '--porcelain']) });
