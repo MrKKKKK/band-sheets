@@ -10,6 +10,7 @@
  * on a line `anchorPx` below the top of the viewport (30% of its height):
  * `scrollTop = y(t) − anchorPx`.
  */
+import { dashBarCount, isDashLine } from './dashChart';
 import type { ChartLine, ChartSection } from './song';
 
 /**
@@ -181,10 +182,12 @@ export function countInBeats(bar: BarInfo): number {
 /**
  * Estimated bars of one chart line for sections no part has bars for
  * (m6-plan.md 確認したい点 3 → (a)): one bar per chord, a lyric line without
- * chords = 1 bar, blank / raw lines = 0.
+ * chords = 1 bar, blank / raw lines = 0. Dash lines count their bars.
  */
 export function lineBarCount(line: ChartLine): number {
   if ('raw' in line || line.segments.length === 0) return 0;
+  // Dash lines (audio-integration-plan §3.6): the `|`-delimited bars.
+  if (isDashLine(line)) return dashBarCount(line);
   const chords = line.segments.filter((s) => s.chord !== undefined).length;
   return Math.max(1, chords);
 }
