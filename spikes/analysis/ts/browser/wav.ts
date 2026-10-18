@@ -1,7 +1,7 @@
 /**
- * Minimal RIFF/WAVE reader (PCM 16/24/32-bit int, IEEE float 32/64, WAVE_FORMAT_EXTENSIBLE) for Node
+ * Minimal RIFF/WAVE reader (PCM 8-bit unsigned and 16/24/32-bit int, IEEE float 32/64, WAVE_FORMAT_EXTENSIBLE) for Node
  * tests and for reading a WAV's own sample rate in the page. Integer PCM is scaled like libsndfile's
- * float conversion (16 bit: / 32768). Browsers decode with decodeAudioData instead.
+ * float conversion (16 bit: / 32768; 8 bit unsigned: (u - 128) / 128). Browsers decode with decodeAudioData instead.
  */
 export interface WavData {
   sampleRate: number;
@@ -62,7 +62,8 @@ export function decodeWav(bytes: Uint8Array): WavData {
     for (let c = 0; c < nc; c++) {
       const o = (i * nc + c) * bps;
       let s: number;
-      if (format === 1 && bits === 16) s = v.getInt16(o, true) / 32768;
+      if (format === 1 && bits === 8) s = (v.getUint8(o) - 128) / 128;
+      else if (format === 1 && bits === 16) s = v.getInt16(o, true) / 32768;
       else if (format === 1 && bits === 24) {
         const u = v.getUint8(o) | (v.getUint8(o + 1) << 8) | (v.getInt8(o + 2) << 16);
         s = u / 8388608;
