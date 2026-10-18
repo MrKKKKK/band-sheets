@@ -111,7 +111,7 @@ function main() {
   const hash = humConfigHash(cfg);
   if (hash !== FROZEN) throw new Error(`not the frozen hum-v3 config: ${hash}`);
   if (final) {
-    if (existsSync(LOG) && readFileSync(LOG, 'utf8').split('\n').some((l) => l.trim() && (JSON.parse(l) as { lookPoint?: number }).lookPoint === 3)) throw new Error('a look-3 line already exists in the heldout log: refusing to run again');
+    if (existsSync(LOG) && readFileSync(LOG, 'utf8').split('\n').some((l) => l.trim() && ((d) => d.input === 'hum' && d.lookPoint === 3)(JSON.parse(l) as { lookPoint?: number; input?: string }))) throw new Error('a hum look-3 line already exists in the heldout log: refusing to run again');
   }
   const commit = gitOut(['rev-parse', 'HEAD']);
   const porcelain = gitOut(['status', '--porcelain']);
