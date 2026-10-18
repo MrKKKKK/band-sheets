@@ -154,6 +154,11 @@ export interface AnalysisNote {
   end: number;
   midi: number;
   confidence: number;
+  // ---- spike 4 additions (docs/audio-spike4-plan.md, design decision 3); all optional, absent = as before ----
+  /** Deviation of the measured pitch from `midi`, in cents (-50..+50, tuning already removed). */
+  cents?: number;
+  /** Other pitch readings, best first, at most 3 including none for `midi` itself; see ts/hum/types.ts. */
+  candidates?: { midi: number; confidence: number }[];
 }
 
 export interface AnalysisDrumHit {
@@ -196,7 +201,11 @@ export interface AnalysisResult {
   keys?: TruthKey[];
   sections?: { start: number; end: number; label: string }[];
   chords?: AnalysisChord[];
-  melody?: { notes: AnalysisNote[] };
+  melody?: {
+    notes: AnalysisNote[];
+    /** Spike 4: the notes on the beat grid (ts/hum/types.ts QuantizedMelody). Optional; score.py ignores it. */
+    quantized?: unknown;
+  };
   drums?: AnalysisDrumHit[];
   swing?: { kind: '8' | '16'; confidence: number };
 }

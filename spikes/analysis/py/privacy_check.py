@@ -13,7 +13,15 @@ Private terms are read at RUNTIME from the gitignored recordings folder (nothing
   * lyric fragments (T17): every LYRIC_GRAM-character window (with a non-ASCII character) of the lyric text of the
     charts (chords, spaces and punctuation removed) and every LYRIC_WORDS-word window of its ASCII words, matched
     the same way in the scanned text,
-  * every run of 6 consecutive chords (>= 3 distinct) from the *.chords.json annotations (chord progressions).
+  * every run of 6 consecutive chords (>= 3 distinct) from the *.chords.json annotations (chord progressions),
+  * spike 4 humming: the original names in recordings/hum-ids.local.json, the stems of the files in hum-inbox/ and
+    hum-originals/, and every run of HUM_RUN (8) consecutive notes (>= 4 distinct pitches, not a plain scale run) of
+    the note sequences in recordings/hum-*.truth.json and out/rec/hum-*.truth.json. They are matched against the
+    pitch tokens of a scanned file / added diff / commit message as a whole (note names like C4 Bb3 C#5, and bare
+    MIDI numbers 21..108, in order, anything else in between ignored), exact pitch. The report only says
+    "humming note sequence (k of n runs)" (once per file / diff / message). T15: the runs are also compared by their
+    interval sequence (differences between consecutive pitches), so a transposed or octave-shifted copy of a run is
+    found as well ("... transposed form"); interval windows with fewer than 3 distinct intervals are not used.
 Chord runs that are a window of a generic loop (GENERIC_LOOPS, e.g. I-vi-IV-V of the T0 test signal) in any key are
 allowed: they identify nothing and are used by tests.
 Matching ignores case and treats space / _ / - / . as the same. Anonymous names (rec, rec-01 ...) and very short
@@ -32,6 +40,7 @@ import sys
 import unicodedata
 
 CHORD_RUN = 6
+HUM_RUN = 8  # consecutive melody notes (spike 4 humming truths) that count as a note sequence
 LYRIC_GRAM = 8  # characters of lyric text (spaces / punctuation removed) that count as a fragment (non-ASCII)
 LYRIC_WORDS = 5  # consecutive ASCII words that count as a fragment
 DEFAULT_BASE = "research/audio-analysis"
@@ -172,15 +181,15 @@ def collect_all(rec_dir):
     lyric_lines = []
     if not os.path.isdir(rec_dir):
         return [], [], set()
-    for sub in ("", "inbox", "originals"):
+    for sub in ("", "inbox", "originals", "hum-inbox", "hum-originals"):
         d = os.path.join(rec_dir, sub)
         if not os.path.isdir(d):
             continue
         for fn in os.listdir(d):
-            if fn.startswith(".") or fn in ("ids.local.json", "private-terms.local.txt") \
+            if fn.startswith(".") or fn in ("ids.local.json", "hum-ids.local.json", "private-terms.local.txt") \
                     or not os.path.isfile(os.path.join(d, fn)):
                 continue
-            terms.add(fn.split(".")[0] if fn.endswith(".chords.json") else os.path.splitext(fn)[0])
+            terms.add(fn.split(".")[0] if fn.endswith((".chords.json", ".truth.json")) else os.path.splitext(fn)[0])
     chart_runs = set()
     cdir = os.path.join(rec_dir, "charts")
     if os.path.isdir(cdir):
@@ -208,10 +217,13 @@ def collect_all(rec_dir):
                     terms.add(os.path.splitext(e.get("original", ""))[0])
             except ValueError:
                 pass
-    ids_p = os.path.join(rec_dir, "ids.local.json")
-    if os.path.exists(ids_p):
-        for e in json.load(open(ids_p)).get("recordings", {}).values():
-            terms.add(os.path.splitext(e.get("original", ""))[0])
+    for ids_name in ("ids.local.json", "hum-ids.local.json"):
+        ids_p = os.path.join(rec_dir, ids_name)
+        if os.path.exists(ids_p):
+            for e in json.load(open(ids_p)).get("recordings", {}).values():
+                terms.add(os.path.splitext(e.get("original", ""))[0])
+                for of in e.get("originalFiles", []) if ids_name.startswith("hum-") else []:
+                    terms.add(os.path.splitext(of)[0])
     tp = os.path.join(rec_dir, "private-terms.local.txt")
     if os.path.exists(tp):
         terms.update(l.strip() for l in open(tp, encoding="utf-8") if l.strip())
@@ -231,9 +243,68 @@ def collect_all(rec_dir):
             if not seq or seq[-1] != c[0]:
                 seq.append(c[0])
         runs |= _runs(seq)
-    anon = r"(rec|chart)( \d+)?( [a-e]\d*)?( max)?( (block|rec|rechard))?"
+    anon = r"(rec|chart|hum)( \d+)?( [a-f]\d*)?( max)?( (block|rec|rechard))?"
     good = sorted({_norm(t) for t in terms if len(_norm(t)) >= 4 and not re.fullmatch(anon, _norm(t))})
     return good, sorted(runs), lyric_grams(lyric_lines)
+
+
+_HUM_TOKEN = re.compile(r"(?<![A-Za-z0-9#.])(?:([A-G])(#|b)?(-?\d)|(\d{2,3}))(?![A-Za-z0-9#.])")
+_HUM_PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+
+
+def hum_pitches(text):
+    """Pitch tokens of a text in order: note names (C4, C#4, Bb3 -> MIDI) and bare integers 21..108 (MIDI)."""
+    out = []
+    for m in _HUM_TOKEN.finditer(text):
+        if m.group(1):
+            out.append(12 * (int(m.group(3)) + 1) + _HUM_PC[m.group(1)] + {"#": 1, "b": -1, None: 0}[m.group(2)])
+        elif 21 <= int(m.group(4)) <= 108:
+            out.append(int(m.group(4)))
+    return out
+
+
+def _hum_runs(seq):
+    """HUM_RUN-note windows with >= 4 distinct pitches that are not a plain scale run (all steps <= 2 semitones in
+    one direction): scales identify nothing."""
+    out = set()
+    for i in range(len(seq) - HUM_RUN + 1):
+        w = seq[i:i + HUM_RUN]
+        d = [b - a for a, b in zip(w, w[1:])]
+        scale = all(0 < x <= 2 for x in d) or all(-2 <= x < 0 for x in d)
+        if len(set(w)) >= 4 and not scale:
+            out.add(tuple(w))
+    return out
+
+
+def intervals(run):
+    """Semitone differences of consecutive notes: the same for every transposition (octave shifts included)."""
+    return tuple(b - a for a, b in zip(run, run[1:]))
+
+
+def _distinctive_intervals(iv):
+    """An interval window identifies a melody only when it has some variety (a constant or two-valued pattern like
+    +7 +7 +7 or alternating +2 -2 occurs in plain data)."""
+    return len(set(iv)) >= 3
+
+
+def collect_hum(rec_dir):
+    """Note runs of the humming truths (recordings/hum-*.truth.json and the copies in <analysis>/out/rec/). Never printed."""
+    runs = set()
+    dirs = [rec_dir, os.path.join(os.path.dirname(os.path.abspath(rec_dir)), "out", "rec")]
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
+        for fn in os.listdir(d):
+            if not (fn.startswith("hum-") and fn.endswith(".truth.json")):
+                continue
+            try:
+                with open(os.path.join(d, fn), encoding="utf-8") as f:
+                    truth = json.load(f)
+            except (OSError, ValueError):
+                continue
+            notes = truth.get("notes", []) if isinstance(truth, dict) else []
+            runs |= _hum_runs([n["midi"] for n in notes if isinstance(n, dict) and isinstance(n.get("midi"), int)])
+    return sorted(runs)
 
 
 def _chord_regex(run):
@@ -321,6 +392,31 @@ class Matcher:
         for i, (r, rx) in enumerate(zip(runs, self.chord_res)):
             self.by_first.setdefault(r[0], []).append((i, rx))
         self.grams = grams
+        self.hum_runs = collect_hum(rec_dir)
+        self.n_hum = len(self.hum_runs)
+        self._hum_set = set(self.hum_runs)
+        # interval sequence -> the run indexes it belongs to (transposed / octave-shifted copies)
+        self._hum_iv = {}
+        for i, r in enumerate(self.hum_runs):
+            iv = intervals(r)
+            if _distinctive_intervals(iv):
+                self._hum_iv.setdefault(iv, set()).add(i)
+
+    def hum_hits(self, text):
+        """Humming note sequences found in a whole text (file, joined added lines, commit message)."""
+        if not self._hum_set:
+            return []
+        seq = hum_pitches(text)
+        wins = [tuple(seq[k:k + HUM_RUN]) for k in range(len(seq) - HUM_RUN + 1)]
+        found = {i for i, r in enumerate(self.hum_runs) if r in set(wins)}
+        moved = set()
+        for w in wins:
+            moved |= self._hum_iv.get(intervals(w), set())
+        moved -= found
+        allf = found | moved
+        if not allf:
+            return []
+        return [f"humming note sequence ({len(allf)} of {self.n_hum} runs" + (", transposed form" if moved else "") + ")"]
 
     def name_hits(self, text):
         n = _norm(text)
@@ -357,8 +453,10 @@ def check(root, rec_dir, check_log=True, base=DEFAULT_BASE, history=False, match
             continue
         if b"\0" in raw[:8192]:
             continue
-        for ln, line in enumerate(raw.decode("utf-8", "replace").splitlines(), 1):
+        text = raw.decode("utf-8", "replace")
+        for ln, line in enumerate(text.splitlines(), 1):
             bad += [f"{rel}:{ln}: {h}" for h in m.line_hits(line)]
+        bad += [f"{rel}: {h}" for h in m.hum_hits(text)]
     if check_log and is_git:
         for msg in commit_messages(root, base):
             sha, _, body = msg.partition("\0")
@@ -366,6 +464,7 @@ def check(root, rec_dir, check_log=True, base=DEFAULT_BASE, history=False, match
             for line in body.splitlines():
                 hits += m.line_hits(line)
             hits += [h for h in m.line_hits(" ".join(body.split())) if h.startswith("private term")]
+            hits += m.hum_hits(body)
             for h in dict.fromkeys(hits):
                 bad.append(f"commit {sha.strip()[:8]}: {h}")
     if history and is_git:
@@ -375,6 +474,16 @@ def check(root, rec_dir, check_log=True, base=DEFAULT_BASE, history=False, match
         else:
             rec_rel = os.path.relpath(rec_abs, _git(root, "rev-parse", "--show-toplevel").strip())
             seen = set()
+            added = {}
+            for sha, path, line in lines:
+                added.setdefault((sha, path), []).append(line)
+            for (sha, path), ls in added.items():
+                if not path.startswith(rec_rel + "/"):
+                    for h in m.hum_hits("\n".join(ls)):
+                        key = (sha, path, h)
+                        if key not in seen:
+                            seen.add(key)
+                            bad.append(f"history {sha[:8]} {path}: {h}")
             for sha, path, line in lines:
                 if path.startswith(rec_rel + "/"):
                     key = (sha, path, "tracked")
@@ -415,7 +524,7 @@ def main(argv=None):
         for b in bad:
             print("  " + b)
         return 1
-    print(f"privacy check OK ({m.n_terms} terms, {m.n_runs} chord runs, {m.n_grams} lyric fragments checked"
+    print(f"privacy check OK ({m.n_terms} terms, {m.n_runs} chord runs, {m.n_grams} lyric fragments, {m.n_hum} humming note runs checked"
           + (", branch history" if a.history else "") + ")")
     return 0
 
