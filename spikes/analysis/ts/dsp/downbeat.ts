@@ -2,11 +2,10 @@
  * Downbeat phase by rule (port of py/dsp/downbeat.py, default path; no learned model).
  *
  * Inputs in the default config (hash adec583eb3c6): beat-level chords with margin confidence
- * (`downbeat_chords`, dumped as downbeat_chords_{root,quality,confidence}), the per-beat bass chroma
- * (beat_bass, 12 x n), the onset envelope (onset_env) and the beat times (beat_times). For the default
- * config Python's `downbeat_chords` re-runs a beat-level *margin* chord pass over beat_chroma (the
- * first pass is posterior-confidence at 2 columns per beat); that pass is not ported (chords.ts only
- * has the posterior path), so callers pass its output in.
+ * (`downbeatChords` from chords.ts, the port of Python's `downbeat_chords`: a beat-level *margin* chord
+ * pass over beat_chroma, run by analyze.ts and passed in; the parity test feeds the dumped
+ * downbeat_chords_{root,quality,confidence}), the per-beat bass chroma (beat_bass, 12 x n), the onset
+ * envelope (onset_env) and the beat times (beat_times).
  *
  * Matches numpy where it matters: ties are decided with the same 1e-9 band, argmax-free.
  */
