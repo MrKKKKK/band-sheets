@@ -57,7 +57,9 @@
 import { DEFAULT_HUM_CONFIG, type HumConfig } from './config';
 import type { FrameF0Track, HumInfo, HumNote, PitchCandidate } from './types';
 
-/* ------------------------------------------------------------------ rule constants (not in HumConfig yet) */
+/* ------------------------------------------------------------------ rule constants
+ * REF_FRAMES, SETTLE_FRAMES, JOIN_GAP_MS, VIB_WINDOW_MS, VIB_HYST are the defaults of cfg.segment.refFrames,
+ * settleFrames, joinGapMs, vibratoWindowMs, vibratoSwingSemitones (T9); segmentFrames reads the config. */
 
 /** Frames (~0.42 s, >= 2 vibrato periods) of the running note reference (rule 3). */
 export const REF_FRAMES = 36;
@@ -223,7 +225,7 @@ export function frameLevelDb(y: ArrayLike<number>, sr: number, track: FrameF0Tra
  * on the side before it instead (too little is left after it to see the vibrato). A loudness dip there is the amplitude
  * modulation that vibrato makes through the vowel's formants, not a new note (rule 5).
  */
-export function vibratoAround(s: ArrayLike<number>, m: number, lo: number, hi: number, w: number): boolean {
+export function vibratoAround(s: ArrayLike<number>, m: number, lo: number, hi: number, w: number, hyst: number = VIB_HYST): boolean {
   // After the dip; when the note ends before the window does, the window before the dip instead.
   const after = hi - m > w;
   const a = after ? m : Math.max(lo, m - w);
@@ -237,11 +239,11 @@ export function vibratoAround(s: ArrayLike<number>, m: number, lo: number, hi: n
     const x = s[i];
     hiX = Math.max(hiX, x);
     loX = Math.min(loX, x);
-    if (dir <= 0 && x - loX >= VIB_HYST) {
+    if (dir <= 0 && x - loX >= hyst) {
       swings++;
       dir = 1;
       hiX = x;
-    } else if (dir >= 0 && hiX - x >= VIB_HYST) {
+    } else if (dir >= 0 && hiX - x >= hyst) {
       swings++;
       dir = -1;
       loX = x;
@@ -293,6 +295,8 @@ export interface PitchSplitParams {
   minMoveFrames: number;
   refFrames: number;
   maxBackFrames: number;
+  /** Consecutive stable frames before a reference exists (default SETTLE_FRAMES). */
+  settleFrames?: number;
 }
 
 /**
@@ -310,6 +314,7 @@ export function pitchSplits(s: ArrayLike<number>, stable: ArrayLike<boolean>, a:
   let k = -1;
   let sign = 0;
   let ref = NaN;
+  const settle = P.settleFrames ?? SETTLE_FRAMES;
   const refOf = (lo: number, hi: number): number => {
     const w: number[] = [];
     for (let j = hi - 1; j >= lo && w.length < P.refFrames; j--) w.push(s[j]);
@@ -317,9 +322,9 @@ export function pitchSplits(s: ArrayLike<number>, stable: ArrayLike<boolean>, a:
   };
   for (let i = a; i < b; i++) {
     if (refStart < 0) {
-      let ok = i - SETTLE_FRAMES + 1 >= from;
-      for (let j = i - SETTLE_FRAMES + 1; ok && j <= i; j++) ok = stable[j];
-      if (ok) refStart = i - SETTLE_FRAMES + 1;
+      let ok = i - settle + 1 >= from;
+      for (let j = i - settle + 1; ok && j <= i; j++) ok = stable[j];
+      if (ok) refStart = i - settle + 1;
       continue;
     }
     if (k < 0) ref = refOf(refStart, i);
@@ -380,7 +385,7 @@ export function segmentFrames(track: FrameF0Track, levelDb: ArrayLike<number>, i
   let octaveGlitchFrames = 0;
   if (cfg.pitch.octaveFix) for (const [a, b] of runs0) octaveGlitchFrames += fixOctaveGlitches(p, a, b);
   const L = Float64Array.from(levelDb);
-  const runs = joinDropouts(runs0, p, L, Math.round(JOIN_GAP_MS / 1000 / hop), sc.dipDb / 2);
+  const runs = joinDropouts(runs0, p, L, Math.round(sc.joinGapMs / 1000 / hop), sc.dipDb / 2);
   const s = new Float64Array(n).fill(NaN);
   for (const [a, b] of runs) medianSmooth(p, a, b, sc.medianFrames, s);
   const stable = new Array<boolean>(n).fill(false);
@@ -397,12 +402,13 @@ export function segmentFrames(track: FrameF0Track, levelDb: ArrayLike<number>, i
   const P: PitchSplitParams = {
     moveSemitones: sc.moveSemitones,
     minMoveFrames: Math.max(1, Math.round(sc.minMoveMs / 1000 / hop)),
-    refFrames: REF_FRAMES,
+    refFrames: sc.refFrames,
     maxBackFrames: Math.round(MAX_BACK_MS / 1000 / hop),
+    settleFrames: sc.settleFrames,
   };
   const snapF = Math.round(SNAP_MS / 1000 / hop);
   const dipW = Math.round(DIP_WINDOW_MS / 1000 / hop);
-  const vibW = Math.round(VIB_WINDOW_MS / 1000 / hop);
+  const vibW = Math.round(sc.vibratoWindowMs / 1000 / hop);
 
   let segs: Segment[] = [];
   for (const [a, b] of runs) {
@@ -437,7 +443,7 @@ export function segmentFrames(track: FrameF0Track, levelDb: ArrayLike<number>, i
         for (let m = Math.ceil(sa + minF); m <= Math.floor(sb - minF); m++) {
           if (!(L[m] <= L[m - 1] && L[m] < L[m + 1])) continue;
           const depth = dipDepth(L, m, sa, sb, dipW);
-          if (depth >= sc.dipDb && !vibratoAround(s, m, sa, sb, vibW)) cand.push({ m, depth });
+          if (depth >= sc.dipDb && !vibratoAround(s, m, sa, sb, vibW, sc.vibratoSwingSemitones)) cand.push({ m, depth });
         }
         cand.sort((x, y) => y.depth - x.depth);
         for (const c of cand) if ([sa, sb, ...dips].every((d) => Math.abs(d - c.m) >= minF)) dips.push(c.m);

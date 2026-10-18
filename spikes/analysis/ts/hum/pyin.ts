@@ -56,13 +56,14 @@ function logGamma(z: number): number {
 }
 
 /** Prior mass per threshold (ascending thresholds): Beta mass between the midpoints; sums to 1. */
-export function pyinWeights(thresholds: readonly number[]): number[] {
+export function pyinWeights(thresholds: readonly number[], beta: readonly number[] = [PYIN_BETA_A, PYIN_BETA_B]): number[] {
+  if (beta.length !== 2 || !(beta[0] >= 1) || !(beta[1] >= 1)) throw new Error('pyinBeta must be [a, b] with a, b >= 1');
   for (let i = 1; i < thresholds.length; i++) if (!(thresholds[i] > thresholds[i - 1])) throw new Error('pyinThresholds must be ascending');
   const edges = [0];
   for (let i = 1; i < thresholds.length; i++) edges.push((thresholds[i - 1] + thresholds[i]) / 2);
   edges.push(1);
   const out: number[] = [];
-  for (let i = 0; i < thresholds.length; i++) out.push(betaCdf(edges[i + 1]) - betaCdf(edges[i]));
+  for (let i = 0; i < thresholds.length; i++) out.push(betaCdf(edges[i + 1], beta[0], beta[1]) - betaCdf(edges[i], beta[0], beta[1]));
   return out;
 }
 

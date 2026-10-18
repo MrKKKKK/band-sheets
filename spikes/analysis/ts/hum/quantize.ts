@@ -54,7 +54,7 @@ export interface QuantizeInputNote {
   candidates?: PitchCandidate[];
 }
 
-/** Rule constants not (yet) in HumConfig.grid (proposed additions; see the T6 report). */
+/** Rule constants; cfg.grid carries the same keys since T9 (gridOptions), `options` overrides them. */
 export interface QuantizeOptions {
   /** Free end: move to a later strong grid point (beat or stronger, stronger than the nearest point) when it is at
    *  most endExtendFraction * sung duration after the sung end (rule 5; 0 = off). */
@@ -81,6 +81,17 @@ export const DEFAULT_QUANTIZE_OPTIONS: Readonly<QuantizeOptions> = Object.freeze
   padLastBar: true,
   tripletMargin: 0.5,
 });
+
+/** The QuantizeOptions a grid config carries (cfg.grid, T9); keys a hand-made grid object leaves out keep the defaults. */
+export function gridOptions(grid: Partial<GridConfig>): Partial<QuantizeOptions> {
+  const out: Partial<QuantizeOptions> = {};
+  for (const k of Object.keys(DEFAULT_QUANTIZE_OPTIONS) as (keyof QuantizeOptions)[]) {
+    const v = (grid as Record<string, unknown>)[k];
+    if (v !== undefined) (out as Record<string, unknown>)[k] = v;
+  }
+  if (out.biasMethod !== undefined && out.biasMethod !== 'local' && out.biasMethod !== 'trunc') throw new RangeError(`bad grid.biasMethod: ${String(out.biasMethod)}`);
+  return out;
+}
 
 /** A quantized event that may be an 8th-triplet slot (triplet switch only). `ticks` is then the written 8. */
 export type TupletTag = { tuplet?: { n: 3; slot: number } };
@@ -204,7 +215,7 @@ export function quantizeDetailed(
   grid: GridConfig = DEFAULT_HUM_CONFIG.grid,
   options: Partial<QuantizeOptions> = {},
 ): QuantizeReport {
-  const opt: QuantizeOptions = { ...DEFAULT_QUANTIZE_OPTIONS, ...options };
+  const opt: QuantizeOptions = { ...DEFAULT_QUANTIZE_OPTIONS, ...gridOptions(grid), ...options };
   const g = beatGrid(info, grid);
   const step = g.stepTicks;
   const warnings: string[] = [];

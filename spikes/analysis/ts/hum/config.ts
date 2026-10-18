@@ -28,6 +28,12 @@ export interface HumConfig {
     maxJumpSemitones: number;
     voicedToUnvoiced: number;
     unvoicedToVoiced: number;
+    /** Sub-octave check (f0.ts octaveCheck): move the pick to the dip near 2 tau when its d' <= ratio * d'(tau) ... */
+    octaveCheckRatio: number;
+    /** ... and d'(tau) - d'(2 tau) >= this (0 ratio = off). */
+    octaveCheckMinD: number;
+    /** pYIN threshold prior Beta(a, b) (pyin.ts pyinWeights; paper default [2, 18], mean 0.1). */
+    pyinBeta: number[];
   };
   voicing: {
     /** Frames at least this far (dB) above the recording's noise floor count as voiced. */
@@ -56,6 +62,15 @@ export interface HumConfig {
     dipDb: number;
     /** Notes via the Tony-style note HMM (switch, default off). */
     noteHmm: boolean;
+    /** Frames of the running note reference of the pitch split (notes.ts rule 3; 36 = ~0.42 s at hop 256). */
+    refFrames: number;
+    /** Consecutive stable frames before a note has a reference pitch (rule 3). */
+    settleFrames: number;
+    /** Unvoiced gaps up to this long without a level dip are f0 dropouts and joined (rule 1b), ms. */
+    joinGapMs: number;
+    /** Vibrato guard after a dip (rule 5): window (ms) and swing size (semitones). */
+    vibratoWindowMs: number;
+    vibratoSwingSemitones: number;
   };
   pitch: {
     /** Fraction of the note trimmed at both ends before taking the median. */
@@ -83,6 +98,14 @@ export interface HumConfig {
     onsetBias: boolean;
     /** Gaps shorter than this many 8ths between notes become legato (note extended), longer become rests. */
     legatoGapEighths: number;
+    /** quantize.ts QuantizeOptions (rules 2, 5, 6, 7, 9); see there. */
+    endExtendFraction: number;
+    minNoteSteps: number;
+    maxBiasSec: number;
+    minBiasNotes: number;
+    padLastBar: boolean;
+    tripletMargin: number;
+    biasMethod: 'local' | 'trunc';
   };
 }
 
@@ -103,6 +126,9 @@ export const DEFAULT_HUM_CONFIG: HumConfig = deepFreeze({
     maxJumpSemitones: 2.0,
     voicedToUnvoiced: 0.05,
     unvoicedToVoiced: 0.05,
+    octaveCheckRatio: 0.35,
+    octaveCheckMinD: 0.02,
+    pyinBeta: [2, 18],
   },
   voicing: { noiseMarginDb: 10.0, noisePercentile: 0.1, minVoicedProb: 0.5, bridgeGapMs: 30 },
   segment: {
@@ -114,6 +140,11 @@ export const DEFAULT_HUM_CONFIG: HumConfig = deepFreeze({
     splitOnDips: true,
     dipDb: 6.0,
     noteHmm: false,
+    refFrames: 36,
+    settleFrames: 3,
+    joinGapMs: 80,
+    vibratoWindowMs: 200,
+    vibratoSwingSemitones: 0.15,
   },
   pitch: {
     trimFraction: 0.25,
@@ -124,7 +155,20 @@ export const DEFAULT_HUM_CONFIG: HumConfig = deepFreeze({
     octaveFixMaxSixteenths: 4,
     keyPrior: false,
   },
-  grid: { subdivision: 16, triplet: false, candidatesMax: 2, onsetBias: true, legatoGapEighths: 0.5 },
+  grid: {
+    subdivision: 16,
+    triplet: false,
+    candidatesMax: 2,
+    onsetBias: true,
+    legatoGapEighths: 0.5,
+    endExtendFraction: 0.3,
+    minNoteSteps: 1,
+    maxBiasSec: 0.08,
+    minBiasNotes: 4,
+    padLastBar: true,
+    tripletMargin: 0.5,
+    biasMethod: 'local',
+  },
 });
 
 function deepFreeze<T>(o: T): T {

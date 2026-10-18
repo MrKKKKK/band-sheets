@@ -324,7 +324,12 @@ export interface OctaveCheck {
   minD: number;
 }
 export const NO_OCTAVE_CHECK: OctaveCheck = { ratio: 0, minD: 0 };
-export const DEFAULT_OCTAVE_CHECK: OctaveCheck = { ratio: 0.35, minD: 0.02 };
+/** The octave check of a config (cfg.f0.octaveCheckRatio / octaveCheckMinD; ratio 0 = off). */
+export function octaveCheckOf(cfg: HumConfig = DEFAULT_HUM_CONFIG): OctaveCheck {
+  return { ratio: cfg.f0.octaveCheckRatio, minD: cfg.f0.octaveCheckMinD };
+}
+/** The default config's octave check (0.35, 0.02). */
+export const DEFAULT_OCTAVE_CHECK: OctaveCheck = octaveCheckOf(DEFAULT_HUM_CONFIG);
 
 export function octaveCheck(
   dp: ArrayLike<number>,
@@ -439,7 +444,7 @@ const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
  * Frame f0 track of `y` (mono, sample rate `sr`). YIN by default, pYIN-style when cfg.f0.pyin.
  * Number of frames: floor(len / hop) + 1 at the analysis rate.
  */
-export function estimateF0(y: Float32Array, sr: number, cfg: HumConfig = DEFAULT_HUM_CONFIG, oc: OctaveCheck = DEFAULT_OCTAVE_CHECK): F0Result {
+export function estimateF0(y: Float32Array, sr: number, cfg: HumConfig = DEFAULT_HUM_CONFIG, oc: OctaveCheck = octaveCheckOf(cfg)): F0Result {
   const t0 = performance.now();
   const x = toAnalysisRate(y, sr, cfg);
   const g = yinGeometry(cfg);
@@ -454,7 +459,7 @@ export function estimateF0(y: Float32Array, sr: number, cfg: HumConfig = DEFAULT
   const frames: PyinFrame[] = [];
   const refine = (tau: number) => an.refineLag(tau);
   const depth = (tau: number) => an.refinedDepth(tau);
-  const weights = pyin ? pyinWeights(cfg.f0.pyinThresholds) : [];
+  const weights = pyin ? pyinWeights(cfg.f0.pyinThresholds, cfg.f0.pyinBeta) : [];
   for (let i = 0; i < n; i++) {
     const ms = an.analyze(x, i * g.hop);
     const db = ms > 0 ? 10 * Math.log10(ms) : SILENCE_DB;
