@@ -1,0 +1,153 @@
+/**
+ * Spike 4 T0: result types of the humming analyzer (docs/audio-spike4-plan.md section 2 "result", design decision 3).
+ *
+ * The JSON is an `AnalysisResult` (render/types.ts) whose `melody` is widened with OPTIONAL fields only, so
+ * existing readers (py/score.py melody) are unaffected:
+ *   melody.notes[]      seconds-domain notes {start, end, midi, confidence} + cents + candidates   (AnalysisNote)
+ *   melody.quantized    the notes on the 16th grid (QuantizedMelody below), ticks as in src/lib/melody.ts
+ *   hum                 HumExtras: analyzer meta (config hash, timings, warnings), optional frame f0 track
+ *
+ * Units: seconds are from the start of the audio file (the analyzer input), ticks follow src/lib/melody.ts
+ * (whole note = 64, a 16th = 4 ticks), `midi` is the MIDI number (C4 = 60), `cents` is relative to `midi`.
+ * Nothing here holds ground truth: analyze() only gets the audio + HumInfo (what the user knows).
+ */
+import type { AnalysisNote, AnalysisResult } from '../../render/types';
+
+export type { AnalysisNote, AnalysisResult };
+
+/** Ticks per whole note in the melody model (src/lib/melody.ts WHOLE_TICKS). A 16th is 4 ticks. */
+export const WHOLE_TICKS = 64;
+export const TICKS_PER_16TH = WHOLE_TICKS / 16;
+
+/** What the user tells the analyzer (never read from ground truth). Plan design decision 4. */
+export interface HumInfo {
+  bpm: number;
+  /** Time signature [numerator, denominator], e.g. [4, 4]. */
+  ts: [number, number];
+  /** Second (in the audio) at which bar 1 beat 1 starts, i.e. after the count-in. */
+  startSec: number;
+  /** Optional key hint, e.g. 'C' or 'Am'; only reorders candidates near a semitone boundary (decision 6). */
+  key?: string;
+}
+
+/** One alternative pitch reading of a note. `confidence` in 0..1, derived from the gap between the best and second best. */
+export interface PitchCandidate {
+  midi: number;
+  confidence: number;
+  /** Set when this candidate comes from the octave-fix rule (the original reading before the fix). */
+  octaveFixed?: boolean;
+}
+
+/** A seconds-domain note: AnalysisNote with its optional spike-4 fields filled in. */
+export interface HumNote extends AnalysisNote {
+  /** Start/end in seconds (as AnalysisNote). */
+  start: number;
+  end: number;
+  /** Nearest semitone after tuning removal. */
+  midi: number;
+  /** Median pitch of the stable part relative to `midi`, in cents, after removing the recording-wide tuning offset. */
+  cents: number;
+  /** 0..1. */
+  confidence: number;
+  /** Pitch alternatives, best first, at most `pitch.candidatesMax` (3), excluding the chosen `midi`. */
+  candidates: PitchCandidate[];
+}
+
+/** A grid alternative for a quantized note (second nearest grid position). */
+export interface QuantCandidate {
+  startTick: number;
+  ticks: number;
+  confidence: number;
+}
+
+/**
+ * A note on the grid. Ticks are counted from the start of bar 1 (startSec), so `startTick` may be negative
+ * only for a note that begins before bar 1 (clamped to 0 by default). `ticks` is positive and even; a note
+ * crossing a bar line stays ONE note here (ties are the converter's job).
+ */
+export interface QuantizedNote {
+  kind: 'note';
+  startTick: number;
+  ticks: number;
+  midi: number;
+  /** Index of the source note in `melody.notes`. */
+  src: number;
+  /** Pitch candidates (same as HumNote.candidates). */
+  candidates: PitchCandidate[];
+  /** Grid alternatives, best first, at most `grid.candidatesMax` (2). */
+  gridCandidates: QuantCandidate[];
+  confidence: number;
+}
+
+export interface QuantizedRest {
+  kind: 'rest';
+  startTick: number;
+  ticks: number;
+}
+
+export type QuantizedEvent = QuantizedNote | QuantizedRest;
+
+export interface QuantizedMelody {
+  bpm: number;
+  ts: [number, number];
+  startSec: number;
+  /** Median onset offset (sec, positive = sang late) removed before rounding (design: bias correction). */
+  onsetBiasSec: number;
+  /** 'sixteenth' (default) or 'triplet' (switch, measured on synthetic only). */
+  grid: 'sixteenth' | 'triplet';
+  /** Consecutive from tick 0: notes and rests, no gaps or overlaps. */
+  events: QuantizedEvent[];
+}
+
+/** Per-frame f0 track (optional output, for charts and f0 scoring). All arrays have the same length. */
+export interface FrameF0Track {
+  /** Time of frame 0 and frame spacing in seconds. */
+  t0: number;
+  hopSec: number;
+  /** Hz, 0 where unvoiced. */
+  hz: number[];
+  /** Voicing probability 0..1. */
+  voiced: number[];
+}
+
+export interface HumTimings {
+  /** Milliseconds per stage; keys are free-form but stable (e.g. 'decode', 'f0', 'segment', 'quantize'). */
+  stagesMs: Record<string, number>;
+  totalMs: number;
+  /** Length of the analyzed audio in seconds. */
+  audioSec: number;
+}
+
+/** Analyzer meta, goes into the result JSON as `hum`. */
+export interface HumMeta {
+  /** configHash() of the config used (ts/hum/config.ts). */
+  configHash: string;
+  /** Config name, e.g. 'hum-v0'. */
+  configName: string;
+  /** Git commit of the analyzer, when known (the CLI fills it in). */
+  commit?: string;
+  timings: HumTimings;
+  /** Human-readable, e.g. 'noise floor could not be estimated', 'no voiced frames'. Never contains note sequences. */
+  warnings: string[];
+  /** Recording-wide tuning offset removed from all pitches, in cents. */
+  tuningCents: number;
+  /** The info the analyzer was given (echoed for reproducibility). */
+  info: HumInfo;
+}
+
+/** The `hum` field of the result JSON. */
+export interface HumExtras {
+  meta: HumMeta;
+  /** Present only when requested (output.f0Track). */
+  f0?: FrameF0Track;
+}
+
+/**
+ * Humming analysis result: an AnalysisResult with `melody.notes` (HumNote[]), `melody.quantized` and `hum`.
+ * `analyzer.name` is 'hum-ts'. Remains a valid AnalysisResult.
+ */
+export type HumAnalysisResult = Omit<AnalysisResult, 'melody' | 'analyzer'> & {
+  analyzer: { name: string; version: string; methods: string[] };
+  melody: { notes: HumNote[]; quantized: QuantizedMelody };
+  hum: HumExtras;
+};
