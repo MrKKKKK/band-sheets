@@ -1,0 +1,2 @@
+# raw float32 parity fixtures: keep out of text diffs (privacy_check --history, git log -p)
+*.f32 binary
