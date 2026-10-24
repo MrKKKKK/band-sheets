@@ -4,6 +4,9 @@ import {
   createMemoryStorage,
   draftKey,
   loadEditorMode,
+  loadNoteNameMode,
+  NOTE_NAMES_KEY,
+  saveNoteNameMode,
   saveEditorMode,
   loadViewerSettings,
   saveViewerSettings,
@@ -39,6 +42,26 @@ describe('draftKey', () => {
   it('namespaces drafts per song id', () => {
     expect(draftKey('local')).toBe('band-sheets:draft:local');
     expect(draftKey('abc')).toBe('band-sheets:draft:abc');
+  });
+});
+
+describe('loadNoteNameMode / saveNoteNameMode', () => {
+  it('defaults to ドレミ, also when storage is missing, throws or holds junk', () => {
+    expect(loadNoteNameMode(createMemoryStorage())).toBe('doremi');
+    expect(loadNoteNameMode(null)).toBe('doremi');
+    expect(loadNoteNameMode(throwing)).toBe('doremi');
+    expect(
+      loadNoteNameMode(createMemoryStorage({ [NOTE_NAMES_KEY]: 'x' })),
+    ).toBe('doremi');
+    expect(saveNoteNameMode(throwing, 'none')).toBe(false);
+  });
+
+  it('remembers the choice', () => {
+    const storage = createMemoryStorage();
+    expect(saveNoteNameMode(storage, 'letter')).toBe(true);
+    expect(loadNoteNameMode(storage)).toBe('letter');
+    saveNoteNameMode(storage, 'none');
+    expect(loadNoteNameMode(storage)).toBe('none');
   });
 });
 

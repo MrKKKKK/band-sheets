@@ -39,6 +39,11 @@ export interface HumRequest {
   info: HumInput;
   /** Include the frame f0 track (`hum.f0`) in the result, e.g. for drawing it next to the notes. */
   f0Track?: boolean;
+  /**
+   * The user knows only where the first sung note is in the bars (`info.firstNoteTick`, S2), not its second: the
+   * Worker takes the start of the first detected note as `firstNoteSec` (pass `firstNoteSec: 0` as a placeholder).
+   */
+  firstNoteAuto?: boolean;
 }
 
 export type AnalysisRequest = ChordsRequest | HumRequest;

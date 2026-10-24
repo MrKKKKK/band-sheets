@@ -15,17 +15,25 @@ import { parseSong } from '../../lib/parseSong';
 import { serializeSong } from '../../lib/serializeSong';
 import type { Song } from '../../lib/song';
 import { layoutMelody } from '../../lib/staffLayout';
-import { MelodyEditor } from './MelodyEditor';
+import { MelodyEditor, type MelodyEditorProps } from './MelodyEditor';
 
 type HarnessProps = {
   initialText: string;
   onChange: (song: Song) => void;
   /** Shows a button that sets `{time: …}` to this (like 曲情報 would). */
   setTimeTo?: string;
+  onHumImport?: MelodyEditorProps['onHumImport'];
+  showSection?: MelodyEditorProps['showSection'];
 };
 
 /** Holds a Song like App does (song → serializeSong → text → parseSong). */
-function Harness({ initialText, onChange, setTimeTo }: HarnessProps) {
+function Harness({
+  initialText,
+  onChange,
+  setTimeTo,
+  onHumImport,
+  showSection,
+}: HarnessProps) {
   const [text, setText] = useState(initialText);
   const song = parseSong(text);
   return (
@@ -46,6 +54,8 @@ function Harness({ initialText, onChange, setTimeTo }: HarnessProps) {
           onChange(next);
           setText(serializeSong(next));
         }}
+        onHumImport={onHumImport}
+        showSection={showSection}
       />
       <pre data-testid="song-text">{text}</pre>
     </div>
@@ -883,6 +893,62 @@ export const ChordKeyNeedsANote: Story = {
     await userEvent.keyboard('{Shift>}C{/Shift}');
     expect(within(canvasElement).getByTestId('editor-error')).toHaveTextContent(
       'コードを付ける音符を選んでください',
+    );
+  },
+};
+
+/** 「鼻歌から下書き」 (PC): hands over the section, part and effective time signature / key. */
+export const HumEntry: Story = {
+  args: { initialText: sampleSongText, onHumImport: fn() },
+  play: async ({ canvasElement, args }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByRole('button', { name: '鼻歌から下書き' }));
+    expect(args.onHumImport).toHaveBeenCalledWith({
+      label: 'A',
+      partIndex: 0,
+      ts: { num: 4, den: 4 },
+      keySig: 'C',
+    });
+  },
+};
+
+/** Without `onHumImport` (touch devices) there is no entry. */
+export const NoHumEntry: Story = {
+  args: { initialText: sampleSongText },
+  play: async ({ canvasElement }) => {
+    expect(
+      within(canvasElement).queryByRole('button', { name: '鼻歌から下書き' }),
+    ).toBeNull();
+  },
+};
+
+/** After a draft was put into a section (a new `showSection`), the editor shows that section and focuses its staff. */
+export const ShowsInsertedSection: Story = {
+  args: { initialText: sampleSongText },
+  render: function Render(args) {
+    const [show, setShow] = useState<{ label: string; seq: number } | null>(
+      null,
+    );
+    return (
+      <>
+        <button type="button" onClick={() => setShow({ label: 'B', seq: 1 })}>
+          B に入れたことにする
+        </button>
+        <Harness {...args} showSection={show} />
+      </>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.click(
+      c.getByRole('button', { name: 'B に入れたことにする' }),
+    );
+    const staff = c.getByRole('application', {
+      name: 'セクション B のメロディ',
+    });
+    await waitFor(() => expect(staff).toHaveFocus());
+    expect(c.getByTestId('staff-live')).toHaveTextContent(
+      'セクション B に鼻歌の下書きを入れました',
     );
   },
 };

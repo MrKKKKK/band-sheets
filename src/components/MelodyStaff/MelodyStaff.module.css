@@ -66,6 +66,15 @@
   fill: var(--note);
 }
 
+.marked {
+  fill: var(--warning);
+}
+
+.marked .stem,
+.marked .ledger {
+  stroke: var(--warning);
+}
+
 .selectedNote {
   fill: var(--selection);
 }

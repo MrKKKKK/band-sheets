@@ -35,6 +35,9 @@ function player(over: Partial<AudioPlayer> = {}): AudioPlayer {
     play: fn(),
     pause: fn(),
     seek: fn(),
+    now: () => 0,
+    setMuted: fn(),
+    setSyncListener: fn(),
     setBarResolver: fn(),
     ...over,
   };

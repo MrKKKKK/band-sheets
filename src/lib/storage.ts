@@ -5,6 +5,7 @@
  * saved file (Drive saving is M7).
  */
 
+import type { NoteNameMode } from './import/humImport';
 import type { BaseRecord, DraftRecord, SongIndex } from './syncTypes';
 import type { ViewerSettings } from './viewerSettings';
 
@@ -308,6 +309,26 @@ export function saveEditorMode(
   mode: EditorMode,
 ): boolean {
   return write(storage, EDITOR_MODE_KEY, mode);
+}
+
+/**
+ * Note names under the notes on the humming review screen S4 (per device; later moves to a settings file on
+ * Drive, plan §4 「D2 で決めたこと」).
+ */
+export const NOTE_NAMES_KEY = `${PREFIX}note-names`;
+
+export function loadNoteNameMode(
+  storage: KeyValueStorage | null,
+): NoteNameMode {
+  const v = read(storage, NOTE_NAMES_KEY);
+  return v === 'letter' || v === 'none' ? v : 'doremi';
+}
+
+export function saveNoteNameMode(
+  storage: KeyValueStorage | null,
+  mode: NoteNameMode,
+): boolean {
+  return write(storage, NOTE_NAMES_KEY, mode);
 }
 
 export function viewerSettingsKey(songId: string): string {
