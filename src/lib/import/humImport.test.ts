@@ -9,6 +9,7 @@ import type { HumNoteCandidates } from './humDraft';
 import {
   barBeatAt,
   beatsLabel,
+  shiftLabel,
   eventStarts,
   firstNoteAt,
   firstNoteTick,
@@ -220,6 +221,16 @@ describe('labels', () => {
     expect(beatsLabel(20, T44)).toBe('1 拍と 1/4');
     expect(beatsLabel(64, T44)).toBe('4 拍');
     expect(beatsLabel(8, T68)).toBe('1 拍');
+  });
+
+  it('shiftLabel: beats and 16ths', () => {
+    expect(shiftLabel(0, T44)).toBe('なし');
+    expect(shiftLabel(16, T44)).toBe('1 拍後');
+    expect(shiftLabel(-4, T44)).toBe('16 分 1 つ前');
+    expect(shiftLabel(8, T44)).toBe('16 分 2 つ後');
+    expect(shiftLabel(20, T44)).toBe('1 拍と 16 分 1 つ後');
+    expect(shiftLabel(-4, T68)).toBe('16 分 1 つ前');
+    expect(shiftLabel(8, T68)).toBe('1 拍後');
   });
 
   it('octaveLabel', () => {

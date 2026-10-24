@@ -73,6 +73,32 @@ export const Default: Story = {
   },
 };
 
+/** 16th-note start shift: one press = a 16th, two = a half beat; the bound disables the back buttons. */
+export const StartShift16th: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByRole('button', { name: '16 分後へ ›' }));
+    expect(c.getByTestId('hum-shift')).toHaveTextContent('16 分 1 つ後');
+    expect(c.getByTestId('hum-start')).toHaveTextContent(
+      '1 小節目の 2 拍目のすこし後',
+    );
+    await userEvent.click(c.getByRole('button', { name: '16 分後へ ›' }));
+    expect(c.getByTestId('hum-shift')).toHaveTextContent('16 分 2 つ後');
+    expect(c.getByTestId('hum-fixes')).toHaveTextContent('16 分 2 つ後');
+    await userEvent.click(c.getByRole('button', { name: '‹ 1 拍前へ' }));
+    expect(c.getByTestId('hum-shift')).toHaveTextContent('16 分 2 つ前');
+    expect(c.getByTestId('hum-start')).toHaveTextContent(
+      '1 小節目の 1 拍目のすこし後',
+    );
+    await userEvent.click(c.getByRole('button', { name: '‹ 16 分前へ' }));
+    await userEvent.click(c.getByRole('button', { name: '‹ 16 分前へ' }));
+    expect(c.getByTestId('hum-shift')).toHaveTextContent('1 拍前');
+    expect(c.getByTestId('hum-start')).toHaveTextContent('1 小節目の 1 拍目');
+    expect(c.getByRole('button', { name: '‹ 16 分前へ' })).toBeDisabled();
+    expect(c.getByRole('button', { name: '‹ 1 拍前へ' })).toBeDisabled();
+  },
+};
+
 /** Selects event 3 (the first unsure note) with the keyboard: → moves from note to note. */
 async function openNote3(canvasElement: HTMLElement) {
   const c = within(canvasElement);

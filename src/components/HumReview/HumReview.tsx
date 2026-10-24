@@ -28,6 +28,8 @@ import {
   octaveLabel,
   positionLabel,
   semitoneLabel,
+  shiftLabel,
+  SHIFT_STEP_TICKS,
   soundingAt,
   totalTicks,
   TRANSPOSE_LIMIT,
@@ -211,6 +213,7 @@ export function HumReview({
   const bars = Math.round(totalTicks(events) / barTicks(ts));
   const first = firstNoteAt(events);
   const beat = WHOLE_TICKS / ts.den;
+  const step = SHIFT_STEP_TICKS;
   const tickSec = ok ? 60 / (ok.tempo * (WHOLE_TICKS / 4)) : 0;
 
   const fixSummary = [
@@ -218,9 +221,7 @@ export function HumReview({
     fixes.transpose !== 0
       ? `${fixes.transpose > 0 ? '+' : '−'}${Math.abs(fixes.transpose)} 半音`
       : '',
-    fixes.shiftTicks !== 0
-      ? `${Math.abs(fixes.shiftTicks / beat)} 拍${fixes.shiftTicks > 0 ? '後' : '前'}`
-      : '',
+    fixes.shiftTicks !== 0 ? shiftLabel(fixes.shiftTicks, ts) : '',
     Object.keys(fixes.chosen).length > 0
       ? `候補 ${Object.keys(fixes.chosen).length} 音`
       : '',
@@ -456,37 +457,58 @@ export function HumReview({
                 role="group"
                 aria-labelledby={`${ids.fix}-sh`}
               >
-                <Button
-                  disabled={first === null || first < beat}
-                  onClick={() =>
-                    update(
-                      { shiftTicks: fixes.shiftTicks - beat },
-                      first !== null
-                        ? `歌い始め: ${positionLabel(first - beat, ts)}`
-                        : undefined,
-                    )
-                  }
-                >
-                  ‹ 1 拍前へ
-                </Button>
+                {(
+                  [
+                    [-beat, '‹ 1 拍前へ'],
+                    [-step, '‹ 16 分前へ'],
+                  ] as const
+                ).map(([d, text]) => (
+                  <Button
+                    key={text}
+                    disabled={first === null || first + d < 0}
+                    onClick={() =>
+                      update(
+                        { shiftTicks: fixes.shiftTicks + d },
+                        first !== null
+                          ? `歌い始め: ${positionLabel(first + d, ts)}`
+                          : undefined,
+                      )
+                    }
+                  >
+                    {text}
+                  </Button>
+                ))}
                 <span className={styles.fixValue} data-testid="hum-start">
                   {first !== null ? positionLabel(first, ts) : '—'}
                 </span>
-                <Button
-                  disabled={first === null}
-                  onClick={() =>
-                    update(
-                      { shiftTicks: fixes.shiftTicks + beat },
-                      first !== null
-                        ? `歌い始め: ${positionLabel(first + beat, ts)}`
-                        : undefined,
-                    )
-                  }
-                >
-                  1 拍後へ ›
-                </Button>
+                {(
+                  [
+                    [step, '16 分後へ ›'],
+                    [beat, '1 拍後へ ›'],
+                  ] as const
+                ).map(([d, text]) => (
+                  <Button
+                    key={text}
+                    disabled={first === null}
+                    onClick={() =>
+                      update(
+                        { shiftTicks: fixes.shiftTicks + d },
+                        first !== null
+                          ? `歌い始め: ${positionLabel(first + d, ts)}`
+                          : undefined,
+                      )
+                    }
+                  >
+                    {text}
+                  </Button>
+                ))}
               </span>
-              <span className={styles.note}>音が全体に早い・遅いときに。</span>
+              <span className={styles.note}>
+                音が全体に早い・遅いときに。ずらした量:{' '}
+                <span data-testid="hum-shift">
+                  {shiftLabel(fixes.shiftTicks, ts)}
+                </span>
+              </span>
             </div>
           </section>
 
@@ -620,7 +642,7 @@ export function HumReview({
               </div>
               <div>
                 <dt>全体の直し</dt>
-                <dd>
+                <dd data-testid="hum-fixes">
                   {fixSummary.length > 0 ? fixSummary.join('・') : 'なし'}
                 </dd>
               </div>
