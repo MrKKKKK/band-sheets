@@ -1,4 +1,4 @@
-// Follows librosa 0.11.0 (ISC, (c) 2013--2023 librosa development team); see ts/THIRD_PARTY.md.
+// Follows librosa 0.11.0 (ISC, (c) 2013--2023 librosa development team); see src/lib/analysis/THIRD_PARTY.md.
 // Ported: core.constantq.cqt / vqt (__early_downsample, __vqt_filter_fft, __cqt_response, __trim_stack),
 // filters.wavelet / wavelet_lengths / _relative_bandwidth, util.sparsify_rows, core.pitch.piptrack /
 // estimate_tuning / pitch_tuning.
