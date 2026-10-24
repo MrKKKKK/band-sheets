@@ -418,3 +418,144 @@ describe('meter from the analyzer', () => {
     }
   });
 });
+
+describe('tempoFactor (half / double tempo rebuilt from the beats)', () => {
+  const r = made(
+    33,
+    [
+      [0, 6, 'C'],
+      [6, 8, 'G', 0.6],
+      [8, 16, 'Am'],
+      [16, 24, 'F'],
+      [24, 32, 'C'],
+    ],
+    {
+      sections: [
+        [0, 'A'],
+        [16, 'B'],
+      ],
+    },
+  );
+  const meter = { num: 4, den: 4 };
+
+  it('halves / doubles the bar count', () => {
+    expect(barChords(r, 0)).toHaveLength(8);
+    expect(barChords(r, 0, undefined, 0.5)).toHaveLength(4);
+    expect(barChords(r, 0, undefined, 2)).toHaveLength(16);
+    expect(barChords(r, 0, undefined, 1)).toEqual(barChords(r, 0));
+  });
+
+  it('half tempo: a bar holds twice the music, every other beat is used', () => {
+    const bars = barChords(r, 0, undefined, 0.5);
+    expect(bars[0].endSec).toBe(4); // 8 original beats at 0.5 s
+    expect(bars[0].chords.map((c) => [c.chord, c.start, c.length])).toEqual([
+      ['C', 0, 12],
+      ['G?', 12, 4],
+    ]);
+  });
+
+  it('half tempo keeps the downbeat beat (parity of the downbeat)', () => {
+    const odd = made(20, [[0, 20, 'C']], { phase: 1 });
+    expect(barChords(odd, 0, undefined, 0.5)[0].startSec).toBe(0.5);
+    const even = made(20, [[0, 20, 'C']], { phase: 2 });
+    expect(barChords(even, 0, undefined, 0.5)[0].startSec).toBe(1);
+  });
+
+  it('double tempo inserts midpoints (first bar covers 2 original beats)', () => {
+    const bars = barChords(r, 0, undefined, 2);
+    expect(bars[0].endSec).toBe(1);
+    expect(bars[1].startSec).toBe(1);
+    const odd = made(20, [[0, 20, 'C']], { phase: 1 });
+    expect(barChords(odd, 0, undefined, 2)[0].startSec).toBe(0.5);
+  });
+
+  it('chosen candidates survive every factor', () => {
+    for (const f of [0.5, 1, 2] as const) {
+      const bars = barChords(r, 0, { 1: 'Am' }, f);
+      const g = bars.flatMap((b) => b.chords).filter((c) => c.id === 1);
+      expect(g.length).toBeGreaterThan(0);
+      for (const c of g) {
+        expect(c.chord).toBe('Am');
+        expect(c.lowConfidence).toBe(false);
+      }
+    }
+  });
+
+  it('tempo follows the factor', () => {
+    expect(draftTempo(r, 0.5)).toBe(60);
+    expect(draftTempo(r, 2)).toBe(240);
+    expect(
+      chordDraftSong(r, { title: 't', downbeatShift: 0, tempoFactor: 0.5 })
+        .tempo,
+    ).toBe(60);
+    expect(
+      chordDraftSong(r, {
+        title: 't',
+        downbeatShift: 0,
+        tempo: 90,
+        tempoFactor: 2,
+      }).tempo,
+    ).toBe(90);
+  });
+
+  it.each([0.5, 1, 2] as const)(
+    'factor %s: valid dash lines, bar counts match, round trip',
+    (f) => {
+      const { song, bars } = chordDraftSong(r, {
+        title: 't',
+        downbeatShift: 0,
+        tempoFactor: f,
+        chosen: { 1: 'Am' },
+      });
+      expect(bars).toHaveLength(8 * f);
+      let total = 0;
+      for (const s of song.chart)
+        for (const l of s.lines) {
+          expect(isRawLine(l)).toBe(false);
+          if (isRawLine(l)) continue;
+          expect(isDashLine(l)).toBe(true);
+          expect(validateDashLine(l, meter)).toEqual([]);
+          total += lineBarCount(l);
+        }
+      expect(total).toBe(bars.length);
+      const text = serializeSong(song);
+      expect(serializeSong(parseSong(text))).toBe(text);
+    },
+  );
+});
+
+describe('key option (respelling)', () => {
+  const r = made(9, [
+    [0, 4, 'G#'],
+    [4, 8, 'C#m', 0.5],
+  ]);
+
+  it('sets {key:} and respells the chords (and the returned bars)', () => {
+    const { song, bars } = chordDraftSong(r, {
+      title: 't',
+      downbeatShift: 0,
+      key: 'Ab',
+    });
+    expect(song.meta.key).toBe('Ab');
+    expect(lines(song)).toEqual(['|[Ab]--------|[Dbm?]--------|']);
+    expect(bars.flatMap((b) => b.chords.map((c) => c.chord))).toEqual([
+      'Ab',
+      'Dbm?',
+    ]);
+  });
+
+  it('leaves everything as is without the option', () => {
+    const { song } = chordDraftSong(r, { title: 't', downbeatShift: 0 });
+    expect(lines(song)).toEqual(['|[G#]--------|[C#m?]--------|']);
+  });
+
+  it('respells chosen candidates too', () => {
+    const { song } = chordDraftSong(r, {
+      title: 't',
+      downbeatShift: 0,
+      key: 'Ab',
+      chosen: { 1: 'C#m7/G#' },
+    });
+    expect(lines(song)[0]).toContain('[Dbm7/Ab]');
+  });
+});

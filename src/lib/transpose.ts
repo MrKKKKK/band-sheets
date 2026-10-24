@@ -136,6 +136,29 @@ export function transposeChord(
   targetKey: string | undefined,
 ): string {
   if (semitones === 0) return text;
+  return shiftChord(text, semitones, targetKey);
+}
+
+/**
+ * The same chord respelled for `targetKey` (a transposition by 0 semitones
+ * into that key): a flat key → flats, a sharp key → sharps, C / Am / no key →
+ * the chord's own accidental style. Quality verbatim; a trailing `?` (draft
+ * mark) is kept; non-chord text (`N.C.`) is returned unchanged.
+ */
+export function respellChord(
+  text: string,
+  targetKey: string | undefined,
+): string {
+  const mark = text.endsWith('?') ? '?' : '';
+  const body = mark ? text.slice(0, -1) : text;
+  return shiftChord(body, 0, targetKey) + mark;
+}
+
+function shiftChord(
+  text: string,
+  semitones: number,
+  targetKey: string | undefined,
+): string {
   const m = CHORD.exec(text);
   if (!m) return text;
   const [, root, quality, bass] = m;

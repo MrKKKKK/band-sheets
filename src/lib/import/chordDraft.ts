@@ -6,6 +6,7 @@ import {
 } from '../dashChart';
 import { parseChordLine } from '../parseSong';
 import { TEMPO_MAX, TEMPO_MIN } from '../meta';
+import { respellChord } from '../transpose';
 import type { ChartSection, Song } from '../song';
 
 /**
@@ -76,6 +77,13 @@ export interface DraftBar {
   chords: DraftBarChord[];
 }
 
+/**
+ * Tempo candidate chosen on the review screen: 0.5 = half tempo (every other
+ * beat is a beat, bars hold twice the music), 2 = double tempo (a beat is
+ * inserted between every two beats). 1 = the analyzer's own beats.
+ */
+export type TempoFactor = 0.5 | 1 | 2;
+
 export interface BeatGrid {
   /** Beat time (extrapolated by the median interval past the last beat). */
   time: (i: number) => number;
@@ -94,8 +102,43 @@ function median(xs: number[]): number {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
-export function medianBeatInterval(result: TsAnalysisResult): number {
+/**
+ * Beat times and the index of the first downbeat after the tempo factor.
+ * Half tempo keeps the beats with the downbeat's parity (so the downbeat stays
+ * a beat); double tempo adds a midpoint after every beat but the last.
+ */
+function tempoBeats(
+  result: TsAnalysisResult,
+  factor: TempoFactor,
+): { t: number[]; phase: number } {
   const t = result.beats.map((b) => b.t);
+  const phase = Math.max(
+    0,
+    result.beats.findIndex((b) => b.downbeat),
+  );
+  if (factor === 0.5) {
+    const parity = phase % 2;
+    return {
+      t: t.filter((_, i) => i % 2 === parity),
+      phase: (phase - parity) / 2,
+    };
+  }
+  if (factor === 2) {
+    return {
+      t: t.flatMap((x, i) =>
+        i < t.length - 1 ? [x, (x + t[i + 1]) / 2] : [x],
+      ),
+      phase: phase * 2,
+    };
+  }
+  return { t, phase };
+}
+
+export function medianBeatInterval(
+  result: TsAnalysisResult,
+  tempoFactor: TempoFactor = 1,
+): number {
+  const { t } = tempoBeats(result, tempoFactor);
   return median(t.slice(1).map((x, i) => x - t[i]));
 }
 
@@ -103,22 +146,17 @@ export function medianBeatInterval(result: TsAnalysisResult): number {
 export function beatGrid(
   result: TsAnalysisResult,
   downbeatShift: number,
+  tempoFactor: TempoFactor = 1,
 ): BeatGrid {
-  const beats = result.beats;
+  const { t: beats, phase } = tempoBeats(result, tempoFactor);
   const count = beats.length;
-  const interval = medianBeatInterval(result);
-  const phase = Math.max(
-    0,
-    beats.findIndex((b) => b.downbeat),
-  );
+  const interval = median(beats.slice(1).map((x, i) => x - beats[i]));
   const bpb = draftBeatsPerBar(result);
   let first = phase + Math.round(downbeatShift);
   // A shift to before the first beat: the first whole bar starts one bar later.
   while (first < 0) first += bpb;
   const time = (i: number): number =>
-    i < count
-      ? beats[i].t
-      : (beats[count - 1]?.t ?? 0) + (i - count + 1) * interval;
+    i < count ? beats[i] : (beats[count - 1] ?? 0) + (i - count + 1) * interval;
   return { time, count, interval, firstBeat: first };
 }
 
@@ -126,8 +164,9 @@ export function beatGrid(
 export function droppedSeconds(
   result: TsAnalysisResult,
   downbeatShift: number,
+  tempoFactor: TempoFactor = 1,
 ): number {
-  const g = beatGrid(result, downbeatShift);
+  const g = beatGrid(result, downbeatShift, tempoFactor);
   if (g.count === 0 || g.firstBeat >= g.count) return 0;
   return Math.max(0, g.time(g.firstBeat));
 }
@@ -150,15 +189,16 @@ function chordText(
 
 /**
  * Bars of chords for the given downbeat shift (beats; + = the downbeat moves
- * later). Bars are `draftBeatsPerBar` beats; beats before the first bar are dropped, and a
+ * later; counted in the beats of `tempoFactor`). Bars are `draftBeatsPerBar` beats; beats before the first bar are dropped, and a
  * trailing bar with fewer than two beats of audio is not made.
  */
 export function barChords(
   result: TsAnalysisResult,
   downbeatShift: number,
   chosen?: ChosenChords,
+  tempoFactor: TempoFactor = 1,
 ): DraftBar[] {
-  const g = beatGrid(result, downbeatShift);
+  const g = beatGrid(result, downbeatShift, tempoFactor);
   const BEATS_PER_BAR = draftBeatsPerBar(result);
   const BAR_UNITS = BEATS_PER_BAR * 4; // sixteenths per bar (quarter-note beats)
   const bars: DraftBar[] = [];
@@ -242,8 +282,11 @@ export function chordCandidates(
 }
 
 /** Tempo = 60 / median beat interval, rounded and clamped to the app's range. */
-export function draftTempo(result: TsAnalysisResult): number {
-  const iv = medianBeatInterval(result);
+export function draftTempo(
+  result: TsAnalysisResult,
+  tempoFactor: TempoFactor = 1,
+): number {
+  const iv = medianBeatInterval(result, tempoFactor);
   if (!(iv > 0)) return DEFAULT_TEMPO;
   return Math.min(TEMPO_MAX, Math.max(TEMPO_MIN, Math.round(60 / iv)));
 }
@@ -262,6 +305,13 @@ export interface ChordDraftOptions {
   /** Integer BPM; default = `draftTempo(result)`. */
   tempo?: number;
   chosen?: ChosenChords;
+  /** Tempo candidate (default 1); bars and the dash chart are rebuilt from the beats. */
+  tempoFactor?: TempoFactor;
+  /**
+   * Key picked on the review screen ("Ab", "F#m"); replaces the analyzer's key
+   * in `{key:}` and respells every chord name for it.
+   */
+  key?: string;
 }
 
 export interface ChordDraft {
@@ -308,8 +358,16 @@ export function chordDraftSong(
   result: TsAnalysisResult,
   opts: ChordDraftOptions,
 ): ChordDraft {
-  const bars = barChords(result, opts.downbeatShift, opts.chosen);
-  const tempo = opts.tempo ?? draftTempo(result);
+  const factor = opts.tempoFactor ?? 1;
+  const spell = (chord: string) =>
+    opts.key === undefined ? chord : respellChord(chord, opts.key);
+  const bars = barChords(result, opts.downbeatShift, opts.chosen, factor).map(
+    (b) => ({
+      ...b,
+      chords: b.chords.map((c) => ({ ...c, chord: spell(c.chord) })),
+    }),
+  );
+  const tempo = opts.tempo ?? draftTempo(result, factor);
   const meter = draftMeter(result);
 
   const inputs: DashChordInput[][] = bars.map((b) =>
@@ -333,7 +391,7 @@ export function chordDraftSong(
     return { kind: 'verse', label: s.label, lines };
   });
 
-  const key = keyText(result);
+  const key = opts.key ?? keyText(result);
   const song: Song = {
     meta: {
       title: opts.title,
@@ -348,6 +406,6 @@ export function chordDraftSong(
     song,
     bars,
     tempo,
-    droppedSec: droppedSeconds(result, opts.downbeatShift),
+    droppedSec: droppedSeconds(result, opts.downbeatShift, factor),
   };
 }
