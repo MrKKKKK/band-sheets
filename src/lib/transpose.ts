@@ -136,6 +136,46 @@ export function transposeChord(
   targetKey: string | undefined,
 ): string {
   if (semitones === 0) return text;
+  return shiftChord(text, semitones, targetKey);
+}
+
+/**
+ * The same chord respelled for `targetKey` (a transposition by 0 semitones
+ * into that key): a flat key → flats, a sharp key → sharps, C / Am → the
+ * common pop spelling (C# Eb F# Ab Bb; Am: G# instead of Ab), no key → the
+ * chord's own accidental style. Quality verbatim; a trailing `?` (draft
+ * mark) is kept; non-chord text (`N.C.`) is returned unchanged.
+ */
+export function respellChord(
+  text: string,
+  targetKey: string | undefined,
+): string {
+  const mark = text.endsWith('?') ? '?' : '';
+  const body = mark ? text.slice(0, -1) : text;
+  const parsed = targetKey === undefined ? null : parseKey(targetKey);
+  if (parsed && keyFifths(targetKey) === 0)
+    return popSpelling(body, parsed.minor) + mark;
+  return shiftChord(body, 0, targetKey) + mark;
+}
+
+/** C / Am: the common pop spelling C# Eb F# Ab|G# Bb for roots and basses. */
+function popSpelling(text: string, minor: boolean): string {
+  const m = CHORD.exec(text);
+  if (!m) return text;
+  const [, root, quality, bass] = m;
+  const names = [...SHARP];
+  names[3] = 'Eb';
+  names[8] = minor ? 'G#' : 'Ab';
+  names[10] = 'Bb';
+  const sp = (n: string) => names[pcOf(n)];
+  return sp(root) + quality + (bass === undefined ? '' : `/${sp(bass)}`);
+}
+
+function shiftChord(
+  text: string,
+  semitones: number,
+  targetKey: string | undefined,
+): string {
   const m = CHORD.exec(text);
   if (!m) return text;
   const [, root, quality, bass] = m;

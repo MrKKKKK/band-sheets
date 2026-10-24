@@ -65,6 +65,45 @@ export function isDashLine(line: ChartLine): boolean {
   return /^[\s|\-=]*$/.test(text) && text.includes('|');
 }
 
+const FULL_WIDTH_DASH: Record<string, string> = {
+  '｜': '|',
+  ー: '-',
+  '－': '-',
+  '—': '-',
+  '＝': '=',
+};
+const FULL_WIDTH_DASH_RE = /[｜ー－—＝]/g;
+
+const toHalfWidth = (text: string): string =>
+  text.replace(FULL_WIDTH_DASH_RE, (c) => FULL_WIDTH_DASH[c]);
+
+/**
+ * True when the line is not a dash line yet, but would be one if its
+ * full-width symbols (｜ ー － — ＝) were half-width (`|` `-` `=`). A lyric
+ * line that merely contains 「ー」 does not count: after the conversion the
+ * non-chord text must be only `| - =` / spaces and contain a `|`.
+ */
+export function fullWidthDashCandidate(line: ChartLine): boolean {
+  if (isRawLine(line) || isDashLine(line)) return false;
+  return isDashLine(toHalfWidthDashLine(line));
+}
+
+/**
+ * The line with ｜ ー － — ＝ turned into `| - =` (lyrics only; chord names
+ * are untouched). Raw lines are returned as they are. The caller decides
+ * whether the line should be converted (`fullWidthDashCandidate`).
+ */
+export function toHalfWidthDashLine(line: ChartLine): ChartLine {
+  if (isRawLine(line)) return line;
+  return {
+    ...line,
+    segments: line.segments.map((seg) => ({
+      ...seg,
+      lyrics: toHalfWidth(seg.lyrics),
+    })),
+  };
+}
+
 interface ScanBar {
   leading: number;
   chords: { chord: string; units: number }[];

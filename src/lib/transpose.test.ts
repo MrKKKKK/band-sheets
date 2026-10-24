@@ -5,6 +5,7 @@ import {
   displayKey,
   formatTranspose,
   keyLabel,
+  respellChord,
   transposeChartSection,
   transposeChord,
   transposeKey,
@@ -161,5 +162,43 @@ describe('keyLabel', () => {
     expect(displayKey('Bbm')).toBe('B♭m');
     expect(displayKey('F#')).toBe('F♯');
     expect(displayKey('B')).toBe('B');
+  });
+});
+
+describe('respellChord', () => {
+  it('respells by the target key, root and slash bass', () => {
+    expect(respellChord('G#', 'Ab')).toBe('Ab');
+    expect(respellChord('C#m', 'Ab')).toBe('Dbm');
+    expect(respellChord('C#m7/G#', 'Ab')).toBe('Dbm7/Ab');
+    expect(respellChord('Bb', 'A')).toBe('A#');
+    expect(respellChord('Dbmaj7', 'E')).toBe('C#maj7');
+  });
+  it('keeps the ? mark, quality text and non-chords', () => {
+    expect(respellChord('G#m7b5?', 'Db')).toBe('Abm7b5?');
+    expect(respellChord('C#/G#?', 'Ab')).toBe('Db/Ab?');
+    expect(respellChord('N.C.', 'Ab')).toBe('N.C.');
+  });
+  it('C uses the common pop spelling', () => {
+    expect(respellChord('A#', 'C')).toBe('Bb');
+    expect(respellChord('D#m7', 'C')).toBe('Ebm7');
+    expect(respellChord('Db', 'C')).toBe('C#');
+    expect(respellChord('Gb/Db?', 'C')).toBe('F#/C#?');
+    expect(respellChord('G#', 'C')).toBe('Ab');
+    expect(respellChord('F#m7b5', 'C')).toBe('F#m7b5');
+    expect(respellChord('N.C.', 'C')).toBe('N.C.');
+  });
+  it('Am uses G# (not Ab) and otherwise the same spelling', () => {
+    expect(respellChord('Ab', 'Am')).toBe('G#');
+    expect(respellChord('E7/Ab', 'Am')).toBe('E7/G#');
+    expect(respellChord('C#dim', 'Am')).toBe('C#dim');
+    expect(respellChord('A#?', 'Am')).toBe('Bb?');
+    expect(respellChord('Gb', 'Am')).toBe('F#');
+  });
+  it('no key keeps the chord own spelling', () => {
+    expect(respellChord('Bb', undefined)).toBe('Bb');
+    expect(respellChord('A#', undefined)).toBe('A#');
+  });
+  it('plain letters are unchanged', () => {
+    expect(respellChord('Am7', 'Eb')).toBe('Am7');
   });
 });

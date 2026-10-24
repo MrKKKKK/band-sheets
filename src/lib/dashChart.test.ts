@@ -2,16 +2,18 @@ import { describe, expect, it } from 'vitest';
 import {
   barUnits,
   dashBarCount,
+  fullWidthDashCandidate,
   isDashLine,
   meterOf,
   parseDashLine,
+  toHalfWidthDashLine,
   validateDashLine,
   writeDashBar,
   writeDashChart,
   writeDashLine,
 } from './dashChart';
 import { parseSong } from './parseSong';
-import type { LyricLine } from './song';
+import { isRawLine, type LyricLine } from './song';
 
 const t44 = { num: 4, den: 4 };
 const t34 = { num: 3, den: 4 };
@@ -445,5 +447,58 @@ describe('what is (not) a dash line — pinned behaviour', () => {
     const r = parseDashLine(l, t44);
     expect(r.errors).toEqual([]);
     expect(r.bars[0].chords.map((c) => c.length)).toEqual([4, 4, 4, 4]);
+  });
+});
+
+describe('full-width dash input', () => {
+  it('detects lines that become dash lines when converted', () => {
+    expect(fullWidthDashCandidate(line('｜[C]ーーーー｜[G]ーーーー｜'))).toBe(
+      true,
+    );
+    expect(fullWidthDashCandidate(line('|[C]－－－－|[G]————|'))).toBe(true);
+    expect(fullWidthDashCandidate(line('｜[C]ーー＝＝｜'))).toBe(true);
+    expect(fullWidthDashCandidate(line('｜ [C][G] ｜'))).toBe(true);
+    // mixed half / full width
+    expect(fullWidthDashCandidate(line('|[C]ーーーー|'))).toBe(true);
+  });
+  it('is false for dash lines, lyric lines with ー, and others', () => {
+    expect(fullWidthDashCandidate(line('|[C]--------|'))).toBe(false);
+    expect(fullWidthDashCandidate(line('[C]あーあ'))).toBe(false);
+    expect(fullWidthDashCandidate(line('[C]ー'))).toBe(false);
+    expect(fullWidthDashCandidate(line('ー'))).toBe(false);
+    expect(fullWidthDashCandidate(line('きらきらー｜ひかる'))).toBe(false);
+    expect(fullWidthDashCandidate(line('｜ら[C]ーー｜'))).toBe(false);
+    expect(fullWidthDashCandidate(line('[C][G]'))).toBe(false);
+    expect(fullWidthDashCandidate(line(''))).toBe(false);
+    expect(fullWidthDashCandidate({ raw: '# ｜ーー｜' })).toBe(false);
+  });
+  it('converts only the symbols, chords untouched, result is a valid dash line', () => {
+    const l = line('｜[C]ーーーー[F]ーーーー｜[Gー]ーーーーーーーー｜');
+    // a chord name with ー is not touched
+    const out = toHalfWidthDashLine(l);
+    expect(isRawLine(out)).toBe(false);
+    if (isRawLine(out)) return;
+    expect(out.segments.map((x) => x.chord)).toEqual(
+      l.segments.map((x) => x.chord),
+    );
+    const ok = toHalfWidthDashLine(line('｜[C]ーーーー[F]ーーーー｜＝'));
+    expect(isDashLine(ok)).toBe(true);
+    const good = toHalfWidthDashLine(
+      line('｜[C]ーーーーーーーー｜[G]－－－－－－－－｜'),
+    );
+    if (isRawLine(good)) return;
+    expect(isDashLine(good)).toBe(true);
+    expect(validateDashLine(good, t44)).toEqual([]);
+  });
+  it('leaves lyrics alone on other lines and returns raw lines unchanged', () => {
+    const lyric = line('[C]あーあ');
+    expect(toHalfWidthDashLine(lyric)).toEqual({
+      segments: lyric.segments.map((x) => ({
+        ...x,
+        lyrics: x.lyrics.replace('ー', '-'),
+      })),
+    });
+    const raw = { raw: '# ｜ー｜' };
+    expect(toHalfWidthDashLine(raw)).toBe(raw);
   });
 });
