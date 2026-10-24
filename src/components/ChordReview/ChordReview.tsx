@@ -34,6 +34,7 @@ import {
   type ReviewState,
 } from '../../lib/import/chordReview';
 import { DRAFT_TITLE_SUFFIX } from '../../lib/import/draftMarks';
+import { PLAYBACK_FAILED_MESSAGE } from '../../lib/import/importErrors';
 import { NO_CHORD } from '../../lib/dashChart';
 import { UNTITLED } from '../../lib/serializeSong';
 import { displayKey, respellChord } from '../../lib/transpose';
@@ -775,9 +776,7 @@ function PlayerBar({
         {formatClock(player.currentTime)} / {formatClock(durationSec)}
       </span>
       <span className={styles.note}>
-        {player.failed
-          ? 'このファイルは、このブラウザでは再生できません。'
-          : '行の ▶ で、その行から再生'}
+        {player.failed ? PLAYBACK_FAILED_MESSAGE : '行の ▶ で、その行から再生'}
       </span>
     </div>
   );
