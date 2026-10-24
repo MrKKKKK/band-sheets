@@ -73,16 +73,8 @@ test('happy path: analyse a synthetic WAV, review, create, the editor shows the 
   await expect(page.getByTestId('chart-summary')).toContainText('小節');
   await shot(page, 's3-default');
 
-  // 「? 書き方」 (T4-3): opens a dialog, Esc closes it and returns focus
-  const help = page.getByRole('button', { name: '? 書き方' });
-  await help.click();
-  await expect(
-    page.getByRole('dialog', { name: 'コードだけの行の書き方' }),
-  ).toBeVisible();
-  await shot(page, 's3-help');
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(help).toBeFocused();
+  // the review screen has no 「? 書き方」 (G2: lyrics / dash text can't be edited here)
+  await expect(page.getByRole('button', { name: '? 書き方' })).toHaveCount(0);
 
   // playback from a local object URL: the current bar is highlighted
   await page.getByRole('button', { name: '録音を再生' }).click();

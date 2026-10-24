@@ -3,10 +3,28 @@ import { expect, fn, userEvent, waitFor, within } from 'storybook/test';
 import type { AudioPlayer } from '../../hooks/useAudioPlayer';
 
 import { initialReviewState, reviewDraft } from '../../lib/import/chordReview';
-import { reviewSampleResult } from '../../lib/import/fixtures/chordResults';
+import {
+  madeResult,
+  reviewSampleResult,
+} from '../../lib/import/fixtures/chordResults';
 import { ChordReview } from './ChordReview';
 
 const result = reviewSampleResult();
+
+/** 96 bars (one chord each) so the page scrolls several screens. */
+function manyBarsResult() {
+  const names = ['G', 'C', 'D', 'Em'];
+  const bars = 96;
+  return madeResult(
+    bars * 4 + 1,
+    Array.from({ length: bars }, (_, i) => ({
+      from: i * 4,
+      to: i * 4 + 4,
+      name: names[i % names.length],
+    })),
+    { beatSec: 0.5, sections: [[0, 'A']] },
+  );
+}
 
 function player(over: Partial<AudioPlayer> = {}): AudioPlayer {
   return {
@@ -190,19 +208,34 @@ export const BackAsksAfterChange: Story = {
   },
 };
 
-/** 「? 書き方」 (T4-3): the shared dash-notation help opens, Esc closes and returns focus. */
-export const DashHelpOpens: Story = {
+/** The review screen has no 「? 書き方」: lyrics / dash text cannot be edited here. */
+export const NoDashHelp: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    const button = c.getByRole('button', { name: '? 書き方' });
-    await userEvent.click(button);
-    const dialog = await c.findByRole('dialog', {
-      name: 'コードだけの行の書き方',
-    });
-    expect(dialog).toHaveTextContent('八分音符');
-    await userEvent.keyboard('{Escape}');
-    await waitFor(() => expect(c.queryByRole('dialog')).toBeNull());
-    await waitFor(() => expect(button).toHaveFocus());
+    expect(c.queryByRole('button', { name: '? 書き方' })).toBeNull();
+  },
+};
+
+/** G2: with many bars the play / stop control stays in view while scrolling. */
+export const PlayerBarStaysVisible: Story = {
+  args: { result: manyBarsResult() },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const button = () => c.getByRole('button', { name: '録音を再生' });
+    const inView = () => {
+      const r = button().getBoundingClientRect();
+      return r.top >= 0 && r.bottom <= window.innerHeight;
+    };
+    const scroller = document.scrollingElement ?? document.documentElement;
+    expect(scroller.scrollHeight).toBeGreaterThan(window.innerHeight * 1.5);
+    for (const y of [scroller.scrollHeight, scroller.scrollHeight / 2, 0]) {
+      window.scrollTo(0, y);
+      await waitFor(() => expect(inView()).toBe(true));
+    }
+    window.scrollTo(0, scroller.scrollHeight);
+    await waitFor(() => expect(inView()).toBe(true));
+    const last = c.getAllByTestId(/^review-line-/).at(-1)!;
+    expect(last.getBoundingClientRect().bottom).toBeGreaterThan(0);
   },
 };
 
