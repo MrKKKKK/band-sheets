@@ -140,6 +140,22 @@ describe('HumImportScreen', () => {
     expect(screen.getByTestId('hum-start')).toHaveTextContent(
       '1 小節目の 3 拍目',
     );
+    await user.click(screen.getByRole('button', { name: '16 分後へ ›' }));
+    await user.click(screen.getByRole('button', { name: '16 分後へ ›' }));
+    expect(screen.getByTestId('hum-shift')).toHaveTextContent(
+      '1 拍と 16 分 2 つ後',
+    );
+    expect(screen.getByTestId('hum-start')).toHaveTextContent(
+      '1 小節目の 3 拍目のすこし後',
+    );
+    expect(screen.getByTestId('hum-fixes')).toHaveTextContent(
+      '1 拍と 16 分 2 つ後',
+    );
+    await user.click(screen.getByRole('button', { name: '‹ 16 分前へ' }));
+    expect(screen.getByTestId('hum-shift')).toHaveTextContent(
+      '1 拍と 16 分 1 つ後',
+    );
+    await user.click(screen.getByRole('button', { name: '‹ 16 分前へ' }));
     await user.click(screen.getByRole('button', { name: 'C D E' }));
     expect(storage.data.get(NOTE_NAMES_KEY)).toBe('letter');
     await user.click(

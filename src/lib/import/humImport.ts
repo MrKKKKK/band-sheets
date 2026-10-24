@@ -239,6 +239,23 @@ export function beatsLabel(ticks: number, ts: TimeSig): string {
   return `${Number(beats.toFixed(2))} 拍`;
 }
 
+/** One start-shift step: a 16th note (matches humDraft's SHIFT_STEP). */
+export const SHIFT_STEP_TICKS = WHOLE_TICKS / 16;
+
+/** The whole-draft start shift: 「なし」「1 拍後」「16 分 1 つ前」「1 拍と 16 分 1 つ後」. */
+export function shiftLabel(shiftTicks: number, ts: TimeSig): string {
+  if (shiftTicks === 0) return 'なし';
+  const perBeat = Math.max(1, Math.round(beatTicksOf(ts) / SHIFT_STEP_TICKS));
+  const steps = Math.abs(Math.round(shiftTicks / SHIFT_STEP_TICKS));
+  const beats = Math.floor(steps / perBeat);
+  const rest = steps % perBeat;
+  const parts = [
+    beats > 0 ? `${beats} 拍` : '',
+    rest > 0 ? `16 分 ${rest} つ` : '',
+  ].filter(Boolean);
+  return `${parts.join('と ')}${shiftTicks > 0 ? '後' : '前'}`;
+}
+
 /** The whole-draft octave relative to the proposed one: 「そのまま」「1 オクターブ上」「2 オクターブ下」. */
 export function octaveLabel(delta: number): string {
   if (delta === 0) return 'そのまま';
