@@ -94,6 +94,7 @@ const meta = {
     onRefresh: fn(),
     onNew: fn(),
     onAddSample: fn(),
+    onImport: fn(),
     onOpen: fn(),
     onOpenView: fn(),
     onRename: fn(),
@@ -425,5 +426,19 @@ export const Unconfigured: Story = {
       'unconfigured',
     );
     expect(c.getByTestId('account-menu')).toHaveTextContent('Drive 未設定');
+  },
+};
+
+/** 「録音から新しい曲」 (PC list only): a secondary button left of 「新しい曲」. */
+export const ImportEntry: Story = {
+  play: async ({ canvasElement, args }) => {
+    const c = within(canvasElement);
+    const entry = c.getByRole('button', { name: '録音から新しい曲' });
+    const add = c.getByRole('button', { name: '新しい曲' });
+    expect(
+      entry.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await userEvent.click(entry);
+    expect(args.onImport).toHaveBeenCalledTimes(1);
   },
 };
