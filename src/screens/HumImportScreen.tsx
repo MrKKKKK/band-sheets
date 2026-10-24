@@ -132,6 +132,7 @@ export function HumImportScreen({
     notice: null,
   });
   const [live, setLive] = useState('');
+  const [insertError, setInsertError] = useState<string | null>(null);
   const clientRef = useRef<AnalysisClient | null>(injected ?? null);
   const runRef = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -271,7 +272,9 @@ export function HumImportScreen({
         value.label,
       );
     } catch (e) {
-      say(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setInsertError(msg);
+      say(msg);
     }
   };
 
@@ -280,7 +283,6 @@ export function HumImportScreen({
       <HumReview
         result={phase.result}
         file={phase.file}
-        fileName={phase.file.name}
         songTitle={songTitle}
         partName={partName}
         label={value.label}
@@ -290,6 +292,7 @@ export function HumImportScreen({
         onNoteNamesChange={(m) => saveNoteNameMode(storage, m)}
         onInsert={insert}
         onBack={onBack}
+        insertError={insertError}
         live={live}
         say={say}
         headingRef={reviewRef}

@@ -41,7 +41,7 @@ export function firstNoteTick(bar: number, beat: number, ts: TimeSig): number {
   return (bar - 1) * barTicks(ts) + (beat - 1) * beatTicksOf(ts);
 }
 
-export interface HumSetup {
+export interface HumRunSetup {
   /** The song's `{tempo}` (quarter notes per minute). */
   tempo: number;
   ts: TimeSig;
@@ -56,7 +56,7 @@ export interface HumSetup {
  * What the hum Worker gets for S2's form, to be sent with `firstNoteAuto: true`: the Worker finds the second of
  * the first sung note itself (`firstNoteSec: 0` is the placeholder, src/analysis/worker/firstNote.ts).
  */
-export function humRunInfo(s: HumSetup): HumInput {
+export function humRunInfo(s: HumRunSetup): HumInput {
   return {
     bpm: humBpmFromSongTempo(s.tempo, s.ts),
     ts: [s.ts.num, s.ts.den],

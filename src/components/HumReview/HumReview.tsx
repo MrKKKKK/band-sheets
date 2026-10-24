@@ -34,6 +34,7 @@ import {
   type NoteNameMode,
 } from '../../lib/import/humImport';
 import {
+  HUM_DRAFT_FAILED_MESSAGE,
   HUM_TUPLET_SHIFT_MESSAGE,
   IMPORT_ERROR_MESSAGES,
   PLAYBACK_FAILED_MESSAGE,
@@ -64,8 +65,7 @@ import styles from './HumReview.module.css';
 export type HumReviewProps = {
   result: HumAnalysisResult;
   /** The recording (listening comparison; nothing is stored). */
-  file: Blob;
-  fileName: string;
+  file: File;
   songTitle: string;
   /** Shown only when the song has more than one melody part. */
   partName?: string;
@@ -79,6 +79,8 @@ export type HumReviewProps = {
   /** 「このセクションに下書きを入れる」 (after the confirmation when needed). */
   onInsert: (events: MelodyEvent[], ts: TimeSig) => void;
   onBack: () => void;
+  /** Why the last 「下書きを入れる」 failed (shown above the button). */
+  insertError?: string | null;
   /** The screen's one live region: its text (shown by the staff) and the setter. */
   live: string;
   say: (message: string) => void;
@@ -118,7 +120,6 @@ const midiOf = (pitch: string | undefined) => {
 export function HumReview({
   result,
   file,
-  fileName,
   songTitle,
   partName,
   label,
@@ -128,6 +129,7 @@ export function HumReview({
   onNoteNamesChange,
   onInsert,
   onBack,
+  insertError,
   live,
   say,
   headingRef,
@@ -254,8 +256,24 @@ export function HumReview({
   const choose = (choice: HumChoice, message: string) => {
     if (!open) return;
     const id = open.id;
+    // Picking the analyzer's own reading again is no choice at all.
+    const merged: HumChoice = { ...fixes.chosen[id], ...choice };
+    const orig = open.position[0];
+    if (merged.midi === open.pitch[0].midi) delete merged.midi;
+    if (
+      merged.position &&
+      merged.position.startTick === orig.startTick &&
+      merged.position.ticks === orig.ticks
+    )
+      delete merged.position;
+    const { [id]: _old, ...others } = fixes.chosen;
     const d = update(
-      { chosen: { ...fixes.chosen, [id]: { ...fixes.chosen[id], ...choice } } },
+      {
+        chosen:
+          merged.midi === undefined && merged.position === undefined
+            ? others
+            : { ...others, [id]: merged },
+      },
       message,
     );
     if (!d) return;
@@ -304,7 +322,7 @@ export function HumReview({
             です。正確な書き起こしではありません。録音と聞き比べて、違って聞こえる所だけ直してください。入れたあとは、いつもの編集画面でも直せます。
             <span className={styles.muted}>
               {' '}
-              {fileName} ・ {formatClock(result.source.durationSec)}
+              {file.name} ・ {formatClock(result.source.durationSec)}
             </span>
           </p>
 
@@ -478,14 +496,17 @@ export function HumReview({
               </span>
             </div>
 
+            {!ok ? (
+              <p className={styles.error} data-testid="draft-error">
+                {HUM_DRAFT_FAILED_MESSAGE}
+              </p>
+            ) : null}
+
             <MelodyStaff
               events={shown}
               ts={ts}
               keySignature={keySig}
-              cursor={0}
               selected={selected >= 0 ? selected : null}
-              previewDuration={{ d: '4', dotted: false }}
-              onPlace={() => undefined}
               onSelect={select}
               onKeyDown={onStaffKey}
               liveMessage={live}
@@ -579,6 +600,11 @@ export function HumReview({
                 </dd>
               </div>
             </dl>
+            {insertError ? (
+              <p className={styles.error} data-testid="insert-error">
+                {insertError}
+              </p>
+            ) : null}
             {existingNotes > 0 ? (
               <p className={styles.replaceNote} data-testid="replace-note">
                 {label}

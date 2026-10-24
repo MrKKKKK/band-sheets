@@ -38,12 +38,12 @@ export interface MelodyStaffProps {
   ts: TimeSig;
   /** Song key; clicked pitches follow its key signature (key G → F#). */
   keySignature?: string;
-  /** Insertion point 0..events.length (before event i). */
-  cursor: number;
+  /** Insertion point 0..events.length (before event i). Not used with `selectOnly`. */
+  cursor?: number;
   /** Selected event index, or null. */
   selected: number | null;
   /** Note value of the hover preview (the value the next note will get). */
-  previewDuration: { d: Duration; dotted: boolean };
+  previewDuration?: { d: Duration; dotted: boolean };
   /** Lyrics of events from this index on are drawn in --warning. */
   mismatchFrom?: number | null;
   readOnly?: boolean;
@@ -52,7 +52,7 @@ export interface MelodyStaffProps {
    * insertion point `index`. While something is selected, that click only
    * calls `onSelect(null)` (M7); the next one places.
    */
-  onPlace: (index: number, pitch: string) => void;
+  onPlace?: (index: number, pitch: string) => void;
   /** Click a note/rest (again → null), Escape → null. */
   onSelect: (index: number | null) => void;
   /**
@@ -99,6 +99,7 @@ export interface MelodyStaffProps {
 const OVERLAY_WIDTH = 320;
 
 const MIN_WIDTH = 320;
+const DEFAULT_PREVIEW = { d: '4', dotted: false } as const;
 /** px of vertical movement before a press on the selected note is a drag. */
 const DRAG_THRESHOLD = 3;
 
@@ -242,9 +243,9 @@ export function MelodyStaff({
   events,
   ts,
   keySignature,
-  cursor,
+  cursor = 0,
   selected,
-  previewDuration,
+  previewDuration = DEFAULT_PREVIEW,
   mismatchFrom = null,
   readOnly = false,
   onPlace,
@@ -334,7 +335,7 @@ export function MelodyStaff({
     else if (t.kind === 'note') onSelect(t.index === selected ? null : t.index);
     else if (selectOnly || selected !== null) {
       if (selected !== null) onSelect(null);
-    } else onPlace(t.cursor, t.pitch);
+    } else onPlace?.(t.cursor, t.pitch);
   };
 
   const release = (target: Element, pointerId: number) => {

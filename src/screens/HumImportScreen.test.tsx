@@ -8,6 +8,7 @@ import {
   humSilentResult,
 } from '../lib/import/fixtures/humResults';
 import {
+  HUM_DRAFT_FAILED_MESSAGE,
   HUM_NO_VOICE_MESSAGE,
   IMPORT_ERROR_MESSAGES,
 } from '../lib/import/importErrors';
@@ -19,16 +20,25 @@ const T44 = { num: 4, den: 4 };
 const vocal = sampleSong.parts.findIndex((p) => p.name === 'Vocal');
 const file = () => new File(['x'], 'hum.wav', { type: 'audio/wav' });
 
+const tone = () => ({
+  start: vi.fn(),
+  stop: vi.fn(),
+  playOne: vi.fn(),
+  close: vi.fn(),
+});
+
 function setup(
   client = createFakeAnalysisClient({ results: { hum: humSampleResult() } }),
   label = 'B',
+  song = sampleSong,
 ) {
   const onInsert = vi.fn();
   const onBack = vi.fn();
   const storage = createMemoryStorage();
-  render(
+  const t = tone();
+  const view = render(
     <HumImportScreen
-      song={sampleSong}
+      song={song}
       partIndex={vocal}
       initialLabel={label}
       ts={T44}
@@ -38,9 +48,18 @@ function setup(
       onBack={onBack}
       client={client}
       probe={() => Promise.resolve(12)}
+      playbackDeps={{ createTone: () => t }}
     />,
   );
-  return { user: userEvent.setup(), onInsert, onBack, client, storage };
+  return {
+    user: userEvent.setup(),
+    onInsert,
+    onBack,
+    client,
+    storage,
+    tone: t,
+    view,
+  };
 }
 
 async function analyse(user: ReturnType<typeof userEvent.setup>) {
@@ -107,7 +126,7 @@ describe('HumImportScreen', () => {
     });
   });
 
-  it('S4: whole-draft fixes and a candidate change the draft; the note-name mode is remembered', async () => {
+  it('S4: whole-draft fixes change the draft; the note-name mode is remembered', async () => {
     const { user, onInsert, storage } = setup(undefined, 'A');
     await analyse(user);
     await screen.findByRole('heading', { name: '鼻歌の下書きを確かめる' });
@@ -138,7 +157,7 @@ describe('HumImportScreen', () => {
     ]);
   });
 
-  it('S2: cancel shows the neutral notice; no sung note shows the hum error', async () => {
+  it('S2: cancel shows the neutral notice', async () => {
     const hold = createFakeAnalysisClient({ holdAfterStages: 2 });
     const { user } = setup(hold);
     await analyse(user);
@@ -155,6 +174,85 @@ describe('HumImportScreen', () => {
     await analyse(user);
     expect(await screen.findByTestId('import-notice')).toHaveTextContent(
       HUM_NO_VOICE_MESSAGE,
+    );
+  });
+
+  it('S4: a candidate click plays it and applies it at once; the original reading takes it back', async () => {
+    const { user, tone } = setup(undefined, 'A');
+    await analyse(user);
+    await screen.findByRole('heading', { name: '鼻歌の下書きを確かめる' });
+    screen.getByRole('application').focus();
+    await user.keyboard('{ArrowRight}{ArrowRight}{ArrowRight}');
+    const panel = await screen.findByTestId('candidate-panel');
+    expect(panel).toHaveTextContent('1 小節目の 3 つ目の音');
+    await user.click(within(panel).getByRole('button', { name: /ソ♯ 31%/ }));
+    expect(tone.playOne).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('lyric-3')).toHaveTextContent('ソ♯');
+    expect(screen.getByText('候補 1 音')).toBeInTheDocument();
+    await user.click(within(panel).getByRole('button', { name: '▶ ラ' }));
+    expect(tone.playOne).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('lyric-3')).toHaveTextContent('ラ?');
+    // back to the analyzer's reading: no change counted
+    expect(screen.queryByText('候補 1 音')).toBeNull();
+  });
+
+  it('S2: leaving the screen during the analysis cancels it', async () => {
+    const hold = createFakeAnalysisClient({ holdAfterStages: 2 });
+    const { user, view } = setup(hold);
+    await analyse(user);
+    await screen.findByRole('button', { name: '中止' });
+    view.unmount();
+    expect(hold.cancelCount).toBe(1);
+  });
+
+  it('S2: a read-only section cannot be chosen; the first writable one is the default', () => {
+    const song = {
+      ...sampleSong,
+      parts: sampleSong.parts.map((p, i) =>
+        i === vocal
+          ? {
+              ...p,
+              body: p.body.replace(
+                '\\section "B"',
+                '\\section "B"\n:4 (C4 E4) C4 C4 C4 |\n\\section "X"',
+              ),
+            }
+          : p,
+      ),
+    };
+    setup(undefined, 'B', song);
+    const select = screen.getByRole('combobox', { name: 'セクション' });
+    expect(select).toHaveValue('A');
+    expect(within(select).getByRole('option', { name: /^B（/ })).toBeDisabled();
+  });
+
+  it('S2: the tempo field takes typed digits and is checked when leaving it', async () => {
+    const { user } = setup();
+    const field = screen.getByTestId('hum-tempo');
+    await user.clear(field);
+    expect(field).toHaveValue(null); // empty while typing
+    await user.type(field, '90');
+    expect(field).toHaveValue(90);
+    await user.tab();
+    expect(field).toHaveValue(90);
+    expect(screen.getByText(/♩= 90 ・ 4\/4/)).toBeInTheDocument();
+    await user.clear(field);
+    await user.type(field, '500{Enter}');
+    expect(field).toHaveValue(240);
+    await user.clear(field);
+    await user.tab();
+    expect(field).toHaveValue(240);
+  });
+
+  it('S4: a result that cannot become a draft says so instead of an empty staff', async () => {
+    const broken = humSampleResult();
+    broken.melody.quantized.ts = [4, 3];
+    const { user } = setup(
+      createFakeAnalysisClient({ results: { hum: broken } }),
+    );
+    await analyse(user);
+    expect(await screen.findByTestId('draft-error')).toHaveTextContent(
+      HUM_DRAFT_FAILED_MESSAGE,
     );
   });
 });

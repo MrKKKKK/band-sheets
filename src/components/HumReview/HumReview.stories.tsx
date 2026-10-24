@@ -15,9 +15,11 @@ import { HumReview, type HumReviewProps } from './HumReview';
 
 /** S4 with a hand-made result; the recording is 12 s of silence, the draft tone is a spy (no sound). */
 const silentWav = () =>
-  new Blob([wavBytes({ sr: 8000, dataBytes: 8000 * 2 * 12 })], {
-    type: 'audio/wav',
-  });
+  new File(
+    [wavBytes({ sr: 8000, dataBytes: 8000 * 2 * 12 })],
+    'hum-take2.wav',
+    { type: 'audio/wav' },
+  );
 
 const tone = {
   start: fn(),
@@ -39,7 +41,6 @@ const meta = {
   args: {
     result: humSampleResult(),
     file: silentWav(),
-    fileName: 'hum-take2.wav',
     songTitle: '聖者の行進',
     label: 'A',
     keySig: 'C',
@@ -193,5 +194,13 @@ export const PlayerBarVisibleAfterScroll: Story = {
       expect(r.top).toBeLessThan(10);
     });
     window.scrollTo(0, 0);
+  },
+};
+
+/** A failed insert is shown next to the button, not only read out. */
+export const InsertError: Story = {
+  args: { insertError: 'セクション「A」は読み取り専用です: 例' },
+  play: async ({ canvasElement }) => {
+    expect(within(canvasElement).getByTestId('insert-error')).toBeVisible();
   },
 };

@@ -42,6 +42,10 @@ export const HUM_NO_VOICE_MESSAGE =
 export const HUM_TUPLET_SHIFT_MESSAGE =
   'そこへはずらせません。3 連符が小節の線をまたいでしまいます。';
 
+/** S4: the analysis result could not be turned into a draft (the analyzer broke its own rules). */
+export const HUM_DRAFT_FAILED_MESSAGE =
+  '下書きを作れませんでした。もう一度解析するか、別の録音を試してください。';
+
 export interface ImportNotice {
   /** `notice` = the user asked for it (cancel): show it plainly, not as an error. */
   severity: 'error' | 'notice';

@@ -130,3 +130,11 @@
   padding-block: var(--space-2);
   line-height: 1.35;
 }
+
+.error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  line-height: 1.6;
+}

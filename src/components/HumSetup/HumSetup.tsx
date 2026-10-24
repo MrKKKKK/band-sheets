@@ -1,4 +1,10 @@
-import { useId, type ReactNode, type Ref, type RefObject } from 'react';
+import {
+  useId,
+  useState,
+  type ReactNode,
+  type Ref,
+  type RefObject,
+} from 'react';
 import type { HumTarget } from '../../lib/import/humImport';
 import type { ImportNotice } from '../../lib/import/importErrors';
 import type { TimeSig } from '../../lib/melody';
@@ -112,6 +118,15 @@ export function HumSetup({
     value.key && !KEYS.includes(value.key) ? [value.key, ...KEYS] : KEYS;
   const target = targets.find((t) => t.label === value.label);
   const canStart = !busy && !!file && !file.probing && !!target?.writable;
+  /** The tempo field while typing; checked and clamped on blur / Enter (null = not editing). */
+  const [tempoText, setTempoText] = useState<string | null>(null);
+  const commitTempo = () => {
+    if (tempoText === null) return;
+    const n = Number(tempoText);
+    setTempoText(null);
+    if (tempoText.trim() !== '' && Number.isFinite(n) && n > 0)
+      set({ tempo: tempo(n) });
+  };
   const tempo = (n: number) =>
     Math.min(TEMPO_RANGE.max, Math.max(TEMPO_RANGE.min, Math.round(n)));
   const where = `${songTitle}${partName ? ` / ${partName}` : ''} / ${value.label}`;
@@ -238,10 +253,11 @@ export function HumSetup({
                   aria-label="テンポ（1 分間の 4 分音符の数）"
                   min={TEMPO_RANGE.min}
                   max={TEMPO_RANGE.max}
-                  value={value.tempo}
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    if (Number.isFinite(n) && n > 0) set({ tempo: tempo(n) });
+                  value={tempoText ?? String(value.tempo)}
+                  onChange={(e) => setTempoText(e.target.value)}
+                  onBlur={commitTempo}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitTempo();
                   }}
                   data-testid="hum-tempo"
                 />
