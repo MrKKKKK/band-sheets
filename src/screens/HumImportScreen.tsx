@@ -9,16 +9,9 @@
  * stored: the file, the result and the choices live in this component's state only (plan §5); only the note-name
  * display mode is remembered per device.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createAnalysisClient } from '../analysis/analysisClient';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { probeDuration } from '../analysis/probeDuration';
-import {
-  isAnalysisError,
-  MAX_DURATION_SEC,
-  type AnalysisClient,
-  type AnalysisErrorCode,
-  type AnalysisProgress,
-} from '../analysis/types';
+import type { AnalysisClient, HumRequest } from '../analysis/types';
 import {
   HumReview,
   type HumReviewProps,
@@ -26,24 +19,16 @@ import {
 import { HumSetup, type HumSetupValue } from '../components/HumSetup/HumSetup';
 import { ImportFrame } from '../components/ImportFrame/ImportFrame';
 import { ImportProgress } from '../components/ImportProgress/ImportProgress';
+import { useAnalysisRun } from '../hooks/useAnalysisRun';
 import { usePageDropGuard } from '../hooks/usePageDropGuard';
-import type { HumAnalysisResult } from '../lib/analysis/hum/types';
 import { DEFAULT_TEMPO } from '../lib/autoScroll';
-import {
-  formatDurationJa,
-  importProgressView,
-} from '../lib/import/chordReview';
 import {
   HUM_STEPS,
   humRunInfo,
   humTargets,
   insertHumDraft,
 } from '../lib/import/humImport';
-import {
-  humNoVoiceNotice,
-  noticeFor,
-  type ImportNotice,
-} from '../lib/import/importErrors';
+import { humNoVoiceNotice } from '../lib/import/importErrors';
 import type { MelodyEvent, TimeSig } from '../lib/melody';
 import { UNTITLED } from '../lib/serializeSong';
 import type { Song } from '../lib/song';
@@ -80,27 +65,6 @@ export type HumImportScreenProps = {
   playbackDeps?: HumReviewProps['playbackDeps'];
 };
 
-type Phase =
-  | {
-      kind: 'setup';
-      file: File | null;
-      duration: number | null;
-      probing?: boolean;
-      notice: ImportNotice | null;
-    }
-  | {
-      kind: 'analyzing';
-      file: File;
-      duration: number | null;
-      progress: AnalysisProgress | null;
-    }
-  | { kind: 'review'; file: File; result: HumAnalysisResult };
-
-const stepText = (p: AnalysisProgress | null) => {
-  const v = importProgressView(p, HUM_STEPS);
-  return `${v.current} / ${v.steps.length} 段階: ${v.steps[v.current - 1].label}`;
-};
-
 export function HumImportScreen({
   song,
   partIndex,
@@ -131,43 +95,30 @@ export function HumImportScreen({
     bar: 1,
     beat: 1,
   }));
-  const [phase, setPhase] = useState<Phase>({
-    kind: 'setup',
-    file: null,
-    duration: null,
-    notice: null,
-  });
-  const [live, setLive] = useState('');
   const [insertError, setInsertError] = useState<string | null>(null);
-  const clientRef = useRef<AnalysisClient | null>(injected ?? null);
-  const runRef = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
-  const h1Ref = useRef<HTMLHeadingElement>(null);
-  const progressRef = useRef<HTMLHeadingElement>(null);
-  const noticeRef = useRef<HTMLDivElement>(null);
-  const reviewRef = useRef<HTMLHeadingElement>(null);
-  const focusNext = useRef<'h1' | 'progress' | 'notice' | 'review' | null>(
-    'h1',
-  );
+  const {
+    phase,
+    live,
+    say,
+    h1Ref,
+    progressRef,
+    noticeRef,
+    reviewRef,
+    pick,
+    start,
+    cancel,
+  } = useAnalysisRun<HumRequest>({
+    client: injected,
+    probe,
+    steps: HUM_STEPS,
+    doneMessage: '解析が終わりました。鼻歌の下書きを確かめてください',
+    rejectResult: (result) =>
+      result.melody.quantized.events.some((e) => e.kind === 'note')
+        ? null
+        : humNoVoiceNotice(),
+  });
   const songTitle = song.meta.title.trim() || UNTITLED;
-
-  const say = useCallback((msg: string) => {
-    setLive((prev) => (prev === msg ? `${msg} ` : msg));
-  }, []);
-
-  useEffect(() => {
-    const target = focusNext.current;
-    if (!target) return;
-    const el = {
-      h1: h1Ref,
-      progress: progressRef,
-      notice: noticeRef,
-      review: reviewRef,
-    }[target].current;
-    if (!el) return;
-    focusNext.current = null;
-    el.focus();
-  }, [phase]);
 
   usePageDropGuard();
 
@@ -184,104 +135,14 @@ export function HumImportScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backRequest]);
 
-  // Leaving the screen stops a running analysis (plan §6.2).
-  useEffect(
-    () => () => {
-      runRef.current++;
-      clientRef.current?.cancel();
-    },
-    [],
-  );
-
-  const showNotice = (
-    file: File | null,
-    duration: number | null,
-    notice: ImportNotice,
-  ) => {
-    focusNext.current = 'notice';
-    setPhase({ kind: 'setup', file, duration, notice });
-    say(notice.message);
-  };
-  const fail = (
-    file: File,
-    duration: number | null,
-    code: AnalysisErrorCode,
-  ) =>
-    code === 'too-long'
-      ? showNotice(null, null, noticeFor(code))
-      : showNotice(file, duration, noticeFor(code));
-
-  const pick = async (file: File) => {
-    if (phase.kind === 'analyzing') return;
-    const run = ++runRef.current;
-    setPhase({
-      kind: 'setup',
-      file,
-      duration: null,
-      probing: true,
-      notice: null,
+  const startRun = () => {
+    if (phase.kind !== 'pick' || !phase.file || phase.probing) return;
+    void start(phase.file, phase.duration, {
+      kind: 'hum',
+      source: { file: phase.file },
+      info: humRunInfo({ ...value, key: value.key || undefined, ts }),
+      firstNoteAuto: true,
     });
-    const duration = await probe(file).catch(() => null);
-    if (run !== runRef.current) return;
-    if (duration !== null && duration > MAX_DURATION_SEC) {
-      fail(file, null, 'too-long');
-      return;
-    }
-    setPhase({ kind: 'setup', file, duration, notice: null });
-    say(
-      `${file.name} を選びました${duration !== null ? `。長さ ${formatDurationJa(duration)}` : ''}`,
-    );
-  };
-
-  const start = async () => {
-    if (phase.kind !== 'setup' || !phase.file || phase.probing) return;
-    const { file, duration } = phase;
-    const run = ++runRef.current;
-    focusNext.current = 'progress';
-    setPhase({ kind: 'analyzing', file, duration, progress: null });
-    say(`解析を始めました。${stepText(null)}`);
-    const client = clientRef.current ?? createAnalysisClient();
-    clientRef.current = client;
-    let step = 1;
-    try {
-      const result = await client.run(
-        {
-          kind: 'hum',
-          source: { file },
-          info: humRunInfo({ ...value, key: value.key || undefined, ts }),
-          firstNoteAuto: true,
-        },
-        (p) => {
-          if (run !== runRef.current) return;
-          setPhase((ph) =>
-            ph.kind === 'analyzing' ? { ...ph, progress: p } : ph,
-          );
-          const v = importProgressView(p, HUM_STEPS);
-          if (v.current !== step && v.fraction < 1) {
-            step = v.current;
-            say(stepText(p));
-          }
-        },
-      );
-      if (run !== runRef.current) return;
-      if (!result.melody.quantized.events.some((e) => e.kind === 'note')) {
-        showNotice(file, duration, humNoVoiceNotice());
-        return;
-      }
-      focusNext.current = 'review';
-      setPhase({ kind: 'review', file, result });
-      say('解析が終わりました。鼻歌の下書きを確かめてください');
-    } catch (e) {
-      if (run !== runRef.current) return;
-      fail(file, duration, isAnalysisError(e) ? e.code : 'internal');
-    }
-  };
-
-  const cancel = () => {
-    if (phase.kind !== 'analyzing') return;
-    runRef.current++;
-    clientRef.current?.cancel();
-    fail(phase.file, phase.duration, 'cancelled');
   };
 
   const insert = (events: MelodyEvent[], draftTs: TimeSig) => {
@@ -342,13 +203,13 @@ export function HumImportScreen({
                 name: file.name,
                 size: file.size,
                 duration: phase.duration,
-                probing: phase.kind === 'setup' ? phase.probing : false,
+                probing: phase.kind === 'pick' ? phase.probing : false,
               }
             : null
         }
         onPick={(f) => void pick(f)}
         fileInputRef={fileInput}
-        notice={phase.kind === 'setup' ? phase.notice : null}
+        notice={phase.kind === 'pick' ? phase.notice : null}
         noticeRef={noticeRef}
         progress={
           phase.kind === 'analyzing' ? (
@@ -363,7 +224,7 @@ export function HumImportScreen({
             />
           ) : null
         }
-        onStart={() => void start()}
+        onStart={startRun}
         onBack={onBack}
         headingRef={h1Ref}
       />

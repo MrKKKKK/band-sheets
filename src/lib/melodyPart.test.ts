@@ -14,6 +14,7 @@ import {
   reflowSectionWith,
   renamePart,
   withoutCrossingTuplets,
+  writeMelodySection,
   writeSection,
   writeSectionText,
   type SectionCodec,
@@ -850,5 +851,52 @@ describe('withoutCrossingTuplets (m5-review.md R1)', () => {
         width: 600,
       }),
     ).not.toThrow();
+  });
+});
+
+describe('writeMelodySection', () => {
+  it('writes the section into the given part and leaves the other parts alone', () => {
+    const s = song([drums, { name: 'Vo', body: '' }]);
+    const out = writeMelodySection(s, 1, 'A', EVENTS, ts);
+    expect(out.parts[0]).toBe(drums);
+    expect(readSection(out.parts[1].body, 'A', ts)).toEqual({
+      status: 'ok',
+      events: EVENTS,
+    });
+  });
+
+  it('adds a Vocal part for partIndex -1 (a number-suffixed name if taken, or the given name)', () => {
+    const s = song([drums]);
+    const out = writeMelodySection(s, -1, 'A', EVENTS, ts);
+    expect(out.parts.map((p) => p.name)).toEqual(['Drums', 'Vocal']);
+    expect(readSection(out.parts[1].body, 'A', ts)).toMatchObject({
+      status: 'ok',
+    });
+    const named = writeMelodySection(s, -1, 'A', EVENTS, ts, 'Lead');
+    expect(named.parts[1].name).toBe('Lead');
+  });
+
+  it('inserts a missing label by the song chart order', () => {
+    const s: Song = {
+      ...song([{ name: 'Vo', body: '' }]),
+      chart: [
+        { kind: 'verse', label: 'A', lines: [] },
+        { kind: 'verse', label: 'B', lines: [] },
+      ],
+    };
+    const withB = writeMelodySection(s, 0, 'B', EVENTS, ts);
+    const both = writeMelodySection(withB, 0, 'A', EVENTS, ts);
+    expect(both.parts[0].body.indexOf('"A"')).toBeLessThan(
+      both.parts[0].body.indexOf('"B"'),
+    );
+  });
+
+  it('throws the writeSection message for a read-only section', () => {
+    const s = song([
+      { name: 'Vo', body: '\\section "A"\n:4 (C4 E4) C4 C4 C4 |' },
+    ]);
+    expect(() => writeMelodySection(s, 0, 'A', EVENTS, ts)).toThrow(
+      /読み取り専用/,
+    );
   });
 });

@@ -647,14 +647,7 @@ describe('App', () => {
 });
 
 describe('App: 鼻歌から下書き entry (plan §4: PC only)', () => {
-  const withPointer = (coarse: boolean) =>
-    vi.stubGlobal(
-      'matchMedia',
-      vi.fn(() => ({ matches: coarse }) as MediaQueryList),
-    );
-
   it('is on the melody tab of a PC and opens S2 in place of the editor, 「やめて戻る」 returns', async () => {
-    withPointer(false);
     const { user } = renderApp(undefined, { initialText: DRAFT });
     await user.click(screen.getByRole('tab', { name: 'メロディ' }));
     await user.click(screen.getByRole('button', { name: '鼻歌から下書き' }));
@@ -671,11 +664,9 @@ describe('App: 鼻歌から下書き entry (plan §4: PC only)', () => {
       ).toHaveFocus(),
     );
     await waitFor(() => expect(window.history.state).toBeNull());
-    vi.unstubAllGlobals();
   });
 
   it('the browser back button on S2 returns to the editor like 「やめて戻る」', async () => {
-    withPointer(false);
     window.history.replaceState(null, '');
     const { user } = renderApp(undefined, { initialText: DRAFT });
     await user.click(screen.getByRole('tab', { name: 'メロディ' }));
@@ -689,13 +680,10 @@ describe('App: 鼻歌から下書き entry (plan §4: PC only)', () => {
       ).toHaveFocus(),
     );
     expect(window.history.state).toBeNull();
-    vi.unstubAllGlobals();
   });
 
   it('is not offered on a touch-only device', () => {
-    withPointer(true);
-    renderApp(undefined, { initialText: DRAFT });
+    renderApp(undefined, { initialText: DRAFT, touchOnly: true });
     expect(screen.queryByRole('button', { name: '鼻歌から下書き' })).toBeNull();
-    vi.unstubAllGlobals();
   });
 });

@@ -157,6 +157,26 @@ describe('HumImportScreen', () => {
     ]);
   });
 
+  it('announces the pick, a repeated pick and the end of a run in the live region', async () => {
+    const { user } = setup();
+    await user.upload(screen.getByTestId('audio-file-input'), file());
+    await screen.findByTestId('picked-file');
+    expect(screen.getByTestId('import-live').textContent).toBe(
+      'hum.wav を選びました。長さ 12 秒',
+    );
+    await user.upload(screen.getByTestId('audio-file-input'), file());
+    await vi.waitFor(() =>
+      expect(screen.getByTestId('import-live').textContent).toBe(
+        'hum.wav を選びました。長さ 12 秒\u00a0',
+      ),
+    );
+    await user.click(screen.getByRole('button', { name: '解析する' }));
+    await screen.findByRole('heading', { name: '鼻歌の下書きを確かめる' });
+    expect(screen.getByTestId('staff-live')).toHaveTextContent(
+      '解析が終わりました。鼻歌の下書きを確かめてください',
+    );
+  });
+
   it('S2: cancel shows the neutral notice', async () => {
     const hold = createFakeAnalysisClient({ holdAfterStages: 2 });
     const { user } = setup(hold);

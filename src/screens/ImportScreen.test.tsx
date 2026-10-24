@@ -253,6 +253,31 @@ describe('ImportScreen', () => {
     );
   });
 
+  it('announces the pick, the start and the end of a run in the one live region', async () => {
+    const { user } = setup();
+    await user.upload(screen.getByTestId('audio-file-input'), file());
+    await screen.findByTestId('picked-file');
+    expect(screen.getByTestId('import-live')).toHaveTextContent(
+      'take.m4a を選びました。長さ 2 分 0 秒',
+    );
+    // Picking the same file again: an unchanged message is made different (a trailing NBSP) so it is read again.
+    await user.upload(screen.getByTestId('audio-file-input'), file());
+    await waitFor(() =>
+      expect(screen.getByTestId('import-live').textContent).toBe(
+        'take.m4a を選びました。長さ 2 分 0 秒\u00a0',
+      ),
+    );
+    await user.click(screen.getByRole('button', { name: '解析を始める' }));
+    await screen.findByRole('heading', {
+      level: 1,
+      name: 'コード譜の下書きを確かめる',
+    });
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(screen.getByTestId('import-live')).toHaveTextContent(
+      '解析が終わりました。コード譜の下書きを確かめてください',
+    );
+  });
+
   it('「やめて戻る」 asks only after a change', async () => {
     const { user, onBackToList } = setup();
     await pickAndStart(user);
