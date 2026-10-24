@@ -11,7 +11,7 @@ const meta = {
   title: 'Chart/ChartPreview',
   parameters: { a11y: { test: 'error' } },
   component: ChartPreview,
-  args: { song: sampleSong },
+  args: { song: sampleSong, onFixFullWidth: fn() },
   decorators: [
     (Story) => (
       <div style={{ maxWidth: 480, padding: 'var(--space-4)' }}>
