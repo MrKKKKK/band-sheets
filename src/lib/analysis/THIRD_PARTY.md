@@ -11,8 +11,12 @@ The TS port follows librosa's implementation line by line where it must reproduc
 its notice:
 
 - Every TS file that follows librosa code (`core/cqt.ts`, `core/mel.ts`, `core/stft.ts`, `chords/audio.ts`, `chords/beats.ts`, `chords/chroma.ts`, `chords/tempo.ts`) starts with a one-line comment:
-  `// Follows librosa 0.11.0 (ISC, (c) 2013--2023 librosa development team); see ts/THIRD_PARTY.md.` (kept verbatim from the research branch; the file is this one: `src/lib/analysis/THIRD_PARTY.md`)
-- The built JS must keep the notice (a `/*! ... */` comment or a bundled license list; plan section 2.2, task T2).
+  `// Follows librosa 0.11.0 (ISC, (c) 2013--2023 librosa development team); see src/lib/analysis/THIRD_PARTY.md.` (the research branch wrote `see ts/THIRD_PARTY.md`; only the path was changed)
+- The built JS keeps the notice: the analysis code runs only in the Worker chunks (`src/analysis/chords.worker.ts`,
+  `hum.worker.ts`), and `vite.config.ts` (`analysisLicenseBanner`) prepends a `/*! ... */` comment generated from THIS
+  file (each `## ` heading, its `License:` line and its `text` block) to every Worker chunk that holds analysis code.
+  `scripts/check-bundle.mjs` (CI) checks that each built Worker chunk contains every `text` block below verbatim.
+  So keep each section's license text in one `text` block.
 
 License text (from the librosa 0.11.0 distribution in the analysis image):
 
