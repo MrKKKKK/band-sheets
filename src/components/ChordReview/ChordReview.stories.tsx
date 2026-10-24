@@ -17,6 +17,7 @@ function player(over: Partial<AudioPlayer> = {}): AudioPlayer {
     play: fn(),
     pause: fn(),
     seek: fn(),
+    setBarResolver: fn(),
     ...over,
   };
 }
@@ -202,5 +203,42 @@ export const DashHelpOpens: Story = {
     await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(c.queryByRole('dialog')).toBeNull());
     await waitFor(() => expect(button).toHaveFocus());
+  },
+};
+
+/** An open candidate panel is closed when the bars are redrawn (tempo / shift / key). */
+export const PanelClosesOnRebuild: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const open = async () => {
+      await userEvent.click(
+        c.getByRole('button', {
+          name: /^6 小節目 Am\??.*の候補/,
+        }),
+      );
+      expect(c.getByTestId('candidate-panel')).toBeVisible();
+    };
+    await open();
+    await userEvent.click(c.getByRole('button', { name: /倍 192/ }));
+    expect(c.queryByTestId('candidate-panel')).toBeNull();
+    await userEvent.click(c.getByRole('button', { name: /解析のまま 96/ }));
+    await open();
+    await userEvent.click(c.getByRole('button', { name: '1 拍後へ ›' }));
+    expect(c.queryByTestId('candidate-panel')).toBeNull();
+  },
+};
+
+/** An emptied section name goes back to the analyzer's on blur and is no change. */
+export const EmptySectionNameReverts: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const input = c.getByLabelText('セクション 2 の名前');
+    await userEvent.clear(input);
+    expect(input).toHaveValue('');
+    await userEvent.tab();
+    expect(input).toHaveValue('B');
+    // not an edit: going back does not ask
+    await userEvent.click(c.getByRole('button', { name: '‹ やめて戻る' }));
+    expect(within(document.body).queryByRole('dialog')).toBeNull();
   },
 };

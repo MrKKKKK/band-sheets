@@ -1,7 +1,8 @@
 /**
  * Plays the picked recording on the review screen S3 (plan sections 4, 5): an <audio> element on an object URL
  * of the File — local only, no network. The URL is revoked when the file changes or the screen unmounts.
- * `currentTime` follows the element on every animation frame while playing (the current bar is highlighted).
+ * While playing, `currentTime` is checked on every animation frame but the state is only set when the bar
+ * (from `setBarResolver`) changes or every `TIME_STEP_SEC`, so the screen does not re-render at 60 fps.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -17,7 +18,12 @@ export interface AudioPlayer {
   play(fromSec?: number): void;
   pause(): void;
   seek(sec: number): void;
+  /** Tells the player which bar a time is in, so it updates at once when the bar changes (null = none). */
+  setBarResolver(fn: ((sec: number) => number | null) | null): void;
 }
+
+/** The displayed time (seek bar, clock) moves at about 4 Hz. */
+const TIME_STEP_SEC = 0.25;
 
 export interface AudioPlayerDeps {
   createElement?: () => HTMLAudioElement;
@@ -35,6 +41,7 @@ export function useAudioPlayer(
   const [failed, setFailed] = useState(false);
   const elRef = useRef<HTMLAudioElement | null>(null);
   const depsRef = useRef(deps);
+  const barRef = useRef<((sec: number) => number | null) | null>(null);
 
   useEffect(() => {
     if (!file) return;
@@ -50,8 +57,20 @@ export function useAudioPlayer(
       return;
     }
     let frame = 0;
+    let shown = 0;
+    let shownBar: number | null = null;
+    const show = () => {
+      shown = el.currentTime;
+      shownBar = barRef.current?.(shown) ?? null;
+      setCurrentTime(shown);
+    };
     const tick = () => {
-      setCurrentTime(el.currentTime);
+      const t = el.currentTime;
+      if (
+        Math.abs(t - shown) >= TIME_STEP_SEC ||
+        (barRef.current?.(t) ?? null) !== shownBar
+      )
+        show();
       frame = requestAnimationFrame(tick);
     };
     const stopTicking = () => {
@@ -69,10 +88,10 @@ export function useAudioPlayer(
     el.onpause = () => {
       setPlaying(false);
       stopTicking();
-      setCurrentTime(el.currentTime);
+      show();
     };
     el.onended = el.onpause;
-    el.onseeked = () => setCurrentTime(el.currentTime);
+    el.onseeked = show;
     el.onerror = () => {
       setFailed(true);
       setPlaying(false);
@@ -113,5 +132,21 @@ export function useAudioPlayer(
     setCurrentTime(el.currentTime);
   }, []);
 
-  return { playing, currentTime, duration, failed, play, pause, seek };
+  const setBarResolver = useCallback(
+    (fn: ((sec: number) => number | null) | null) => {
+      barRef.current = fn;
+    },
+    [],
+  );
+
+  return {
+    playing,
+    currentTime,
+    duration,
+    failed,
+    play,
+    pause,
+    seek,
+    setBarResolver,
+  };
 }

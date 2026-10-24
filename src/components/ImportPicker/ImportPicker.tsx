@@ -1,4 +1,11 @@
-import { useId, useRef, useState, type DragEvent, type Ref } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type DragEvent,
+  type Ref,
+} from 'react';
 import { formatClock, formatFileSize } from '../../lib/import/chordReview';
 import { Button } from '../Button/Button';
 import styles from './ImportPicker.module.css';
@@ -8,6 +15,8 @@ export interface PickedFile {
   size: number;
   /** Seconds; null = not known before decoding. */
   duration: number | null;
+  /** The length is being read: show it, and keep 「解析を始める」 off. */
+  probing?: boolean;
 }
 
 export interface ImportNotice {
@@ -46,14 +55,22 @@ export function ImportPicker({
   const whatId = useId();
   const choose = () => input.current?.click();
 
-  const onDrop = (e: DragEvent) => {
-    e.preventDefault();
-    setOver(false);
-    const f = e.dataTransfer.files[0];
-    if (f) onPick(f);
-  };
+  // A file dropped anywhere on the page is taken as the new file (the screen
+  // itself stops the browser from opening a dropped file, ImportScreen).
+  const onPickRef = useRef(onPick);
+  useEffect(() => {
+    onPickRef.current = onPick;
+  });
+  useEffect(() => {
+    const onDrop = (e: globalThis.DragEvent) => {
+      setOver(false);
+      const f = e.dataTransfer?.files[0];
+      if (f) onPickRef.current(f);
+    };
+    window.addEventListener('drop', onDrop);
+    return () => window.removeEventListener('drop', onDrop);
+  }, []);
   const onDragOver = (e: DragEvent) => {
-    e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
     setOver(true);
   };
@@ -106,9 +123,11 @@ export function ImportPicker({
           <div className={styles.fileText}>
             <p className={styles.fileName}>{file.name}</p>
             <p className={styles.muted}>
-              {file.duration !== null
-                ? `長さ ${formatClock(file.duration)}`
-                : '長さは解析のときに確かめます'}
+              {file.probing
+                ? '長さを調べています'
+                : file.duration !== null
+                  ? `長さ ${formatClock(file.duration)}`
+                  : '長さは解析のときに確かめます'}
               {` ・ ${formatFileSize(file.size)}`}
             </p>
           </div>
@@ -119,7 +138,6 @@ export function ImportPicker({
           className={over ? `${styles.drop} ${styles.dropOver}` : styles.drop}
           onDragOver={onDragOver}
           onDragLeave={() => setOver(false)}
-          onDrop={onDrop}
           data-testid="drop-zone"
         >
           <FileIcon large />
@@ -169,7 +187,11 @@ export function ImportPicker({
       </section>
 
       <div className={styles.footer}>
-        <Button variant="primary" disabled={!file} onClick={onStart}>
+        <Button
+          variant="primary"
+          disabled={!file || file.probing}
+          onClick={onStart}
+        >
           解析を始める
         </Button>
         <p className={styles.muted}>

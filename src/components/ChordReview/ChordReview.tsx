@@ -34,6 +34,7 @@ import {
   type ReviewState,
 } from '../../lib/import/chordReview';
 import { DRAFT_TITLE_SUFFIX } from '../../lib/import/draftMarks';
+import { PLAYBACK_FAILED_MESSAGE } from '../../lib/import/importErrors';
 import { NO_CHORD } from '../../lib/dashChart';
 import { UNTITLED } from '../../lib/serializeSong';
 import { displayKey, respellChord } from '../../lib/transpose';
@@ -130,6 +131,13 @@ export function ChordReview({
     ? barAtTime(draft.bars, player.currentTime)
     : null;
 
+  // The player re-renders this screen only when the bar changes (and at ~4 Hz).
+  const { setBarResolver } = player;
+  useEffect(() => {
+    setBarResolver((t) => barAtTime(draft.bars, t));
+    return () => setBarResolver(null);
+  }, [setBarResolver, draft.bars]);
+
   // Keep the playing bar in view.
   useEffect(() => {
     if (!player.playing || currentBar === null) return;
@@ -153,6 +161,9 @@ export function ChordReview({
 
   const update = (patch: Partial<ReviewState>, message?: string) => {
     setS((cur) => ({ ...cur, ...patch }));
+    // Bars are redrawn: the open panel's bar / token index would point elsewhere.
+    if ('tempoFactor' in patch || 'downbeatShift' in patch || 'key' in patch)
+      setOpen(null);
     if (message) say?.(message);
   };
 
@@ -438,6 +449,10 @@ export function ChordReview({
                       sectionNames: { ...s.sectionNames, [sec.index]: name },
                     })
                   }
+                  onRevert={() => {
+                    const { [sec.index]: _gone, ...rest } = s.sectionNames;
+                    update({ sectionNames: rest });
+                  }}
                   currentBar={currentBar}
                   open={open}
                   onOpen={(o) => setOpen(o)}
@@ -601,6 +616,7 @@ function SectionBlock({
   sec,
   name,
   onRename,
+  onRevert,
   currentBar,
   open,
   onOpen,
@@ -610,6 +626,8 @@ function SectionBlock({
   sec: ReviewSection;
   name: string;
   onRename: (name: string) => void;
+  /** Drop the typed name (back to the analyzer's). */
+  onRevert: () => void;
   currentBar: number | null;
   open: OpenChord | null;
   onOpen: (o: OpenChord) => void;
@@ -624,6 +642,9 @@ function SectionBlock({
           aria-label={`セクション ${sec.index + 1} の名前`}
           value={name}
           onChange={(e) => onRename(e.target.value)}
+          onBlur={() => {
+            if (name.replace(/[{}\r\n]/g, '').trim() === '') onRevert();
+          }}
         />
         <span className={styles.muted}>
           {sec.barCount} 小節 ・ 録音の {formatClock(sec.startSec)} から
@@ -755,9 +776,7 @@ function PlayerBar({
         {formatClock(player.currentTime)} / {formatClock(durationSec)}
       </span>
       <span className={styles.note}>
-        {player.failed
-          ? 'このファイルは、このブラウザでは再生できません。'
-          : '行の ▶ で、その行から再生'}
+        {player.failed ? PLAYBACK_FAILED_MESSAGE : '行の ▶ で、その行から再生'}
       </span>
     </div>
   );

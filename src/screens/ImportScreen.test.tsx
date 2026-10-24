@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { createFakeAnalysisClient } from '../analysis/fakeAnalysisClient';
@@ -53,6 +53,100 @@ describe('ImportScreen', () => {
     );
     expect(screen.queryByTestId('picked-file')).toBeNull();
     expect(client.requests).toHaveLength(0);
+  });
+
+  it('shows a newly chosen file at once and keeps 「解析を始める」 off until its length is known', async () => {
+    let resolve!: (n: number) => void;
+    const probe = vi
+      .fn<(f: Blob) => Promise<number | null>>()
+      .mockResolvedValueOnce(60)
+      .mockImplementationOnce(
+        () => new Promise<number | null>((r) => (resolve = r)),
+      );
+    const client = createFakeAnalysisClient({
+      results: { chords: reviewSampleResult() },
+    });
+    const user = userEvent.setup();
+    render(
+      <ImportScreen
+        client={client}
+        onCreate={vi.fn()}
+        onBackToList={vi.fn()}
+        probe={probe}
+        now={() => new Date(2026, 9, 24)}
+      />,
+    );
+    const input = screen.getByTestId('audio-file-input');
+    await user.upload(input, new File(['a'], 'old.m4a', { type: 'audio/mp4' }));
+    await screen.findByText('old.m4a');
+    expect(screen.getByRole('button', { name: '解析を始める' })).toBeEnabled();
+
+    await user.upload(input, new File(['b'], 'new.m4a', { type: 'audio/mp4' }));
+    expect(screen.getByTestId('picked-file')).toHaveTextContent('new.m4a');
+    expect(screen.getByTestId('picked-file')).toHaveTextContent(
+      '長さを調べています',
+    );
+    expect(screen.getByRole('button', { name: '解析を始める' })).toBeDisabled();
+
+    resolve(90);
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: '解析を始める' }),
+      ).toBeEnabled(),
+    );
+    expect(screen.getByTestId('picked-file')).toHaveTextContent('長さ 1:30');
+    await user.click(screen.getByRole('button', { name: '解析を始める' }));
+    expect(client.requests).toHaveLength(1);
+    expect((client.requests[0].source as { file: File }).file.name).toBe(
+      'new.m4a',
+    );
+  });
+
+  it('a too-long file still blocks after the probe', async () => {
+    let resolve!: (n: number) => void;
+    const user = userEvent.setup();
+    render(
+      <ImportScreen
+        client={createFakeAnalysisClient()}
+        onCreate={vi.fn()}
+        onBackToList={vi.fn()}
+        probe={() => new Promise<number | null>((r) => (resolve = r))}
+      />,
+    );
+    await user.upload(screen.getByTestId('audio-file-input'), file());
+    expect(screen.getByTestId('picked-file')).toBeInTheDocument();
+    resolve(750);
+    expect(await screen.findByTestId('import-notice')).toHaveTextContent(
+      IMPORT_ERROR_MESSAGES['too-long'],
+    );
+    expect(screen.queryByTestId('picked-file')).toBeNull();
+  });
+
+  it('a file dropped anywhere on the page is taken (and the browser does not open it)', async () => {
+    setup();
+    const notPrevented = fireEvent.drop(document.body, {
+      dataTransfer: { files: [file()] },
+    });
+    expect(notPrevented).toBe(false);
+    expect(await screen.findByTestId('picked-file')).toHaveTextContent(
+      'take.m4a',
+    );
+    // and again once a file is chosen: the drop is still not handed to the browser
+    expect(fireEvent.dragOver(document.body, { dataTransfer: {} })).toBe(false);
+    expect(
+      fireEvent.drop(document.body, { dataTransfer: { files: [file()] } }),
+    ).toBe(false);
+  });
+
+  it('a drop while analysing is ignored but does not navigate away', async () => {
+    const client = createFakeAnalysisClient({ holdAfterStages: 3 });
+    const { user } = setup(client);
+    await pickAndStart(user);
+    await screen.findByTestId('import-step-count');
+    expect(
+      fireEvent.drop(document.body, { dataTransfer: { files: [file()] } }),
+    ).toBe(false);
+    expect(client.requests).toHaveLength(1);
   });
 
   it('cancel stops the run and shows a neutral notice with 「もう一度解析する」', async () => {

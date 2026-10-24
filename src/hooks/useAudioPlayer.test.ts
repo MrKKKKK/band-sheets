@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useAudioPlayer } from './useAudioPlayer';
 
 function fakeAudio() {
@@ -76,5 +76,51 @@ describe('useAudioPlayer', () => {
     expect(createElement).not.toHaveBeenCalled();
     result.current.play();
     expect(result.current.playing).toBe(false);
+  });
+
+  describe('while playing', () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    function setup() {
+      const frames: (() => void)[] = [];
+      vi.stubGlobal('requestAnimationFrame', (cb: () => void) => {
+        frames.push(cb);
+        return frames.length;
+      });
+      vi.stubGlobal('cancelAnimationFrame', () => undefined);
+      const el = fakeAudio();
+      let renders = 0;
+      const { result } = renderHook(() => {
+        renders++;
+        return useAudioPlayer(new Blob(['x']), {
+          createElement: () => el as unknown as HTMLAudioElement,
+          createUrl: () => 'blob:rec',
+          revokeUrl: () => undefined,
+        });
+      });
+      // 2-second bars
+      act(() => result.current.setBarResolver((t) => Math.floor(t / 2)));
+      const step = (t: number) => {
+        el.currentTime = t;
+        act(() => frames.shift()?.());
+      };
+      return { el, result, step, renders: () => renders };
+    }
+
+    it('re-renders only when the bar changes or every 250 ms, not every frame', async () => {
+      const { el, result, step, renders } = setup();
+      await act(async () => result.current.play(0));
+      const before = renders();
+      // 60 frames of 16 ms inside bar 0 (about 0.96 s): at most 4 time updates
+      for (let i = 1; i <= 60; i++) step(i * 0.016);
+      expect(renders() - before).toBeLessThanOrEqual(4);
+      // crossing into bar 1 updates at once, even within the 250 ms window
+      step(1.99);
+      const n = renders();
+      step(2.001);
+      expect(renders()).toBe(n + 1);
+      expect(result.current.currentTime).toBe(2.001);
+      expect(el.currentTime).toBe(2.001);
+    });
   });
 });

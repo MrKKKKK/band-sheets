@@ -30,6 +30,10 @@ export const IMPORT_ERROR_MESSAGES: Record<AnalysisErrorCode, string> = {
     '解析できませんでした。もう一度試してください。直らないときは、別のファイルを試してください。',
 };
 
+/** Shown on the review screen when the browser cannot play the picked file (analysis itself worked). */
+export const PLAYBACK_FAILED_MESSAGE =
+  'このファイルは、このブラウザでは再生できません。';
+
 export interface ImportErrorInfo {
   /** `notice` = the user asked for it (cancel): show it plainly, not as an error. */
   severity: 'error' | 'notice';

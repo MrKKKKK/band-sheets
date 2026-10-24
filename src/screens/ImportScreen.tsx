@@ -55,6 +55,8 @@ type Phase =
       kind: 'pick';
       file: File | null;
       duration: number | null;
+      /** The chosen file's length is still being read. */
+      probing?: boolean;
       notice: ImportNotice | null;
     }
   | {
@@ -127,6 +129,17 @@ export function ImportScreen({
     el.focus();
   }, [phase]);
 
+  // A file dropped outside the drop zone must not make the browser open it and leave the app.
+  useEffect(() => {
+    const stop = (e: DragEvent) => e.preventDefault();
+    window.addEventListener('dragover', stop);
+    window.addEventListener('drop', stop);
+    return () => {
+      window.removeEventListener('dragover', stop);
+      window.removeEventListener('drop', stop);
+    };
+  }, []);
+
   // Leaving the screen stops a running analysis (plan §6.2).
   useEffect(
     () => () => {
@@ -138,6 +151,14 @@ export function ImportScreen({
 
   const pick = async (file: File) => {
     const run = ++runRef.current;
+    // Show the new file at once; 「解析を始める」 waits for its length.
+    setPhase({
+      kind: 'pick',
+      file,
+      duration: null,
+      probing: true,
+      notice: null,
+    });
     const duration = await probe(file).catch(() => null);
     if (run !== runRef.current) return;
     if (duration !== null && duration > MAX_DURATION_SEC) {
@@ -291,6 +312,7 @@ export function ImportScreen({
                       name: phase.file.name,
                       size: phase.file.size,
                       duration: phase.duration,
+                      probing: phase.probing,
                     }
                   : null
               }
@@ -298,10 +320,12 @@ export function ImportScreen({
               noticeRef={noticeRef}
               onPick={(f) => void pick(f)}
               onStart={() => {
-                if (phase.file) void start(phase.file, phase.duration);
+                if (phase.file && !phase.probing)
+                  void start(phase.file, phase.duration);
               }}
               onRetry={() => {
-                if (phase.file) void start(phase.file, phase.duration);
+                if (phase.file && !phase.probing)
+                  void start(phase.file, phase.duration);
               }}
             />
           )}

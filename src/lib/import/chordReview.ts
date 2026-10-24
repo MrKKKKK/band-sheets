@@ -182,6 +182,11 @@ export function initialReviewState(
 
 /** Whether the user changed anything on S3 (「やめて戻る」 asks only then). */
 export function reviewChanged(a: ReviewState, b: ReviewState): boolean {
+  // An emptied section name falls back to the analyzer's: not an edit.
+  const named = (x: Readonly<Record<number, string>>) =>
+    Object.fromEntries(
+      Object.entries(x).filter(([, v]) => cleanDirectiveValue(v) !== ''),
+    );
   const same = (x: object, y: object) =>
     JSON.stringify(Object.entries(x).sort()) ===
     JSON.stringify(Object.entries(y).sort());
@@ -191,7 +196,7 @@ export function reviewChanged(a: ReviewState, b: ReviewState): boolean {
     a.tempo === b.tempo &&
     a.key === b.key &&
     a.downbeatShift === b.downbeatShift &&
-    same(a.sectionNames, b.sectionNames) &&
+    same(named(a.sectionNames), named(b.sectionNames)) &&
     same(a.chosen, b.chosen)
   );
 }
@@ -277,7 +282,7 @@ export function dashText(units: number): string {
   return '-'.repeat(Math.floor(u / 2)) + (u % 2 ? '=' : '');
 }
 
-/** Which analyzer chord a written chord stands for (by text, nearest start; carried chords from earlier bars). */
+/** Which analyzer chord a written chord stands for (by text, nearest start; a chord continued from the previous bar). */
 function tokenId(
   bars: readonly DraftBar[],
   b: number,
@@ -295,12 +300,11 @@ function tokenId(
     }
   }
   if (best !== null || start > 0) return best;
-  for (let i = b - 1; i >= 0; i--) {
-    const cs = bars[i].chords;
-    for (let j = cs.length - 1; j >= 0; j--)
-      if (cs[j].chord === chord) return cs[j].id;
-  }
-  return null;
+  // A bar with no analyzer chord (written N.C.) is not linked to anything.
+  if ((bars[b]?.chords.length ?? 0) === 0) return null;
+  // Otherwise only a continuation of the previous bar's last chord.
+  const prev = bars[b - 1]?.chords.at(-1);
+  return prev !== undefined && prev.chord === chord ? prev.id : null;
 }
 
 /**
