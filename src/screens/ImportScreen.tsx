@@ -19,8 +19,8 @@ import {
   type AnalysisErrorCode,
   type AnalysisProgress,
 } from '../analysis/types';
-import { Button } from '../components/Button/Button';
 import { ChordReview } from '../components/ChordReview/ChordReview';
+import { ImportFrame } from '../components/ImportFrame/ImportFrame';
 import { ImportPicker } from '../components/ImportPicker/ImportPicker';
 import { ImportProgress } from '../components/ImportProgress/ImportProgress';
 import { useAudioPlayer } from '../hooks/useAudioPlayer';
@@ -251,15 +251,11 @@ export function ImportScreen({
   }
 
   return (
-    <div className={styles.page}>
-      <header className={styles.bar}>
-        <Button variant="ghost" className={styles.back} onClick={onBackToList}>
-          ‹ 曲の一覧
-        </Button>
-        <p className={styles.brand}>band-sheets</p>
-        <span className={styles.spacer} />
-        <span className={styles.muted}>PC のブラウザで解析します</span>
-      </header>
+    <ImportFrame
+      backLabel="‹ 曲の一覧"
+      onBack={onBackToList}
+      note="PC のブラウザで解析します"
+    >
       <main className={styles.main}>
         <div className={styles.column}>
           <div className={styles.intro}>
@@ -304,6 +300,6 @@ export function ImportScreen({
         </div>
       </main>
       {liveRegion}
-    </div>
+    </ImportFrame>
   );
 }

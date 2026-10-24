@@ -42,6 +42,7 @@ import { displayKey, respellChord } from '../../lib/transpose';
 import { Button } from '../Button/Button';
 import { Chip } from '../Button/Chip';
 import { ConfirmDialog } from '../ConfirmDialog/ConfirmDialog';
+import { ImportFrame } from '../ImportFrame/ImportFrame';
 import styles from './ChordReview.module.css';
 
 export type ChordReviewProps = {
@@ -201,18 +202,12 @@ export function ChordReview({
     .join(' ');
 
   return (
-    <div className={styles.page}>
-      <header className={styles.bar}>
-        <Button variant="ghost" className={styles.back} onClick={back}>
-          ‹ やめて戻る
-        </Button>
-        <p className={styles.brand}>band-sheets</p>
-        <span className={styles.spacer} />
-        <span className={styles.muted}>
-          録音から新しい曲 ・ 2 / 2（確かめる）
-        </span>
-      </header>
-
+    <ImportFrame
+      backLabel="‹ やめて戻る"
+      onBack={back}
+      note="録音から新しい曲 ・ 2 / 2（確かめる）"
+      noteClassName={styles.headerNote}
+    >
       <div className={styles.layout}>
         <main className={styles.main}>
           <div className={styles.titleRow}>
@@ -604,7 +599,7 @@ export function ChordReview({
         }}
         onCancel={() => setConfirmBack(false)}
       />
-    </div>
+    </ImportFrame>
   );
 }
 
