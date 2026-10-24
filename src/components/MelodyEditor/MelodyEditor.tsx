@@ -49,6 +49,20 @@ import {
   type CopySummary,
 } from '../../lib/melodyChords';
 import { chartOrder } from '../../lib/melodyEditor';
+import {
+  barProgress,
+  eventPosition,
+  FINISHED_MESSAGE,
+  playbackPlan,
+  playbackStart,
+  playbackTempo,
+  startHint,
+  startMessage,
+  STOPPED_MESSAGE,
+  type PlaybackStart,
+} from '../../lib/melodyPlayback';
+import type { TonePlayer } from '../../hooks/tonePlayer';
+import { useMelodyPlayback } from '../../hooks/useMelodyPlayback';
 import { diatonicChords } from '../../lib/keys';
 import { paletteGroups } from '../../lib/palette';
 import { parsePitch, pitchToMidi } from '../../lib/pitch';
@@ -61,6 +75,7 @@ import { DurationBar } from '../DurationBar/DurationBar';
 import { LyricsPanel, type LyricsAction } from '../LyricsPanel/LyricsPanel';
 import { MelodyChordsPanel } from '../MelodyChordsPanel/MelodyChordsPanel';
 import { ModeStatus } from '../ModeStatus/ModeStatus';
+import { MelodyPlayerBar } from '../MelodyPlayerBar/MelodyPlayerBar';
 import { announcement, stateChangeMessage } from '../MelodyStaff/labels';
 import { MelodyStaff } from '../MelodyStaff/MelodyStaff';
 import { PartScore } from '../PartScore/PartScore';
@@ -95,6 +110,13 @@ export interface MelodyEditorProps {
   showSection?: { label: string; seq: number } | null;
   /** A new value (not the first) = focus the 「鼻歌から下書き」 button (back from the humming screens). */
   focusHumEntry?: number;
+  /**
+   * False while the tab is not on screen (another tab, the viewer, the humming screens): playback stops.
+   * Default true.
+   */
+  active?: boolean;
+  /** Tests / stories: a fake tone player instead of Web Audio. */
+  playbackDeps?: { createTone?: () => TonePlayer };
 }
 
 /** Where a humming draft goes: the editor's part, section, and its effective time signature / key. */
@@ -109,6 +131,17 @@ export interface HumImportRequest {
 }
 
 type LyricOp = typeof extend;
+
+/** Commands after which the entered / re-pitched note sounds once. */
+const PITCH_COMMANDS: ReadonlySet<Command['type']> = new Set([
+  'noteInput',
+  'placeAt',
+  'setPitch',
+  'semitoneUp',
+  'semitoneDown',
+  'octaveUp',
+  'octaveDown',
+]);
 
 /** Lyric shortcuts (shown as hints in LyricsPanel), by `e.code`. */
 const LYRIC_KEYS: Record<string, { op: LyricOp; action: LyricsAction }> = {
@@ -208,6 +241,8 @@ export function MelodyEditor({
   onHumImport,
   showSection,
   focusHumEntry,
+  active = true,
+  playbackDeps,
 }: MelodyEditorProps) {
   // Part ------------------------------------------------------------------
   const parts = melodyParts(song);
@@ -296,6 +331,37 @@ export function MelodyEditor({
     say(msg);
   };
 
+  // Playback (sketch https://claude.ai/artifact/WjYDhuLPY7TRVZHH1BTcta) -------
+  // The current section only. Any other action (an edit, moving the cursor, selecting, a button) stops it
+  // first and then takes effect; only Space / the player bar's buttons start or stop it.
+  const tempo = playbackTempo(song.meta.tempo);
+  const pb = useMelodyPlayback(() => say(FINISHED_MESSAGE), playbackDeps);
+  const playStart =
+    view.status === 'readonly' ? null : playbackStart(events, state);
+  const startPlayback = (from: PlaybackStart | null) => {
+    if (!from) {
+      say(
+        view.status === 'readonly'
+          ? '読み取り専用のセクションは再生できません'
+          : '再生する音符がありません',
+      );
+      return;
+    }
+    if (pb.play(playbackPlan(events, tempo.tempo, from.index)))
+      say(startMessage(events, ts, from.index));
+  };
+  const stopPlayback = () => {
+    pb.stop();
+    say(STOPPED_MESSAGE);
+  };
+  /** Before any other action: stop without a word (the action announces itself). */
+  const stopForAction = () => {
+    if (pb.playing) pb.stop();
+  };
+  // A section / part change, or the tab leaving the screen, stops it.
+  const { stop: stopPb } = pb;
+  useEffect(() => () => stopPb(), [stateKey, active, stopPb]);
+
   // A humming draft was put into a section: show it and announce it (the staff gets focus below).
   const [seenShow, setSeenShow] = useState(showSection?.seq);
   if (showSection && showSection.seq !== seenShow) {
@@ -311,6 +377,7 @@ export function MelodyEditor({
    * (M12).
    */
   const commit = (next: MelodyEvent[]): boolean => {
+    stopForAction();
     if (readOnly || label === NO_SECTION) return false;
     if (view.status === 'missing' && next.length === 0) return false;
     try {
@@ -334,6 +401,8 @@ export function MelodyEditor({
 
   const run = (cmd: Command) => {
     if (readOnly) return;
+    const wasPlaying = pb.playing;
+    stopForAction();
     setChordEdit(null);
     // Refill from the chart only once the section has lyrics: otherwise
     // every typed note would silently take a chart syllable.
@@ -352,6 +421,16 @@ export function MelodyEditor({
     if (r.events !== events) {
       if (commit(r.events)) {
         say(announcement(r.events, r.state.cursor, r.state.selected));
+        // The entered / re-pitched note sounds once (not when it stopped a playback).
+        if (!wasPlaying && PITCH_COMMANDS.has(cmd.type)) {
+          const i =
+            cmd.type === 'setPitch'
+              ? cmd.index
+              : (r.state.selected ?? r.state.cursor - 1);
+          const e = r.events[i];
+          const p = e?.kind === 'note' && e.pitch ? parsePitch(e.pitch) : null;
+          if (p) pb.playNote(pitchToMidi(p));
+        }
       }
       return;
     }
@@ -415,6 +494,7 @@ export function MelodyEditor({
   /** Selects `index` (if needed) and opens the chord popover on it. */
   const openChordEditor = (index: number) => {
     if (readOnly || !events[index]) return;
+    stopForAction();
     staffAnchorRef.current =
       staffContainerRef.current?.querySelector<HTMLElement>(
         '[role="application"]',
@@ -465,6 +545,21 @@ export function MelodyEditor({
   };
 
   const handleKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    // Space: play / stop (staff focused, not during IME, not on auto-repeat).
+    const bare = !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
+    if (e.code === 'Space' && bare && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      if (e.repeat) return;
+      if (pb.playing) stopPlayback();
+      else startPlayback(playStart);
+      return;
+    }
+    // Esc while playing only stops (the selection stays; MelodyStaff skips its deselect).
+    if (e.key === 'Escape' && pb.playing) {
+      e.preventDefault();
+      stopPlayback();
+      return;
+    }
     if (readOnly || e.key === 'Escape') return;
     // Shift+C / Shift+Backspace: chord of the selected event (or the one
     // before the cursor). keyToCommand maps neither (KeyC is no note key;
@@ -684,6 +779,34 @@ export function MelodyEditor({
         />
       )}
 
+      <MelodyPlayerBar
+        playing={pb.playing}
+        disabled={playStart === null}
+        describedBy={view.status === 'readonly' ? noticeId : undefined}
+        hint={
+          view.status === 'readonly'
+            ? '読み取り専用のセクションは再生できません'
+            : playStart
+              ? startHint(playStart, events, ts)
+              : '音符を入れると再生できます'
+        }
+        position={
+          pb.at !== null
+            ? {
+                label: eventPosition(events, ts, pb.at),
+                ...barProgress(events, ts, pb.at),
+              }
+            : null
+        }
+        tempo={tempo.tempo}
+        tempoSet={tempo.set}
+        onPlay={() => startPlayback(playStart)}
+        onPlayFromHead={() =>
+          startPlayback(playbackStart(events, { cursor: 0, selected: null }))
+        }
+        onStop={stopPlayback}
+      />
+
       <fieldset
         className={styles.controls}
         disabled={readOnly}
@@ -723,6 +846,7 @@ export function MelodyEditor({
           previewDuration={{ d: state.duration, dotted: state.dotted }}
           mismatchFrom={mismatchFrom}
           readOnly={readOnly}
+          playhead={pb.at}
           onPlace={(index, pitch) => run({ type: 'placeAt', index, pitch })}
           onPitchDrag={(index, pitch) =>
             run({ type: 'setPitch', index, pitch })

@@ -26,6 +26,17 @@ type HarnessProps = {
   showSection?: MelodyEditorProps['showSection'];
 };
 
+/** Silent tones on the wall clock (stories never make a sound); spies for the playback stories. */
+const wallClock = () => performance.now() / 1000;
+const tone = {
+  start: fn(() => wallClock()),
+  stop: fn(),
+  playOne: fn(),
+  close: fn(),
+  now: wallClock,
+};
+const playbackDeps = { createTone: () => tone };
+
 /** Holds a Song like App does (song → serializeSong → text → parseSong). */
 function Harness({
   initialText,
@@ -56,6 +67,7 @@ function Harness({
         }}
         onHumImport={onHumImport}
         showSection={showSection}
+        playbackDeps={playbackDeps}
       />
       <pre data-testid="song-text">{text}</pre>
     </div>
@@ -305,6 +317,10 @@ export const ReadOnlySection: Story = {
     ).toBeInTheDocument();
     expect(canvas.getByRole('button', { name: 'ド4' })).toBeDisabled();
     expect(canvas.getByRole('button', { name: '休符' })).toBeDisabled();
+    expect(canvas.getByRole('button', { name: '再生' })).toBeDisabled();
+    expect(
+      canvas.getByText('読み取り専用のセクションは再生できません'),
+    ).toBeVisible();
     const before = textOf(canvasElement);
     await userEvent.click(canvas.getByRole('img', { name: /読み取り専用/ }));
     await userEvent.keyboard('asd{Backspace}');
@@ -949,6 +965,96 @@ export const ShowsInsertedSection: Story = {
     await waitFor(() => expect(staff).toHaveFocus());
     expect(c.getByTestId('staff-live')).toHaveTextContent(
       'セクション B に鼻歌の下書きを入れました',
+    );
+  },
+};
+
+const playerOf = (el: HTMLElement) =>
+  within(el).getByRole('group', { name: '再生' });
+
+/**
+ * Playback (sketch https://claude.ai/artifact/WjYDhuLPY7TRVZHH1BTcta): Space plays / stops the current
+ * section; Esc while playing only stops (the selection stays); any other action stops it first.
+ */
+export const Playback: Story = {
+  args: { initialText: FOUR_NOTES },
+  play: async ({ canvasElement, args }) => {
+    tone.playOne.mockClear();
+    const canvas = within(canvasElement);
+    staffOf(canvasElement).focus();
+    // cursor at the end → from the section head
+    await expect(
+      canvas.getByText('セクションの最初から鳴らします'),
+    ).toBeVisible();
+    await expect(canvas.getByText('（未設定）')).toBeVisible();
+    await userEvent.keyboard(' ');
+    await expect(playerOf(canvasElement)).toHaveAttribute(
+      'data-state',
+      'playing',
+    );
+    expect(liveOf(canvasElement).trim()).toBe('1 小節目から再生します');
+    await expect(canvas.getByTestId('playhead')).toBeInTheDocument();
+    await userEvent.keyboard(' ');
+    await expect(playerOf(canvasElement)).toHaveAttribute(
+      'data-state',
+      'stopped',
+    );
+    expect(liveOf(canvasElement).trim()).toBe('止めました');
+    expect(canvas.queryByTestId('playhead')).toBeNull();
+
+    // Enter selects F4: playback starts there; Esc stops but keeps the selection
+    await userEvent.keyboard('{Enter}');
+    await expect(
+      canvas.getByText('選んだ音（1 小節目の 4 拍目）から鳴らします'),
+    ).toBeVisible();
+    await userEvent.keyboard(' ');
+    await expect(playerOf(canvasElement)).toHaveAttribute(
+      'data-state',
+      'playing',
+    );
+    await userEvent.keyboard('{Escape}');
+    await expect(playerOf(canvasElement)).toHaveAttribute(
+      'data-state',
+      'stopped',
+    );
+    expect(canvas.getByTestId('selection')).toBeInTheDocument();
+
+    // editing while playing: stops first, then the edit applies (no note tone)
+    await userEvent.keyboard(' ');
+    await userEvent.keyboard('a');
+    await expect(playerOf(canvasElement)).toHaveAttribute(
+      'data-state',
+      'stopped',
+    );
+    expect(textOf(canvasElement)).toContain(':4 C4 D4 E4 C4 |');
+    expect(args.onChange).toHaveBeenCalledOnce();
+    expect(tone.playOne).not.toHaveBeenCalled();
+    // stopped: a re-pitched note sounds once
+    await userEvent.keyboard('{ArrowUp}');
+    expect(tone.playOne).toHaveBeenCalledOnce();
+  },
+};
+
+/** Plays to the end by itself and says so (♩=240: four quarters = 1 s). */
+export const PlaybackFinishes: Story = {
+  args: {
+    initialText: FOUR_NOTES.replace('{time: 4/4}', '{time: 4/4}\n{tempo: 240}'),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText('（曲の設定）')).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: '再生' }));
+    await expect(playerOf(canvasElement)).toHaveAttribute(
+      'data-state',
+      'playing',
+    );
+    await waitFor(
+      () => expect(liveOf(canvasElement).trim()).toBe('最後まで再生しました'),
+      { timeout: 4000 },
+    );
+    await expect(playerOf(canvasElement)).toHaveAttribute(
+      'data-state',
+      'stopped',
     );
   },
 };

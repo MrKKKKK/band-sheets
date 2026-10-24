@@ -101,6 +101,25 @@ describe('useMelodyPlayback', () => {
     expect(tone.close).toHaveBeenCalled();
   });
 
+  it('without Web Audio (the context throws) nothing breaks and it stays stopped', () => {
+    const { tone } = fakeTone();
+    const broken = {
+      ...tone,
+      start: vi.fn((): number => {
+        throw new ReferenceError('AudioContext is not defined');
+      }),
+      playOne: vi.fn(() => {
+        throw new ReferenceError('AudioContext is not defined');
+      }),
+    };
+    const hook = renderHook(() =>
+      useMelodyPlayback(vi.fn(), { createTone: () => broken }),
+    );
+    act(() => hook.result.current.play(plan));
+    expect(hook.result.current.playing).toBe(false);
+    expect(() => hook.result.current.playNote(60)).not.toThrow();
+  });
+
   it('a plan without steps plays nothing', () => {
     const { hook, tone } = setup();
     act(() => hook.result.current.play({ notes: [], steps: [], duration: 0 }));

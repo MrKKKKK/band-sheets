@@ -13,8 +13,8 @@ export interface MelodyPlayback {
   /** The event under the playhead (a rest too) while playing, else null. */
   at: number | null;
   playing: boolean;
-  /** Plays `plan` from its start; replaces what is playing. */
-  play(plan: PlaybackPlan): void;
+  /** Plays `plan` from its start; replaces what is playing. False when nothing could start. */
+  play(plan: PlaybackPlan): boolean;
   /** Stops at once (no `onFinish`). */
   stop(): void;
   /** One short tone now (a note just entered or re-pitched). */
@@ -53,9 +53,14 @@ export function useMelodyPlayback(
   const play = useCallback(
     (plan: PlaybackPlan) => {
       stop();
-      if (plan.steps.length === 0) return;
+      if (plan.steps.length === 0) return false;
       const t = tone();
-      const t0 = t.start(plan.notes, 0);
+      let t0: number;
+      try {
+        t0 = t.start(plan.notes, 0);
+      } catch {
+        return false; // no Web Audio here (e.g. jsdom): stay stopped rather than break the editor
+      }
       setAt(plan.steps[0].index);
       const frame = () => {
         const i = stepAt(plan, Math.max(0, t.now() - t0));
@@ -68,12 +73,19 @@ export function useMelodyPlayback(
         frameRef.current = requestAnimationFrame(frame);
       };
       frameRef.current = requestAnimationFrame(frame);
+      return true;
     },
     [stop, tone],
   );
 
   const playNote = useCallback(
-    (midi: number) => tone().playOne(midiToHz(midi), NOTE_PREVIEW_SEC),
+    (midi: number) => {
+      try {
+        tone().playOne(midiToHz(midi), NOTE_PREVIEW_SEC);
+      } catch {
+        // no Web Audio here: the note is entered all the same
+      }
+    },
     [tone],
   );
 
