@@ -129,6 +129,17 @@ export function ImportScreen({
     el.focus();
   }, [phase]);
 
+  // A file dropped outside the drop zone must not make the browser open it and leave the app.
+  useEffect(() => {
+    const stop = (e: DragEvent) => e.preventDefault();
+    window.addEventListener('dragover', stop);
+    window.addEventListener('drop', stop);
+    return () => {
+      window.removeEventListener('dragover', stop);
+      window.removeEventListener('drop', stop);
+    };
+  }, []);
+
   // Leaving the screen stops a running analysis (plan §6.2).
   useEffect(
     () => () => {

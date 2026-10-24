@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { createFakeAnalysisClient } from '../analysis/fakeAnalysisClient';
@@ -120,6 +120,33 @@ describe('ImportScreen', () => {
       IMPORT_ERROR_MESSAGES['too-long'],
     );
     expect(screen.queryByTestId('picked-file')).toBeNull();
+  });
+
+  it('a file dropped anywhere on the page is taken (and the browser does not open it)', async () => {
+    setup();
+    const notPrevented = fireEvent.drop(document.body, {
+      dataTransfer: { files: [file()] },
+    });
+    expect(notPrevented).toBe(false);
+    expect(await screen.findByTestId('picked-file')).toHaveTextContent(
+      'take.m4a',
+    );
+    // and again once a file is chosen: the drop is still not handed to the browser
+    expect(fireEvent.dragOver(document.body, { dataTransfer: {} })).toBe(false);
+    expect(
+      fireEvent.drop(document.body, { dataTransfer: { files: [file()] } }),
+    ).toBe(false);
+  });
+
+  it('a drop while analysing is ignored but does not navigate away', async () => {
+    const client = createFakeAnalysisClient({ holdAfterStages: 3 });
+    const { user } = setup(client);
+    await pickAndStart(user);
+    await screen.findByTestId('import-step-count');
+    expect(
+      fireEvent.drop(document.body, { dataTransfer: { files: [file()] } }),
+    ).toBe(false);
+    expect(client.requests).toHaveLength(1);
   });
 
   it('cancel stops the run and shows a neutral notice with 「もう一度解析する」', async () => {

@@ -1,4 +1,11 @@
-import { useId, useRef, useState, type DragEvent, type Ref } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type DragEvent,
+  type Ref,
+} from 'react';
 import { formatClock, formatFileSize } from '../../lib/import/chordReview';
 import { Button } from '../Button/Button';
 import styles from './ImportPicker.module.css';
@@ -48,14 +55,22 @@ export function ImportPicker({
   const whatId = useId();
   const choose = () => input.current?.click();
 
-  const onDrop = (e: DragEvent) => {
-    e.preventDefault();
-    setOver(false);
-    const f = e.dataTransfer.files[0];
-    if (f) onPick(f);
-  };
+  // A file dropped anywhere on the page is taken as the new file (the screen
+  // itself stops the browser from opening a dropped file, ImportScreen).
+  const onPickRef = useRef(onPick);
+  useEffect(() => {
+    onPickRef.current = onPick;
+  });
+  useEffect(() => {
+    const onDrop = (e: globalThis.DragEvent) => {
+      setOver(false);
+      const f = e.dataTransfer?.files[0];
+      if (f) onPickRef.current(f);
+    };
+    window.addEventListener('drop', onDrop);
+    return () => window.removeEventListener('drop', onDrop);
+  }, []);
   const onDragOver = (e: DragEvent) => {
-    e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
     setOver(true);
   };
@@ -123,7 +138,6 @@ export function ImportPicker({
           className={over ? `${styles.drop} ${styles.dropOver}` : styles.drop}
           onDragOver={onDragOver}
           onDragLeave={() => setOver(false)}
-          onDrop={onDrop}
           data-testid="drop-zone"
         >
           <FileIcon large />
