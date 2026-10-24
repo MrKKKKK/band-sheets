@@ -125,12 +125,34 @@ describe('createAnalysisClient', () => {
       kind: 'hum',
       info,
       f0Track: true,
+      firstNoteAuto: false,
       sampleRate: 22050,
     });
     expect(msg.samples).toBe(a.samples);
     expect(transfer).toEqual([a.samples.buffer]);
     workers[0].send({ type: 'result', result: 1 });
     expect(await p).toBe(1);
+  });
+
+  it('hum: passes firstNoteAuto (S2: the Worker finds the first note)', async () => {
+    const { client, workers } = setup();
+    const info = {
+      bpm: 100,
+      ts: [4, 4] as [number, number],
+      firstNoteSec: 0,
+      firstNoteTick: 16,
+    };
+    void client.run({
+      kind: 'hum',
+      source: { audio: audio() },
+      info,
+      firstNoteAuto: true,
+    });
+    await flush();
+    expect(workers[0].posted[0].msg).toMatchObject({
+      info,
+      firstNoteAuto: true,
+    });
   });
 
   it('a Worker error message becomes an AnalysisError with its code and Japanese message', async () => {

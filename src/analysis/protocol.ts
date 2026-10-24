@@ -12,6 +12,7 @@ export type RunMessage =
       sampleRate: number;
       info: HumInput;
       f0Track: boolean;
+      firstNoteAuto: boolean;
     };
 
 /** Worker -> main. A run ends with exactly one `result` or `error`. */

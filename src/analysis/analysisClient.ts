@@ -45,6 +45,7 @@ function runMessage(req: AnalysisRequest, audio: DecodedAudio): RunMessage {
         sampleRate,
         info: req.info,
         f0Track: req.f0Track ?? false,
+        firstNoteAuto: req.firstNoteAuto ?? false,
       };
 }
 
