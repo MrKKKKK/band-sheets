@@ -27,6 +27,9 @@
  *   SVG markup with `style` attributes.
  * - The analysis Workers (src/analysis/kinds.ts) are emitted as separate
  *   same-origin chunks (`assets/*.worker-*.js`), not blob:/data: URLs.
+ * - The import screen (「録音から新しい曲」) plays the picked file and reads its
+ *   length with an <audio> element on a `URL.createObjectURL(file)` blob: URL
+ *   (src/hooks/useAudioPlayer.ts, src/analysis/probeDuration.ts): media-src blob:.
  *
  * Not usable in a meta CSP (ignored by browsers): frame-ancestors,
  * report-uri / report-to, sandbox.
@@ -59,6 +62,8 @@ export const CSP_DIRECTIVES: Readonly<Record<string, readonly string[]>> = {
   ],
   // GIS iframes (per guidance; the token popup itself is a window, not a frame).
   'frame-src': ['https://accounts.google.com/gsi/'],
+  // <audio> on the user's own picked file (local object URL; nothing is fetched).
+  'media-src': ["'self'", 'blob:'],
   // The analysis module Workers (same-origin chunks). No blob:.
   'worker-src': ["'self'"],
   'object-src': ["'none'"],

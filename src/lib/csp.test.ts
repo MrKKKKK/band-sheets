@@ -24,12 +24,17 @@ describe('CSP_DIRECTIVES', () => {
       "'self'",
       'https://accounts.google.com/gsi/client',
     ]);
-    for (const sources of Object.values(p)) {
+    for (const [name, sources] of Object.entries(p)) {
       expect(sources).not.toContain("'unsafe-eval'");
       expect(sources).not.toContain('*');
       expect(sources).not.toContain('data:');
-      expect(sources).not.toContain('blob:');
+      // blob: only for <audio> on the picked file (import screen playback)
+      if (name !== 'media-src') expect(sources).not.toContain('blob:');
     }
+  });
+
+  it('media: own origin and local object URLs only', () => {
+    expect(p['media-src']).toEqual(["'self'", 'blob:']);
   });
 
   it('locks down plugins, base and forms', () => {
