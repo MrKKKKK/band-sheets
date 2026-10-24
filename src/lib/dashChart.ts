@@ -72,7 +72,10 @@ const FULL_WIDTH_DASH: Record<string, string> = {
   '—': '-',
   '＝': '=',
 };
-const FULL_WIDTH_DASH_RE = /[｜ー－—＝]/g;
+const FULL_WIDTH_DASH_RE = new RegExp(
+  `[${Object.keys(FULL_WIDTH_DASH).join('')}]`,
+  'g',
+);
 
 const toHalfWidth = (text: string): string =>
   text.replace(FULL_WIDTH_DASH_RE, (c) => FULL_WIDTH_DASH[c]);
