@@ -1,4 +1,4 @@
-import { ANALYSIS_STAGES, type AnalysisProgress } from '../../analysis/types';
+import type { AnalysisProgress } from '../../analysis/types';
 import type { TsAnalysisResult } from '../analysis/chords/result';
 import { dashes, parseDashLine, type DashMeter } from '../dashChart';
 import { parseKey } from '../keys';
@@ -26,10 +26,7 @@ import { markChordDraft, type DraftMarkInfo } from './draftMarks';
 // ---------------------------------------------------------------- S1 progress
 
 /** The six steps shown to the user, each covering consecutive analyzer stages (in order). */
-export const IMPORT_STEPS: readonly {
-  label: string;
-  stages: readonly string[];
-}[] = [
+export const IMPORT_STEPS: readonly ImportStep[] = [
   { label: '音声を読み込む', stages: ['decode'] },
   { label: '音を変換する', stages: ['resample', 'load'] },
   { label: '拍と小節の頭を探す', stages: ['beats'] },
@@ -51,22 +48,28 @@ export interface ImportProgressView {
   fraction: number;
 }
 
-/** Step states for the last progress event (null = nothing finished yet). */
+export type ImportStep = { label: string; stages: readonly string[] };
+
+/**
+ * Step states for the last progress event (null = nothing finished yet). `steps` cover the kind's analyzer
+ * stages in order (default: the chord import's six steps).
+ */
 export function importProgressView(
   p: Pick<AnalysisProgress, 'done' | 'total'> | null,
+  steps: readonly ImportStep[] = IMPORT_STEPS,
 ): ImportProgressView {
-  const total = p?.total ?? ANALYSIS_STAGES.chords.length;
+  const total = p?.total ?? steps.reduce((n, s) => n + s.stages.length, 0);
   const done = Math.max(0, Math.min(p?.done ?? 0, total));
   let end = 0;
-  let current = IMPORT_STEPS.length;
-  const steps = IMPORT_STEPS.map((s, i) => {
+  let current = steps.length;
+  const view = steps.map((s, i) => {
     end += s.stages.length;
     const state: StepState =
       done >= end ? 'done' : done >= end - s.stages.length ? 'now' : 'wait';
-    if (state === 'now' && current === IMPORT_STEPS.length) current = i + 1;
+    if (state === 'now' && current === steps.length) current = i + 1;
     return { label: s.label, state };
   });
-  return { steps, current, fraction: total > 0 ? done / total : 0 };
+  return { steps: view, current, fraction: total > 0 ? done / total : 0 };
 }
 
 // ---------------------------------------------------------------- formatting

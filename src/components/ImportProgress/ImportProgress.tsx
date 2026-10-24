@@ -1,6 +1,10 @@
 import { useId, type Ref } from 'react';
 import type { AnalysisProgress } from '../../analysis/types';
-import { formatClock, importProgressView } from '../../lib/import/chordReview';
+import {
+  formatClock,
+  importProgressView,
+  type ImportStep,
+} from '../../lib/import/chordReview';
 import { Button } from '../Button/Button';
 import styles from './ImportProgress.module.css';
 
@@ -13,6 +17,10 @@ export type ImportProgressProps = {
   onCancel: () => void;
   /** The heading (the screen moves focus here when the analysis starts). */
   headingRef?: Ref<HTMLHeadingElement>;
+  /** The steps shown (default: the chord import's six steps). */
+  steps?: readonly ImportStep[];
+  /** Muted text next to 「中止」. */
+  footnote?: string;
 };
 
 /**
@@ -25,9 +33,11 @@ export function ImportProgress({
   progress,
   onCancel,
   headingRef,
+  steps,
+  footnote = 'このタブは開いたままにしてください。中止すると、ここまでの結果は消えます。',
 }: ImportProgressProps) {
   const titleId = useId();
-  const view = importProgressView(progress);
+  const view = importProgressView(progress, steps);
   const pct = Math.round(view.fraction * 100);
   return (
     <section className={styles.card} aria-labelledby={titleId}>
@@ -89,9 +99,7 @@ export function ImportProgress({
         <Button variant="danger" className={styles.cancel} onClick={onCancel}>
           中止
         </Button>
-        <p className={styles.muted}>
-          このタブは開いたままにしてください。中止すると、ここまでの結果は消えます。
-        </p>
+        <p className={styles.muted}>{footnote}</p>
       </div>
     </section>
   );
