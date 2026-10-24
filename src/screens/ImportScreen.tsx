@@ -24,6 +24,7 @@ import { ImportFrame } from '../components/ImportFrame/ImportFrame';
 import { ImportPicker } from '../components/ImportPicker/ImportPicker';
 import { ImportProgress } from '../components/ImportProgress/ImportProgress';
 import { useAudioPlayer } from '../hooks/useAudioPlayer';
+import { usePageDropGuard } from '../hooks/usePageDropGuard';
 import type { TsAnalysisResult } from '../lib/analysis/chords/result';
 import { CHORDS_CONFIG_HASH } from '../lib/analysis/origin';
 import {
@@ -116,16 +117,7 @@ export function ImportScreen({
     el.focus();
   }, [phase]);
 
-  // A file dropped outside the drop zone must not make the browser open it and leave the app.
-  useEffect(() => {
-    const stop = (e: DragEvent) => e.preventDefault();
-    window.addEventListener('dragover', stop);
-    window.addEventListener('drop', stop);
-    return () => {
-      window.removeEventListener('dragover', stop);
-      window.removeEventListener('drop', stop);
-    };
-  }, []);
+  usePageDropGuard();
 
   // Leaving the screen stops a running analysis (plan §6.2).
   useEffect(

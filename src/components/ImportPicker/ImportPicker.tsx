@@ -1,24 +1,13 @@
-import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type DragEvent,
-  type Ref,
-} from 'react';
-import { formatClock, formatFileSize } from '../../lib/import/chordReview';
+import { useId, useRef, type Ref } from 'react';
 import type { ImportNotice } from '../../lib/import/importErrors';
+import {
+  AudioFileField,
+  type PickedFile,
+} from '../AudioFileField/AudioFileField';
 import { Button } from '../Button/Button';
 import styles from './ImportPicker.module.css';
 
-export interface PickedFile {
-  name: string;
-  size: number;
-  /** Seconds; null = not known before decoding. */
-  duration: number | null;
-  /** The length is being read: show it, and keep 「解析を始める」 off. */
-  probing?: boolean;
-}
+export type { PickedFile };
 
 export type ImportPickerProps = {
   file: PickedFile | null;
@@ -31,8 +20,6 @@ export type ImportPickerProps = {
   noticeRef?: Ref<HTMLDivElement>;
 };
 
-const ACCEPT = 'audio/*,.wav,.mp3,.m4a';
-
 /** S1 「録音から新しい曲」 before / between analyses: pick a file, read what happens, start. */
 export function ImportPicker({
   file,
@@ -42,48 +29,11 @@ export function ImportPicker({
   noticeRef,
 }: ImportPickerProps) {
   const input = useRef<HTMLInputElement>(null);
-  const [over, setOver] = useState(false);
   const whatId = useId();
   const choose = () => input.current?.click();
 
-  // A file dropped anywhere on the page is taken as the new file (the screen
-  // itself stops the browser from opening a dropped file, ImportScreen).
-  const onPickRef = useRef(onPick);
-  useEffect(() => {
-    onPickRef.current = onPick;
-  });
-  useEffect(() => {
-    const onDrop = (e: globalThis.DragEvent) => {
-      setOver(false);
-      const f = e.dataTransfer?.files[0];
-      if (f) onPickRef.current(f);
-    };
-    window.addEventListener('drop', onDrop);
-    return () => window.removeEventListener('drop', onDrop);
-  }, []);
-  const onDragOver = (e: DragEvent) => {
-    e.dataTransfer.dropEffect = 'copy';
-    setOver(true);
-  };
-
   return (
     <div className={styles.picker}>
-      <input
-        ref={input}
-        type="file"
-        accept={ACCEPT}
-        className={styles.srOnly}
-        aria-label="音声ファイル"
-        tabIndex={-1}
-        data-testid="audio-file-input"
-        onChange={(e) => {
-          const f = e.currentTarget.files?.[0];
-          // the same file can be picked again after an error
-          e.currentTarget.value = '';
-          if (f) onPick(f);
-        }}
-      />
-
       {notice ? (
         <div
           ref={noticeRef}
@@ -108,40 +58,12 @@ export function ImportPicker({
         </div>
       ) : null}
 
-      {file ? (
-        <div className={styles.fileCard} data-testid="picked-file">
-          <FileIcon />
-          <div className={styles.fileText}>
-            <p className={styles.fileName}>{file.name}</p>
-            <p className={styles.muted}>
-              {file.probing
-                ? '長さを調べています'
-                : file.duration !== null
-                  ? `長さ ${formatClock(file.duration)}`
-                  : '長さは解析のときに確かめます'}
-              {` ・ ${formatFileSize(file.size)}`}
-            </p>
-          </div>
-          <Button onClick={choose}>ファイルを変える</Button>
-        </div>
-      ) : (
-        <div
-          className={over ? `${styles.drop} ${styles.dropOver}` : styles.drop}
-          onDragOver={onDragOver}
-          onDragLeave={() => setOver(false)}
-          data-testid="drop-zone"
-        >
-          <FileIcon large />
-          <p className={styles.dropTitle}>音声ファイルをここにドロップ</p>
-          <p className={styles.muted}>または</p>
-          <Button variant="primary" onClick={choose}>
-            ファイルを選ぶ
-          </Button>
-          <p className={styles.muted}>
-            WAV・MP3・M4A の音声ファイル。10 分まで。
-          </p>
-        </div>
-      )}
+      <AudioFileField
+        file={file}
+        onPick={onPick}
+        inputRef={input}
+        hint="WAV・MP3・M4A の音声ファイル。10 分まで。"
+      />
 
       <div className={styles.privacy}>
         <LockIcon />
@@ -192,30 +114,6 @@ export function ImportPicker({
         </p>
       </div>
     </div>
-  );
-}
-
-function FileIcon({ large = false }: { large?: boolean }) {
-  const size = large ? 40 : 32;
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className={styles.icon}
-    >
-      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-      <path d="M14 3v5h5" />
-      <path d="M10 17v-5l4-1v5" />
-      <circle cx="9" cy="17" r="1.2" />
-      <circle cx="13" cy="16" r="1.2" />
-    </svg>
   );
 }
 
