@@ -14,6 +14,14 @@ describe('parseRoute', () => {
     expect(parseRoute('#/edit/')).toEqual({ screen: 'list' });
     expect(parseRoute('#/edit/a/b')).toEqual({ screen: 'list' });
     expect(parseRoute('#/new/x')).toEqual({ screen: 'list' });
+    expect(parseRoute('#/import/x')).toEqual({ screen: 'list' });
+    expect(parseRoute('#import')).toEqual({ screen: 'list' });
+  });
+  it('parses the recording import', () => {
+    expect(parseRoute('#/import')).toEqual({ screen: 'import' });
+    expect(parseRoute(routeHash({ screen: 'import' }))).toEqual({
+      screen: 'import',
+    });
   });
   it('parses new / edit / view', () => {
     expect(parseRoute('#/new')).toEqual({ screen: 'new' });
@@ -42,6 +50,7 @@ describe('routeHash', () => {
   it('builds hashes', () => {
     expect(routeHash({ screen: 'list' })).toBe('#/');
     expect(routeHash({ screen: 'new' })).toBe('#/new');
+    expect(routeHash({ screen: 'import' })).toBe('#/import');
     expect(routeHash({ screen: 'edit', songId: 'abc' })).toBe('#/edit/abc');
     expect(routeHash({ screen: 'view', songId: 'abc' })).toBe('#/view/abc');
   });
