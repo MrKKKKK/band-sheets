@@ -33,6 +33,8 @@ export type EditorScreenProps = {
   onBackToList: () => void;
   /** 'Ctrl+S' or '⌘S'. */
   shortcutLabel: string;
+  /** Touch-only device (Root's check): passed on to App. */
+  touchOnly?: boolean;
   /** Tests / stories. */
   now?: () => Date;
   newId?: () => string;
@@ -59,6 +61,7 @@ export function EditorScreen({
   onExitView,
   onBackToList,
   shortcutLabel,
+  touchOnly,
   now,
   newId,
 }: EditorScreenProps) {
@@ -214,6 +217,7 @@ export function EditorScreen({
         baseVersion={doc.baseVersion}
         onTextChange={onTextChange}
         viewing={viewing}
+        touchOnly={touchOnly}
         onEnterView={onEnterView}
         onExitView={onExitView}
         headerStart={back}

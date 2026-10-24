@@ -265,6 +265,20 @@ describe('Root viewer', () => {
 });
 
 describe('Root editor', () => {
+  it.each([
+    [false, true],
+    [true, false],
+  ])(
+    'tablet=%s: the humming entry is shown=%s (Root checks touch once and passes it down)',
+    async (tablet, shown) => {
+      const { user } = setup({ hash: '#/edit/s1', files: [SONG], tablet });
+      await user.click(await screen.findByRole('tab', { name: 'メロディ' }));
+      expect(
+        screen.queryByRole('button', { name: '鼻歌から下書き' }) !== null,
+      ).toBe(shown);
+    },
+  );
+
   it('Ctrl+S saves to Drive (and stops the browser save dialog)', async () => {
     const { user, drive } = setup({ hash: '#/edit/s1', files: [SONG] });
     await openTextEditor(user);

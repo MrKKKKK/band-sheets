@@ -46,15 +46,6 @@ const HumImportScreen = lazy(() =>
   })),
 );
 
-/** Touch-only devices get no humming import entry (plan §4: PC only), like Root's tablet list. */
-function isTouchOnly(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(hover: none) and (pointer: coarse)').matches
-  );
-}
-
 export type AppProps = {
   /** Defaults to `window.localStorage`; stories / tests pass their own. */
   storage?: KeyValueStorage | null;
@@ -71,6 +62,8 @@ export type AppProps = {
   initialText?: string;
   /** Drive version editing started from (null: not on Drive). Saved with drafts. */
   baseVersion?: string | null;
+  /** Touch-only device (Root computes it once): no humming import entry (plan §4: PC only). */
+  touchOnly?: boolean;
   /** Header slots: left of the song info (e.g. 「‹ 曲の一覧」) / right (save UI). */
   headerStart?: ReactNode;
   headerEnd?: ReactNode;
@@ -124,6 +117,7 @@ function App({
   songId = LOCAL_SONG_ID,
   initialText,
   baseVersion,
+  touchOnly = false,
   headerStart,
   headerEnd,
   onTextChange,
@@ -230,7 +224,7 @@ function App({
   // Opening them pushes ONE history entry (same URL, so Root's hash routing does not see it): browser back acts
   // like 「やめて戻る」, and leaving by a button consumes the entry, so back from the editor still goes to the list.
   const [hum, setHum] = useState<HumImportRequest | null>(null);
-  const [humEntry] = useState(() => !isTouchOnly());
+  const humEntry = !touchOnly;
   const [shownSection, setShownSection] = useState<{
     label: string;
     seq: number;
