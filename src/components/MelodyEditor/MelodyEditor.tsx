@@ -27,7 +27,6 @@ import {
 } from '../../lib/melodyLyrics';
 import {
   convertPartLevelLyrics,
-  ensureMelodyPart,
   hasPartLevelLyrics,
   melodyParts,
   partSections,
@@ -36,7 +35,7 @@ import {
   reflowSection,
   renamePart,
   withoutCrossingTuplets,
-  writeSection,
+  writeMelodySection,
   type PreambleOverrides,
 } from '../../lib/melodyPart';
 import {
@@ -314,27 +313,18 @@ export function MelodyEditor({
   const commit = (next: MelodyEvent[]): boolean => {
     if (readOnly || label === NO_SECTION) return false;
     if (view.status === 'missing' && next.length === 0) return false;
-    let base = song;
-    let idx = partIndex;
-    if (idx < 0) {
-      const ensured = ensureMelodyPart(song, NEW_PART_NAME);
-      base = ensured.song;
-      idx = ensured.partIndex;
-    }
     try {
-      const body = writeSection(
-        base.parts[idx].body,
+      const written = writeMelodySection(
+        song,
+        partIndex,
         label,
         next,
         ts,
-        chartOrder(song),
+        NEW_PART_NAME,
       );
       setError('');
       setCopyResult(null);
-      onChange({
-        ...base,
-        parts: base.parts.map((p, i) => (i === idx ? { ...p, body } : p)),
-      });
+      onChange(written);
       return true;
     } catch (e) {
       reject(e instanceof Error ? e.message : String(e));

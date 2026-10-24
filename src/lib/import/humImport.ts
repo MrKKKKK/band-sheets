@@ -5,8 +5,7 @@ import {
   type MelodyEvent,
   type TimeSig,
 } from '../melody';
-import { chartOrder } from '../melodyEditor';
-import { ensureMelodyPart, readSection, writeSection } from '../melodyPart';
+import { readSection, writeMelodySection } from '../melodyPart';
 import { parsePitch } from '../pitch';
 import { sectionLabels } from '../sections';
 import type { Song } from '../song';
@@ -113,24 +112,7 @@ export function insertHumDraft(
   events: MelodyEvent[],
   ts: TimeSig,
 ): Song {
-  let base = song;
-  let idx = partIndex;
-  if (idx < 0) {
-    const ensured = ensureMelodyPart(song);
-    base = ensured.song;
-    idx = ensured.partIndex;
-  }
-  const body = writeSection(
-    base.parts[idx].body,
-    label,
-    events,
-    ts,
-    chartOrder(song),
-  );
-  return {
-    ...base,
-    parts: base.parts.map((p, i) => (i === idx ? { ...p, body } : p)),
-  };
+  return writeMelodySection(song, partIndex, label, events, ts);
 }
 
 // ---------------------------------------------------------------- positions
