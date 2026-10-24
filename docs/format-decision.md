@@ -1,6 +1,6 @@
 # テキスト形式の比較（M1 スパイク）
 
-2026-10-03 実施。スパイクのコードは `spikes/format/`（アプリ本体とは別の依存関係）、スクリーンショットは `docs/format-spike/` にある。
+2026-10-03 実施。スパイクのコード（`spikes/format/`）は 2026-10-24 に main から削除した。git 履歴の main 40451ba までに含まれている（`git show 40451ba:spikes/format/` など）。スクリーンショットは `docs/format-spike/` に残してある。
 
 ## 方法
 

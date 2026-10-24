@@ -6,7 +6,7 @@
 
 - 全体のメモ `docs/audio-import-architecture.md`（以下「メモ」。§0 範囲、§2.2 ブラウザだけ、§5 中間 JSON・変換・丸め・下書きの印、§6 サーバーなし、§7 著作権、§8.2 スパイクの結果）。
 - `docs/audio-spike2-plan.md`・`audio-spike3-plan.md`・`audio-spike4-plan.md`（実績・結論・持ち越し）とレビュー。
-- 研究ブランチの `CLAUDE.md`（`spikes/analysis/ts` の TS 移植、`ts/hum`・`render/hum`）、`spikes/analysis/ts/THIRD_PARTY.md`。
+- 研究ブランチの `CLAUDE.md`（`spikes/analysis/ts` の TS 移植、`ts/hum`・`render/hum`）、`spikes/analysis/ts/THIRD_PARTY.md`（どちらも `research/audio-analysis` ブランチ上）。
 
 ### 守ること（決まっていること）
 
