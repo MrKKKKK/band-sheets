@@ -22,6 +22,11 @@ export interface AudioPlayer {
   now(): number;
   /** Silences the recording while it keeps playing (S4 「下書き」: the recording is then only the clock). */
   setMuted(muted: boolean): void;
+  /**
+   * Called with the element's exact second when the sound really starts (`playing`) or moves while playing
+   * (`seeked`): S4 aligns the draft tones to it (null = none).
+   */
+  setSyncListener(fn: ((sec: number) => void) | null): void;
   /** Tells the player which bar a time is in, so it updates at once when the bar changes (null = none). */
   setBarResolver(fn: ((sec: number) => number | null) | null): void;
 }
@@ -47,6 +52,7 @@ export function useAudioPlayer(
   const depsRef = useRef(deps);
   const barRef = useRef<((sec: number) => number | null) | null>(null);
   const mutedRef = useRef(false);
+  const syncRef = useRef<((sec: number) => void) | null>(null);
 
   useEffect(() => {
     if (!file) return;
@@ -97,7 +103,11 @@ export function useAudioPlayer(
       show();
     };
     el.onended = el.onpause;
-    el.onseeked = show;
+    el.onplaying = () => syncRef.current?.(el.currentTime);
+    el.onseeked = () => {
+      show();
+      if (!el.paused) syncRef.current?.(el.currentTime);
+    };
     el.onerror = () => {
       setFailed(true);
       setPlaying(false);
@@ -112,6 +122,7 @@ export function useAudioPlayer(
       el.onpause = null;
       el.onended = null;
       el.onseeked = null;
+      el.onplaying = null;
       el.onerror = null;
       el.pause();
       el.removeAttribute('src');
@@ -144,6 +155,10 @@ export function useAudioPlayer(
     if (elRef.current) elRef.current.muted = muted;
   }, []);
 
+  const setSyncListener = useCallback((fn: ((sec: number) => void) | null) => {
+    syncRef.current = fn;
+  }, []);
+
   const setBarResolver = useCallback(
     (fn: ((sec: number) => number | null) | null) => {
       barRef.current = fn;
@@ -161,6 +176,7 @@ export function useAudioPlayer(
     seek,
     now,
     setMuted,
+    setSyncListener,
     setBarResolver,
   };
 }

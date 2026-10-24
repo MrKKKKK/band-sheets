@@ -9,7 +9,10 @@ export interface TonePlayer {
   /** Sounds `notes` from second `fromSec` of the recording's clock, at once; replaces what was scheduled. */
   start(notes: readonly SoundingNote[], fromSec: number): void;
   stop(): void;
-  /** One tone now (a candidate that was clicked). Stops the scheduled notes. */
+  /**
+   * One tone now (a candidate that was clicked). Kept apart from the scheduled notes: `start` / `stop` never
+   * cut it (only the next `playOne` or `close` does).
+   */
   playOne(hz: number, durationSec: number): void;
   close(): void;
 }
@@ -35,6 +38,7 @@ export function createTonePlayer(
 ): TonePlayer {
   let ctx: Ctx | null = null;
   let live: OscillatorNode[] = [];
+  let single: OscillatorNode | null = null;
 
   const context = () => {
     if (!ctx) ctx = createContext();
@@ -42,7 +46,12 @@ export function createTonePlayer(
     return ctx;
   };
 
-  const tone = (c: Ctx, hz: number, at: number, dur: number) => {
+  const tone = (
+    c: Ctx,
+    hz: number,
+    at: number,
+    dur: number,
+  ): OscillatorNode => {
     const osc = c.createOscillator();
     const gain = c.createGain();
     osc.type = 'sine';
@@ -61,17 +70,19 @@ export function createTonePlayer(
     };
     osc.start(at);
     osc.stop(end);
-    live.push(osc);
+    return osc;
+  };
+
+  const halt = (o: OscillatorNode) => {
+    try {
+      o.stop();
+    } catch {
+      // already stopped
+    }
   };
 
   const stop = () => {
-    for (const o of live) {
-      try {
-        o.stop();
-      } catch {
-        // already stopped
-      }
-    }
+    live.forEach(halt);
     live = [];
   };
 
@@ -84,17 +95,19 @@ export function createTonePlayer(
         const end = n.start + n.duration;
         if (end <= fromSec) continue;
         const from = Math.max(n.start, fromSec);
-        tone(c, n.hz, t0 + (from - fromSec), end - from);
+        live.push(tone(c, n.hz, t0 + (from - fromSec), end - from));
       }
     },
     stop,
     playOne(hz, durationSec) {
-      stop();
+      if (single) halt(single);
       const c = context();
-      tone(c, hz, c.currentTime + LEAD_SEC, durationSec);
+      single = tone(c, hz, c.currentTime + LEAD_SEC, durationSec);
     },
     close() {
       stop();
+      if (single) halt(single);
+      single = null;
       void ctx?.close().catch(() => undefined);
       ctx = null;
     },

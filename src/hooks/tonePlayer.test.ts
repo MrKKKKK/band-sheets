@@ -76,6 +76,10 @@ describe('createTonePlayer', () => {
     expect(f.oscs[0].stop).toHaveBeenCalledTimes(2); // scheduled end + replaced
     p.playOne(440, 0.4);
     expect(f.oscs).toHaveLength(5);
+    // the candidate tone is not cut by start / stop
+    p.stop();
+    p.start(notes, 0);
+    expect(f.oscs[4].stop).toHaveBeenCalledTimes(1); // its own scheduled end only
     p.close();
     expect(f.ctx.close).toHaveBeenCalled();
     expect(create).toHaveBeenCalledTimes(1);

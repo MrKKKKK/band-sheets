@@ -30,6 +30,8 @@ export interface HumPlayback {
 
 /** A clicked candidate sounds at most this long. */
 const MAX_NOTE_SEC = 1.5;
+/** 「at the end」 for ▶ (seconds). */
+const END_EPS = 0.05;
 
 export function useHumPlayback(
   file: Blob | null,
@@ -41,39 +43,51 @@ export function useHumPlayback(
   const toneRef = useRef<TonePlayer | null>(null);
   const createToneRef = useRef(deps.createTone ?? (() => createTonePlayer()));
   const notesRef = useRef(notes);
+  const modeRef = useRef(mode);
+  /**
+   * Playing as far as the tones are concerned. Set at once by play() / pause(): the element's `pause` event
+   * (and so `player.playing`) comes later, and a candidate's tone must not be rescheduled away meanwhile.
+   */
+  const playingRef = useRef(false);
   const segmentRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tone = useCallback(() => {
     toneRef.current ??= createToneRef.current();
     return toneRef.current;
   }, []);
-  const { playing, now, setMuted } = player;
+  const { playing, now, setMuted, setSyncListener } = player;
 
   const clearSegment = () => {
     if (segmentRef.current !== null) clearTimeout(segmentRef.current);
     segmentRef.current = null;
   };
 
-  const sound = useCallback(
-    (m: ListenMode, from: number) => {
-      setMuted(m === 'draft');
-      if (m === 'recording') tone().stop();
-      else tone().start(notesRef.current, from);
+  /** The tones from second `at` of the recording (or none for 「録音」). */
+  const align = useCallback(
+    (at: number) => {
+      if (!playingRef.current || modeRef.current === 'recording') return;
+      tone().start(notesRef.current, at);
     },
-    [setMuted, tone],
+    [tone],
   );
+
+  // The tones start when the recording really sounds (`playing`) and follow seeks, from its own clock.
+  useEffect(() => {
+    setSyncListener(align);
+    return () => setSyncListener(null);
+  }, [setSyncListener, align]);
 
   // The recording stopped (pause, end, error): so do the tones.
   useEffect(() => {
-    if (!playing) toneRef.current?.stop();
+    if (playing) return;
+    playingRef.current = false;
+    toneRef.current?.stop();
   }, [playing]);
 
   // A fix applied while playing: the tones follow the new draft.
   useEffect(() => {
     notesRef.current = notes;
-    if (playing && mode !== 'recording') tone().start(notes, now());
-    // only on a new draft, not on every play/pause
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes]);
+    if (playingRef.current) align(now());
+  }, [notes, align, now]);
 
   useEffect(
     () => () => {
@@ -85,29 +99,36 @@ export function useHumPlayback(
 
   const play = (fromSec?: number) => {
     clearSegment();
-    const from = fromSec ?? now();
-    sound(mode, from);
+    let from = fromSec ?? now();
+    // at the end: start over (the <audio> does, so must the tones)
+    if (player.duration !== null && from >= player.duration - END_EPS) from = 0;
+    playingRef.current = true;
+    setMuted(mode === 'draft');
+    toneRef.current?.stop();
     player.play(from);
   };
   const pause = () => {
     clearSegment();
+    playingRef.current = false;
     player.pause();
     toneRef.current?.stop();
   };
-  const seek = (sec: number) => {
-    player.seek(sec);
-    if (playing && mode !== 'recording') tone().start(notesRef.current, sec);
-  };
+  const seek = (sec: number) => player.seek(sec);
   const setMode = (m: ListenMode) => {
     setModeState(m);
-    if (playing) sound(m, now());
+    modeRef.current = m;
+    if (!playingRef.current) return;
+    setMuted(m === 'draft');
+    if (m === 'recording') toneRef.current?.stop();
+    else align(now());
   };
   const playNote = (midi: number, durationSec: number) => {
-    if (playing) pause();
+    if (playingRef.current || playing) pause();
     tone().playOne(midiToHz(midi), Math.min(durationSec, MAX_NOTE_SEC));
   };
   const playRecording = (from: number, to: number) => {
     clearSegment();
+    playingRef.current = false;
     toneRef.current?.stop();
     setMuted(false);
     player.play(from);
