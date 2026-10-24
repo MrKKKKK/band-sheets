@@ -28,6 +28,7 @@ const meta = {
         stop: fn(),
         playOne: fn(),
         close: fn(),
+        now: () => 0,
       }),
     },
   },

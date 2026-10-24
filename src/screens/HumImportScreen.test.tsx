@@ -25,6 +25,7 @@ const tone = () => ({
   stop: vi.fn(),
   playOne: vi.fn(),
   close: vi.fn(),
+  now: () => 0,
 });
 
 function setup(

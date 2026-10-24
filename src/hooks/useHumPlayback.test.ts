@@ -47,6 +47,7 @@ function setup() {
     stop: vi.fn(),
     playOne: vi.fn(),
     close: vi.fn(),
+    now: () => 0,
   };
   const notes = [{ index: 1, start: 1, duration: 0.5, midi: 69, hz: 440 }];
   const file = new Blob(['x']);
