@@ -130,6 +130,13 @@ export function ChordReview({
     ? barAtTime(draft.bars, player.currentTime)
     : null;
 
+  // The player re-renders this screen only when the bar changes (and at ~4 Hz).
+  const { setBarResolver } = player;
+  useEffect(() => {
+    setBarResolver((t) => barAtTime(draft.bars, t));
+    return () => setBarResolver(null);
+  }, [setBarResolver, draft.bars]);
+
   // Keep the playing bar in view.
   useEffect(() => {
     if (!player.playing || currentBar === null) return;
