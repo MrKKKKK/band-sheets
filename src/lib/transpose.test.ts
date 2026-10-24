@@ -194,6 +194,60 @@ describe('respellChord', () => {
     expect(respellChord('A#?', 'Am')).toBe('Bb?');
     expect(respellChord('Gb', 'Am')).toBe('F#');
   });
+  it('G major: out-of-key notes by degree (G# Bb C# Eb F), in-key as the key', () => {
+    expect(respellChord('Ab', 'G')).toBe('G#'); // +1 sharp
+    expect(respellChord('A#', 'G')).toBe('Bb'); // +3 flat
+    expect(respellChord('Db', 'G')).toBe('C#'); // +6 sharp
+    expect(respellChord('D#', 'G')).toBe('Eb'); // +8 flat
+    expect(respellChord('E#', 'G')).toBe('F'); // +10 flat (natural)
+    expect(respellChord('Gb', 'G')).toBe('F#'); // in key
+    expect(respellChord('Cb', 'G')).toBe('B'); // in key
+    expect(respellChord('F#m7', 'G')).toBe('F#m7');
+  });
+  it('D major: C# is in the key, the out-of-key C is natural', () => {
+    expect(respellChord('Db', 'D')).toBe('C#'); // in key
+    expect(respellChord('Gb', 'D')).toBe('F#'); // in key
+    expect(respellChord('B#', 'D')).toBe('C'); // +10 flat (natural)
+    expect(respellChord('Eb', 'D')).toBe('D#'); // +1 sharp
+    expect(respellChord('E#', 'D')).toBe('F'); // +3 flat (natural)
+    expect(respellChord('Ab', 'D')).toBe('G#'); // +6 sharp
+    expect(respellChord('A#', 'D')).toBe('Bb'); // +8 flat
+  });
+  it('F major (flat key): in-key Bb, out-of-key by degree', () => {
+    expect(respellChord('A#', 'F')).toBe('Bb');
+    expect(respellChord('Gb', 'F')).toBe('F#'); // +1 sharp
+    expect(respellChord('G#', 'F')).toBe('Ab'); // +3 flat
+    expect(respellChord('Cb', 'F')).toBe('B'); // +6 sharp (natural)
+    expect(respellChord('C#', 'F')).toBe('Db'); // +8 flat
+    expect(respellChord('D#', 'F')).toBe('Eb'); // +10 flat
+  });
+  it('E minor: major 3rd and leading tone sharp, b5 flat', () => {
+    expect(respellChord('Gb', 'Em')).toBe('F#'); // in key
+    expect(respellChord('A#', 'Em')).toBe('Bb'); // +6 flat
+    expect(respellChord('Ab', 'Em')).toBe('G#'); // +4 sharp
+    expect(respellChord('Eb', 'Em')).toBe('D#'); // +11 sharp
+    expect(respellChord('Db', 'Em')).toBe('C#'); // +9 sharp
+    expect(respellChord('F', 'Em')).toBe('F'); // +1 flat (natural)
+  });
+  it('C minor (flat key): in-key Ab Bb Eb, out-of-key by degree', () => {
+    expect(respellChord('G#', 'Cm')).toBe('Ab');
+    expect(respellChord('A#', 'Cm')).toBe('Bb');
+    expect(respellChord('D#', 'Cm')).toBe('Eb');
+    expect(respellChord('C#', 'Cm')).toBe('Db'); // +1 flat
+    expect(respellChord('Fb', 'Cm')).toBe('E'); // +4 sharp (natural)
+    expect(respellChord('Gb', 'Cm')).toBe('Gb'); // +6 flat
+    expect(respellChord('Cb', 'Cm')).toBe('B'); // +11 sharp (natural)
+  });
+  it('slash bass is spelled by the same rule', () => {
+    expect(respellChord('A#/D#', 'G')).toBe('Bb/Eb');
+    expect(respellChord('Gb/Db?', 'D')).toBe('F#/C#?');
+  });
+  it('never gives E# / Cb / double accidentals (simplest enharmonic)', () => {
+    expect(respellChord('Fb', 'C#')).toBe('E');
+    expect(respellChord('E#', 'C#')).toBe('F');
+    expect(respellChord('B#', 'C#')).toBe('C');
+    expect(respellChord('Cb', 'Gb')).toBe('B');
+  });
   it('no key keeps the chord own spelling', () => {
     expect(respellChord('Bb', undefined)).toBe('Bb');
     expect(respellChord('A#', undefined)).toBe('A#');
