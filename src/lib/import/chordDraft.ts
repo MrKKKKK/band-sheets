@@ -20,11 +20,33 @@ import type { ChartSection, Song } from '../song';
  * referred to by its NAME (e.g. "Bm"), not by its rank.
  */
 
-/** Beats per bar of the draft (the meter is always 4/4, §3.2). */
-export const BEATS_PER_BAR = 4;
-export const DRAFT_METER: DashMeter = { num: 4, den: 4 };
-/** Sixteenths per bar in 4/4. */
-export const BAR_UNITS = 16;
+/** Meter used when the analyzer's time signature is unusable. */
+export const FALLBACK_METER: DashMeter = { num: 4, den: 4 };
+
+/**
+ * The draft's meter: the analyzer's `timeSignature` (from downbeat tracking;
+ * its beats are quarter notes, so `den` is 4). Anything else (non-integer,
+ * outside 2..12 beats, den other than 4) falls back to 4/4.
+ */
+export function draftMeter(result: TsAnalysisResult): DashMeter {
+  const ts = result.timeSignature as
+    { num?: unknown; den?: unknown } | undefined;
+  const num = ts?.num;
+  if (
+    ts?.den === 4 &&
+    typeof num === 'number' &&
+    Number.isInteger(num) &&
+    num >= 2 &&
+    num <= 12
+  )
+    return { num, den: 4 };
+  return FALLBACK_METER;
+}
+
+/** Beats (quarter notes) per bar of the draft. */
+export function draftBeatsPerBar(result: TsAnalysisResult): number {
+  return draftMeter(result).num;
+}
 export const DEFAULT_TEMPO = 120;
 export const DEFAULT_BARS_PER_LINE = 4;
 
@@ -89,9 +111,10 @@ export function beatGrid(
     0,
     beats.findIndex((b) => b.downbeat),
   );
+  const bpb = draftBeatsPerBar(result);
   let first = phase + Math.round(downbeatShift);
   // A shift to before the first beat: the first whole bar starts one bar later.
-  while (first < 0) first += BEATS_PER_BAR;
+  while (first < 0) first += bpb;
   const time = (i: number): number =>
     i < count
       ? beats[i].t
@@ -127,7 +150,7 @@ function chordText(
 
 /**
  * Bars of chords for the given downbeat shift (beats; + = the downbeat moves
- * later). Bars are 4 beats; beats before the first bar are dropped, and a
+ * later). Bars are `draftBeatsPerBar` beats; beats before the first bar are dropped, and a
  * trailing bar with fewer than two beats of audio is not made.
  */
 export function barChords(
@@ -136,6 +159,8 @@ export function barChords(
   chosen?: ChosenChords,
 ): DraftBar[] {
   const g = beatGrid(result, downbeatShift);
+  const BEATS_PER_BAR = draftBeatsPerBar(result);
+  const BAR_UNITS = BEATS_PER_BAR * 4; // sixteenths per bar (quarter-note beats)
   const bars: DraftBar[] = [];
   for (
     let b0 = g.firstBeat, index = 0;
@@ -285,6 +310,7 @@ export function chordDraftSong(
 ): ChordDraft {
   const bars = barChords(result, opts.downbeatShift, opts.chosen);
   const tempo = opts.tempo ?? draftTempo(result);
+  const meter = draftMeter(result);
 
   const inputs: DashChordInput[][] = bars.map((b) =>
     b.chords.map((c) => ({
@@ -294,9 +320,7 @@ export function chordDraftSong(
     })),
   );
   // One bar per line keeps the carry-over across bars and lines; then regroup.
-  const barTexts = writeDashChart(inputs, DRAFT_METER, 1).map((l) =>
-    l.slice(1, -1),
-  );
+  const barTexts = writeDashChart(inputs, meter, 1).map((l) => l.slice(1, -1));
 
   const starts = sectionStarts(result, bars);
   const chart: ChartSection[] = starts.map((s, i) => {
@@ -315,7 +339,7 @@ export function chordDraftSong(
       title: opts.title,
       ...(key !== undefined ? { key } : {}),
       tempo,
-      time: '4/4',
+      time: `${meter.num}/${meter.den}`,
     },
     chart,
     parts: [],

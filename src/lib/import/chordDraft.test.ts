@@ -11,6 +11,7 @@ import {
   barChords,
   chordCandidates,
   chordDraftSong,
+  draftMeter,
   draftTempo,
   droppedSeconds,
   titleFromFileName,
@@ -351,5 +352,69 @@ describe('draftMarks', () => {
     expect(serializeSong(once)).toContain(
       '\n\n{comment: 自動解析の下書き 2026-10-19 コード h}\n\n{start_of_verse: A}',
     );
+  });
+});
+
+/** `made` with `bpb` beats per bar (downbeat flags and time signature). */
+function madeMeter(
+  bpb: number,
+  nBeats: number,
+  chords: [number, number, string][],
+): TsAnalysisResult {
+  const r = made(nBeats, chords);
+  r.beats = r.beats.map((b, i) => ({ ...b, downbeat: i % bpb === 0 }));
+  r.timeSignature = { num: bpb, den: 4, confidence: 0.8 };
+  return r;
+}
+
+describe('meter from the analyzer', () => {
+  it('3/4: bars of 3 beats, 6 dashes, valid dash lines, round trip', () => {
+    const r = madeMeter(3, 12, [
+      [0, 3, 'C'],
+      [3, 4.5, 'F'],
+      [4.5, 6, 'G'],
+      [6, 12, 'Am'],
+    ]);
+    const bars = barChords(r, 0);
+    expect(bars).toHaveLength(4);
+    expect(bars[1].chords.map((c) => [c.chord, c.start, c.length])).toEqual([
+      ['F', 0, 6],
+      ['G', 6, 6],
+    ]);
+    const { song } = chordDraftSong(r, { title: 't', downbeatShift: 0 });
+    expect(song.meta.time).toBe('3/4');
+    const meter = meterOf('3/4');
+    let total = 0;
+    for (const sec of song.chart)
+      for (const l of sec.lines) {
+        expect(isRawLine(l)).toBe(false);
+        if (isRawLine(l)) continue;
+        expect(isDashLine(l)).toBe(true);
+        expect(validateDashLine(l, meter)).toEqual([]);
+        total += lineBarCount(l);
+      }
+    expect(total).toBe(bars.length);
+    expect(lines(song)[0]).toMatch(/^\|\[C\]-{6}\|/);
+    expect(parseSong(serializeSong(song))).toEqual(song);
+  });
+
+  it('falls back to 4/4 for an unusable time signature', () => {
+    for (const ts of [
+      { num: 0, den: 4, confidence: 0 },
+      { num: 3.5, den: 4, confidence: 0 },
+      { num: 6, den: 8, confidence: 0 },
+      { num: 13, den: 4, confidence: 0 },
+      undefined,
+    ]) {
+      const r = made(8, [[0, 8, 'C']]);
+      (r as { timeSignature: unknown }).timeSignature = ts;
+      expect(draftMeter(r)).toEqual({ num: 4, den: 4 });
+      const { song, bars } = chordDraftSong(r, {
+        title: 't',
+        downbeatShift: 0,
+      });
+      expect(song.meta.time).toBe('4/4');
+      expect(bars).toHaveLength(2);
+    }
   });
 });
