@@ -9,6 +9,5 @@
         "allowConstantExport": true
       }
     ]
-  },
-  "ignorePatterns": ["spikes/**"]
+  }
 }

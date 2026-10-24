@@ -36,8 +36,4 @@ storybook-static
 /coverage
 __screenshots__/
 
-# Audio analysis spike outputs
-spikes/analysis/out/
-spikes/analysis/recordings/
-spikes/analysis/soundfonts/
 /out/

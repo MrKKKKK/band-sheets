@@ -161,25 +161,12 @@ Before building any editor or view screen, sketch it with **Claude Design** (Art
   - Transpose UI (`TransposeControl`): side buttons show the RESULTING value, the middle value is display-only, 「原曲キーに戻す」 is disabled (not hidden) at 0; announced via the viewer's one live region (`changeTranspose` → `say`). The bar is inline-wide only from `TRANSPOSE_INLINE_FROM_PX` (2000; the group needs ~600px), otherwise a 「移調 ▾」 popover; `COMPACT_BELOW_PX` is 1600 (was 1400) because the extra button made the bar overflow.
   - Tablet e2e: `npx playwright test --project tablet` (iPad Pro 11 landscape 1194×834, `hasTouch`, chromium, only `e2e/viewer.spec.ts`; the default `chromium` project ignores it). Auto-scroll tests use `page.clock`.
 
-## Audio analysis spike (spikes/analysis)
-
-Spike 0 of the audio-import feature (`docs/audio-import-architecture.md` §8.2; plan `docs/audio-spike0-plan.md`, review `docs/audio-spike0-review.md`). Synthesizes wavs from band-sheets songs with alphaTab, writes ground-truth JSON, and scores analyzer output. Outside oxlint, prettier, `tsc -b` and the app's `npm test`; `out/` is gitignored (regenerate in seconds).
-
-- `render/` (TypeScript, run with tsx in the devcontainer) and `py/` (Python 3.12 in the Docker image `band-sheets-analysis`, pinned by digest + `requirements.lock.txt`).
-- Render all variants to `spikes/analysis/out/`: `docker exec -u node -w /workspaces/band-sheets/spikes/analysis band-sheets npx tsx render/cli.ts`
-- TS tests: `docker exec -u node -w /workspaces/band-sheets band-sheets npx vitest run --config spikes/analysis/vitest.config.ts`
-- Python: build once with `docker build -t band-sheets-analysis spikes/analysis/py`, then `docker run --rm -u 1000:1000 -e HOME=/tmp -e NUMBA_CACHE_DIR=/tmp -v <repo>/spikes/analysis:/work -w /work band-sheets-analysis python py/check_alignment.py` (also `python py/run_all.py`, or `python -m unittest discover -s py/tests`).
-- alphaTab `\tf` only carries to later bars when the DRUM track is first: render Drums first. Take melody/drum truth times from alphaTab's MIDI note-ons, not from the score.
-- alphaTex tracks default to program 25 (guitar) unless a program is set.
-- A missing drum bar is silently filled by alphaTab (`bar.isEmpty`); `truth.ts` rejects it.
-- Licenses: soxr/libsndfile (LGPL) and certifi (MPL-2.0) are in the local Python image only; never ship them in the app.
-
 ## Git workflow (GitHub Flow, decided 2026-10-10)
 
 - `main` is what's deployed: every push to `main` publishes to GitHub Pages (`deploy-pages.yml`). It is protected — no direct pushes; changes land through a PR whose `CI` check (`ci.yml`: lint, prettier, `tsc -b`, unit tests, build) passes. Solo project: no review approval required.
 - Work on a short-lived branch per task, named `<type>/<issue#>-<slug>` (issue number when there is one): `feature/…`, `fix/…`, `docs/…`, `chore/…`. Open the PR with `gh pr create`, put `Closes #N` in the body, merge with a squash merge once CI is green, then delete the branch.
 - **Delete branches you no longer need** (decided 2026-10-11): the repo setting "Automatically delete head branches" is on, so merged PR branches go away on GitHub; also delete the local branch and any worktree. When finishing a task, check `git branch -a` / `git worktree list` for leftovers (merged or abandoned) and delete them — for an abandoned branch with unmerged work, ask the user first. Long-lived branches (`main`, `research/…`) are never deleted.
-- **Research branch `research/audio-analysis`** (decided 2026-10-11): long-lived, never merged into `main`. Scope: audio analysis, accuracy evaluation of the analysis data, and feasibility of running it in the browser (TS). Out of scope: converting analysis data into app data and the input-assist feature — those are system design and go to `main` through normal `feature/…` branches once the integration is decided. Spike work branches off it as `spike/<n>-<slug>`, PRs target `research/audio-analysis` (squash merge). It is protected like `main` (required checks: `check`, `spike-analysis-py`). Merge `main` into it only when needed; checking that app changes still work with the spike is a task inside the research branch. The spike files already on `main` (`spikes/analysis/`, spike 0/1 docs) stay; they don't affect the app.
+- **Research branch `research/audio-analysis`** (decided 2026-10-11): long-lived, never merged into `main`. Scope: audio analysis, accuracy evaluation of the analysis data, and feasibility of running it in the browser (TS). Out of scope: converting analysis data into app data and the input-assist feature — those are system design and go to `main` through normal `feature/…` branches once the integration is decided. Spike work branches off it as `spike/<n>-<slug>`, PRs target `research/audio-analysis` (squash merge). It is protected like `main` (required checks: `check`, `spike-analysis-py`). Merge `main` into it only when needed; checking that app changes still work with the spike is a task inside the research branch. Spike code lives only on the research branch.
 - Storybook and e2e tests are not in CI (they need the devcontainer's browsers): run the affected ones locally before opening the PR.
 
 ## Verification
