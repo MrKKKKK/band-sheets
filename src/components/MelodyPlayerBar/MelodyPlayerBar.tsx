@@ -77,7 +77,9 @@ export function MelodyPlayerBar({
         <span className={styles.hint}>{hint}</span>
       )}
       <span className={styles.tempo}>
-        <span className={styles.mono}>テンポ ♩＝{tempo}</span>
+        <span className={styles.mono}>
+          <span className={styles.tempoWord}>テンポ </span>♩＝{tempo}
+        </span>
         {tempoSet ? '（曲の設定）' : '（未設定）'}
       </span>
     </div>

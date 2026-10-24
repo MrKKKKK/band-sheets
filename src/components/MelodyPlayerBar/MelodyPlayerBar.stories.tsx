@@ -76,7 +76,7 @@ export const NoTempo: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByText('（未設定）')).toBeVisible();
-    await expect(c.getByText('テンポ ♩＝100')).toBeVisible();
+    await expect(c.getByText(/♩＝100/)).toBeVisible();
   },
 };
 

@@ -64,3 +64,30 @@
   font-size: var(--font-size-sm);
   white-space: nowrap;
 }
+
+/* Narrow (sketch P3): buttons + tempo on the first line, the hint / position below. */
+@media (max-width: 600px) {
+  .play {
+    min-width: 0;
+  }
+
+  .tempo {
+    order: 1;
+  }
+
+  .hint,
+  .status {
+    order: 2;
+    flex-basis: 100%;
+  }
+
+  /* kept for screen readers; ♩＝ says it on screen */
+  .tempoWord {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
