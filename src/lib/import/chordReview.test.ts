@@ -266,6 +266,24 @@ describe('reviewSections', () => {
     ]);
   });
 
+  it('an empty bar stays unlinked even when an earlier chord was set to N.C.', () => {
+    // C 0-4 beats, G 8-16 beats: bar 1 (beats 4-8) has no chord at all
+    const r = madeResult(17, [
+      { from: 0, to: 4, name: 'C' },
+      { from: 8, to: 16, name: 'G' },
+    ]);
+    const secs = sectionsOf(r, {
+      ...initialReviewState(r, 't'),
+      chosen: { 0: 'N.C.' },
+    });
+    const bars = secs[0].lines[0];
+    expect(bars[0].tokens.map((t) => [t.chord, t.id])).toEqual([['N.C.', 0]]);
+    expect(bars[1].tokens.map((t) => [t.chord, t.id])).toEqual([
+      ['N.C.', null],
+    ]);
+    expect(bars[2].tokens[0]).toMatchObject({ chord: 'G', id: 1 });
+  });
+
   it('×2 tempo rebuilds the bars (twice as many), chosen chords survive', () => {
     const chosen = { 5: 'Am7' };
     const one = sectionsOf(sample, { ...s0, chosen });

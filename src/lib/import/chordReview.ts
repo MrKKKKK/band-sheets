@@ -277,7 +277,7 @@ export function dashText(units: number): string {
   return '-'.repeat(Math.floor(u / 2)) + (u % 2 ? '=' : '');
 }
 
-/** Which analyzer chord a written chord stands for (by text, nearest start; carried chords from earlier bars). */
+/** Which analyzer chord a written chord stands for (by text, nearest start; a chord continued from the previous bar). */
 function tokenId(
   bars: readonly DraftBar[],
   b: number,
@@ -295,12 +295,11 @@ function tokenId(
     }
   }
   if (best !== null || start > 0) return best;
-  for (let i = b - 1; i >= 0; i--) {
-    const cs = bars[i].chords;
-    for (let j = cs.length - 1; j >= 0; j--)
-      if (cs[j].chord === chord) return cs[j].id;
-  }
-  return null;
+  // A bar with no analyzer chord (written N.C.) is not linked to anything.
+  if ((bars[b]?.chords.length ?? 0) === 0) return null;
+  // Otherwise only a continuation of the previous bar's last chord.
+  const prev = bars[b - 1]?.chords.at(-1);
+  return prev !== undefined && prev.chord === chord ? prev.id : null;
 }
 
 /**
