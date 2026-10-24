@@ -39,8 +39,16 @@ export function useAudioPlayer(
   useEffect(() => {
     if (!file) return;
     const d = depsRef.current;
-    const el = (d.createElement ?? (() => new Audio()))();
-    const url = (d.createUrl ?? ((b: Blob) => URL.createObjectURL(b)))(file);
+    let el: HTMLAudioElement;
+    let url: string;
+    try {
+      el = (d.createElement ?? (() => new Audio()))();
+      url = (d.createUrl ?? ((b: Blob) => URL.createObjectURL(b)))(file);
+    } catch {
+      // no media support here (e.g. jsdom): the screen still works without playback
+      queueMicrotask(() => setFailed(true));
+      return;
+    }
     let frame = 0;
     const tick = () => {
       setCurrentTime(el.currentTime);
