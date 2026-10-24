@@ -3,11 +3,14 @@
  * Worker (progress, 「中止」, Japanese errors), review the chord draft, then hand the song text to `onCreate`
  * (Root makes a new device-only song and opens the editor).
  *
- * Loaded with React.lazy from Root, and the analysis client is loaded from here with a dynamic import, so the
- * first load (list, editor, tablet viewer) carries no analysis code (scripts/check-bundle.mjs). Nothing is stored:
+ * Loaded ONLY with React.lazy from Root: this module (and the analysis client it imports) is its own chunk, so the
+ * first load (list, editor, tablet viewer) carries no analysis code (scripts/check-bundle.mjs). The client is
+ * imported statically HERE on purpose: a second dynamic import() would put rolldown's namespace helper in the
+ * app's entry chunk, which the CSP e2e harness page (sharing the client chunk) would then have to load. Nothing is stored:
  * the file, the result and the review choices live in this component's state only (plan §5).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createAnalysisClient } from '../analysis/analysisClient';
 import { probeDuration } from '../analysis/probeDuration';
 import {
   isAnalysisError,
@@ -37,7 +40,7 @@ import { importErrorInfo } from '../lib/import/importErrors';
 import styles from './ImportScreen.module.css';
 
 export type ImportScreenProps = {
-  /** Default: the real client (src/analysis/analysisClient.ts), loaded on the first run. */
+  /** Default: the real client (src/analysis/analysisClient.ts), made on the first run. */
   client?: AnalysisClient;
   onBackToList: () => void;
   /** The new song's text (draft marks included). */
@@ -76,11 +79,6 @@ function noticeFor(code: AnalysisErrorCode): ImportNotice {
     message: info.message,
     retry: code === 'cancelled' || RETRYABLE.has(code),
   };
-}
-
-async function loadRealClient(): Promise<AnalysisClient> {
-  const m = await import('../analysis/analysisClient');
-  return m.createAnalysisClient();
 }
 
 export function ImportScreen({
@@ -176,15 +174,8 @@ export function ImportScreen({
     focusNext.current = 'progress';
     setPhase({ kind: 'analyzing', file, duration, progress: null });
     say('解析を始めました。1 / 6 段階: 音声を読み込む');
-    let client: AnalysisClient;
-    try {
-      client = clientRef.current ?? (await loadRealClient());
-    } catch {
-      if (run === runRef.current) fail(file, duration, 'internal');
-      return;
-    }
+    const client = clientRef.current ?? createAnalysisClient();
     clientRef.current = client;
-    if (run !== runRef.current) return;
     let step = 1;
     try {
       const result = await client.run(

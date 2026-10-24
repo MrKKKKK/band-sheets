@@ -198,6 +198,39 @@ test('analysis Worker (harness page of the build): chords run, no CSP violation'
   await expectNoViolations(page, w);
 });
 
+test('録音から新しい曲 (lazy screen + analysis + <audio> on a blob: URL + new song): no CSP violation', async ({
+  page,
+}) => {
+  const w = await watchCsp(page);
+  await installFakeDrive(page);
+  await page.goto('./');
+  await expectPolicy(page);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page
+    .getByRole('button', { name: 'サンプル曲で試す（聖者の行進）' })
+    .click();
+  await page.getByRole('button', { name: '‹ 曲の一覧' }).click();
+  await page.getByRole('button', { name: '保存せずに戻る' }).click();
+  await page.getByRole('button', { name: '録音から新しい曲' }).click();
+  await page
+    .getByTestId('audio-file-input')
+    .setInputFiles(join(FIXTURES, 'chords.wav'));
+  await expect(page.getByTestId('picked-file')).toContainText('長さ 0:07');
+  await page.getByRole('button', { name: '解析を始める' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'コード譜の下書きを確かめる' }),
+  ).toBeVisible({ timeout: 60_000 });
+  await page.getByRole('button', { name: '録音を再生' }).click();
+  await expect(page.locator('[data-current]')).toHaveCount(1);
+  await page.getByRole('button', { name: '録音を止める' }).click();
+  await page.getByRole('button', { name: 'この内容で曲を作る' }).click();
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'chords（下書き）' }),
+  ).toBeVisible();
+  await expectNoViolations(page, w);
+});
+
 test('positive control: an injected inline script is blocked and reported', async ({
   page,
 }) => {
