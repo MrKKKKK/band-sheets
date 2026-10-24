@@ -91,7 +91,7 @@ export function humTargets(
       return { label, writable: true, notes: 0, bars: 0 };
     if (read.status !== 'ok')
       return { label, writable: false, notes: 0, bars: 0 };
-    const ticks = realTicks(read.events);
+    const ticks = totalTicks(read.events);
     return {
       label,
       writable: true,
@@ -154,7 +154,8 @@ export function eventStarts(events: readonly MelodyEvent[]): number[] {
   return out;
 }
 
-function realTicks(events: readonly MelodyEvent[]): number {
+/** The real length of the events in ticks (tuplets at their real span). */
+export function totalTicks(events: readonly MelodyEvent[]): number {
   return atoms(events).reduce(
     (t, a) => t + (a.kind === 'single' ? a.ticks : a.group.span),
     0,

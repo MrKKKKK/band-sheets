@@ -1,11 +1,16 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { createRef } from 'react';
+import { useRef } from 'react';
 import { expect, fn, within } from 'storybook/test';
-import { AudioFileField } from './AudioFileField';
+import { AudioFileField, type AudioFileFieldProps } from './AudioFileField';
+
+function Field(props: Omit<AudioFileFieldProps, 'inputRef'>) {
+  const ref = useRef<HTMLInputElement>(null);
+  return <AudioFileField {...props} inputRef={ref} />;
+}
 
 const meta = {
   title: 'Import/AudioFileField',
-  component: AudioFileField,
+  component: Field,
   parameters: { a11y: { test: 'error' } },
   decorators: [
     (Story) => (
@@ -17,10 +22,9 @@ const meta = {
   args: {
     file: null,
     onPick: fn(),
-    inputRef: createRef<HTMLInputElement>(),
     hint: 'WAV・MP3・M4A の音声ファイル。10 分まで。',
   },
-} satisfies Meta<typeof AudioFileField>;
+} satisfies Meta<typeof Field>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;

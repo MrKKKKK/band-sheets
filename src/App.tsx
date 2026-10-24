@@ -1,5 +1,7 @@
 import {
+  lazy,
   type ReactNode,
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -12,7 +14,10 @@ import { Button } from './components/Button/Button';
 import { DrumEditor } from './components/DrumEditor/DrumEditor';
 import { EditorErrorBoundary } from './components/EditorErrorBoundary/EditorErrorBoundary';
 import { EasyEditor, type Step } from './components/EasyEditor/EasyEditor';
-import { MelodyEditor } from './components/MelodyEditor/MelodyEditor';
+import {
+  MelodyEditor,
+  type HumImportRequest,
+} from './components/MelodyEditor/MelodyEditor';
 import { SegmentedControl } from './components/SegmentedControl/SegmentedControl';
 import { SongInfoPopover } from './components/SongInfoPopover/SongInfoPopover';
 import { Tabs } from './components/Tabs/Tabs';
@@ -23,7 +28,7 @@ import { lyricsText } from './lib/lyrics';
 import { clearStaleMetaLines, type MetaField } from './lib/meta';
 import { parseSong } from './lib/parseSong';
 import { newSongText, serializeSong, UNTITLED } from './lib/serializeSong';
-import type { SongMeta } from './lib/song';
+import type { Song, SongMeta } from './lib/song';
 import {
   LOCAL_SONG_ID,
   getLocalStorage,
@@ -33,6 +38,22 @@ import {
   type EditorMode,
   type KeyValueStorage,
 } from './lib/storage';
+
+// 「鼻歌から下書き」 (S2 → S4) is its own chunk with the analysis client: the editor loads it on first use only.
+const HumImportScreen = lazy(() =>
+  import('./screens/HumImportScreen').then((m) => ({
+    default: m.HumImportScreen,
+  })),
+);
+
+/** Touch-only devices get no humming import entry (plan §4: PC only), like Root's tablet list. */
+function isTouchOnly(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(hover: none) and (pointer: coarse)').matches
+  );
+}
 
 export type AppProps = {
   /** Defaults to `window.localStorage`; stories / tests pass their own. */
@@ -205,6 +226,19 @@ function App({
 
   useAutosave(text, songId, store, openedBase);
 
+  // The humming import screens replace the editor (which stays mounted, hidden) until inserted / cancelled.
+  const [hum, setHum] = useState<HumImportRequest | null>(null);
+  const [humEntry] = useState(() => !isTouchOnly());
+  const [shownSection, setShownSection] = useState<{
+    label: string;
+    seq: number;
+  } | null>(null);
+  const insertHum = (next: Song, label: string) => {
+    setText(serializeSong(next));
+    setHum(null);
+    setShownSection((s) => ({ label, seq: (s?.seq ?? 0) + 1 }));
+  };
+
   const title = song.meta.title.trim() || UNTITLED;
   useEffect(() => {
     document.title = viewing
@@ -283,7 +317,28 @@ function App({
           </EditorErrorBoundary>
         </div>
       )}
-      <div className={styles.app} hidden={viewing}>
+      {hum && !viewing && (
+        <Suspense
+          fallback={
+            <p role="status" className={styles.hint}>
+              読み込んでいます…
+            </p>
+          }
+        >
+          <HumImportScreen
+            song={song}
+            partIndex={hum.partIndex}
+            partName={hum.partName}
+            initialLabel={hum.label}
+            ts={hum.ts}
+            keySig={hum.keySig}
+            storage={store}
+            onInsert={insertHum}
+            onBack={() => setHum(null)}
+          />
+        </Suspense>
+      )}
+      <div className={styles.app} hidden={viewing || hum !== null}>
         <header className={styles.header}>
           <div className={styles.headerInner}>
             <div className={styles.headerLead}>
@@ -335,6 +390,8 @@ function App({
                     song={song}
                     onChange={(next) => setText(serializeSong(next))}
                     onRequestTextEdit={requestTextEdit}
+                    onHumImport={humEntry ? setHum : undefined}
+                    showSection={shownSection}
                   />
                 </EditorErrorBoundary>
               ),

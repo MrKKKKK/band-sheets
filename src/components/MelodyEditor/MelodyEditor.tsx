@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useId,
   useRef,
   useState,
@@ -86,6 +87,24 @@ export interface MelodyEditorProps {
    * テキスト入力 mode). Omit to just show the instruction as text.
    */
   onRequestTextEdit?: () => void;
+  /**
+   * 「鼻歌から下書き」 (plan §4 S2, PC only): shown when given; called with where the draft goes. The caller
+   * shows the humming import screens instead of the editor.
+   */
+  onHumImport?: (req: HumImportRequest) => void;
+  /** Show this section (after a draft was put into it); a new `seq` = a new request. */
+  showSection?: { label: string; seq: number } | null;
+}
+
+/** Where a humming draft goes: the editor's part, section, and its effective time signature / key. */
+export interface HumImportRequest {
+  label: string;
+  /** Index in `song.parts`; -1 = no melody part yet. */
+  partIndex: number;
+  /** Set only when the song has more than one melody part. */
+  partName?: string;
+  ts: TimeSig;
+  keySig?: string;
 }
 
 type LyricOp = typeof extend;
@@ -185,6 +204,8 @@ export function MelodyEditor({
   song,
   onChange,
   onRequestTextEdit,
+  onHumImport,
+  showSection,
 }: MelodyEditorProps) {
   // Part ------------------------------------------------------------------
   const parts = melodyParts(song);
@@ -273,6 +294,14 @@ export function MelodyEditor({
     say(msg);
   };
 
+  // A humming draft was put into a section: show it and announce it (the staff gets focus below).
+  const [seenShow, setSeenShow] = useState(showSection?.seq);
+  if (showSection && showSection.seq !== seenShow) {
+    setSeenShow(showSection.seq);
+    setLabelChoice(showSection.label);
+    say(`セクション ${showSection.label} に鼻歌の下書きを入れました`);
+  }
+
   // Writing ---------------------------------------------------------------
   /**
    * Writes `next` into the current section: exactly one onChange. Returns
@@ -354,6 +383,13 @@ export function MelodyEditor({
       ?.querySelector<HTMLElement>('[role="application"]')
       ?.focus();
   };
+  const showSeq = showSection?.seq;
+  useEffect(() => {
+    if (showSeq === undefined) return;
+    staffContainerRef.current
+      ?.querySelector<HTMLElement>('[role="application"]')
+      ?.focus();
+  }, [showSeq]);
 
   const commitLyrics = (next: MelodyEvent[], action: LyricsAction) => {
     if (action === 'import' && !next.some((e) => e.kind === 'note')) return;
@@ -597,6 +633,25 @@ export function MelodyEditor({
         onRenamePart={renamePartTo}
       />
 
+      {onHumImport && (
+        <div className={styles.humRow}>
+          <Button
+            disabled={label === NO_SECTION || unsupportedPreamble}
+            onClick={() =>
+              onHumImport({
+                label,
+                partIndex,
+                ...(parts.length > 1 && partName ? { partName } : {}),
+                ts,
+                keySig,
+              })
+            }
+          >
+            <MicIcon /> 鼻歌から下書き
+          </Button>
+        </div>
+      )}
+
       {label === NO_SECTION && (
         <p className={styles.hint}>コード譜でセクションを作ってください</p>
       )}
@@ -780,5 +835,24 @@ export function MelodyEditor({
         )}
       </section>
     </div>
+  );
+}
+
+function MicIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+    </svg>
   );
 }

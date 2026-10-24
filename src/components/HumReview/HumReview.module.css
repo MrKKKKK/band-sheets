@@ -1,0 +1,122 @@
+/* Same look as S3 (ChordReview): shared rules are composed from there, not copied. */
+.layout {
+  composes: layout from '../ChordReview/ChordReview.module.css';
+}
+.main {
+  composes: main from '../ChordReview/ChordReview.module.css';
+}
+.titleRow {
+  composes: titleRow from '../ChordReview/ChordReview.module.css';
+}
+.h1 {
+  composes: h1 from '../ImportFrame/ImportFrame.module.css';
+}
+.badge {
+  composes: badge from '../ChordReview/ChordReview.module.css';
+}
+.draftNote {
+  composes: draftNote from '../ChordReview/ChordReview.module.css';
+}
+.card {
+  composes: card from '../ChordReview/ChordReview.module.css';
+}
+.cardHead {
+  composes: chartHead from '../ChordReview/ChordReview.module.css';
+}
+.h2 {
+  composes: h2 from '../ChordReview/ChordReview.module.css';
+}
+.h2small {
+  composes: h2small from '../ChordReview/ChordReview.module.css';
+}
+.row {
+  composes: row from '../ChordReview/ChordReview.module.css';
+}
+.label {
+  composes: label from '../ChordReview/ChordReview.module.css';
+  width: 120px;
+}
+.inline {
+  composes: inline from '../ChordReview/ChordReview.module.css';
+}
+.note {
+  composes: note from '../ChordReview/ChordReview.module.css';
+}
+.muted {
+  composes: muted from '../ChordReview/ChordReview.module.css';
+}
+.small {
+  composes: small from '../ChordReview/ChordReview.module.css';
+}
+.dropped {
+  composes: dropped from '../ChordReview/ChordReview.module.css';
+}
+.player {
+  composes: player from '../ChordReview/ChordReview.module.css';
+}
+.playButton {
+  composes: playButton from '../ChordReview/ChordReview.module.css';
+}
+.seek {
+  composes: seek from '../ChordReview/ChordReview.module.css';
+}
+.time {
+  composes: time from '../ChordReview/ChordReview.module.css';
+}
+.panelHead {
+  composes: panelHead from '../ChordReview/ChordReview.module.css';
+}
+.panelTitle {
+  composes: panelTitle from '../ChordReview/ChordReview.module.css';
+}
+.legend {
+  composes: legend from '../ChordReview/ChordReview.module.css';
+}
+.side {
+  composes: side from '../ChordReview/ChordReview.module.css';
+}
+.sideCard {
+  composes: sideCard from '../ChordReview/ChordReview.module.css';
+}
+.summary {
+  composes: summary from '../ChordReview/ChordReview.module.css';
+}
+.warn {
+  composes: warn from '../ChordReview/ChordReview.module.css';
+}
+.wide {
+  composes: wide from '../ChordReview/ChordReview.module.css';
+}
+
+.fixValue {
+  min-width: 150px;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-align: center;
+}
+
+.smallLabel {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px var(--space-4);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-md);
+  background: var(--accent-bg);
+}
+
+.replaceNote {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
