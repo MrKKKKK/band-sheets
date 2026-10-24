@@ -498,6 +498,50 @@ describe('tempoFactor (half / double tempo rebuilt from the beats)', () => {
     ).toBe(90);
   });
 
+  // Decision 2026-10-24: the downbeat shift is counted in beats OF THE CHOSEN
+  // FACTOR and keeps its number when the factor changes (shift 1 = one beat at
+  // ×2 = half an original beat). These tests pin that behaviour.
+  describe('downbeatShift x tempoFactor (shift keeps its beat count)', () => {
+    const start = (shift: number, f: 0.5 | 1 | 2) =>
+      barChords(r, shift, undefined, f)[0].startSec;
+
+    it('+1 shift moves the first bar by one beat of the factor', () => {
+      expect(start(1, 1)).toBe(0.5);
+      expect(start(1, 2)).toBe(0.25);
+      expect(start(1, 0.5)).toBe(1);
+    });
+
+    it('+2 shift: two beats of the factor', () => {
+      expect(start(2, 1)).toBe(1);
+      expect(start(2, 2)).toBe(0.5);
+      expect(start(2, 0.5)).toBe(2);
+    });
+
+    it('a negative shift starts one bar later, minus the beats', () => {
+      expect(start(-1, 1)).toBe(1.5);
+      expect(start(-1, 2)).toBe(0.75);
+      expect(start(-1, 0.5)).toBe(3);
+    });
+
+    it('droppedSeconds follows the same grid', () => {
+      expect(droppedSeconds(r, 1, 1)).toBe(0.5);
+      expect(droppedSeconds(r, 1, 2)).toBe(0.25);
+      expect(droppedSeconds(r, 1, 0.5)).toBe(1);
+    });
+
+    it('the draft uses the same shift for every factor', () => {
+      for (const f of [0.5, 1, 2] as const) {
+        const d = chordDraftSong(r, {
+          title: 't',
+          downbeatShift: 1,
+          tempoFactor: f,
+        });
+        expect(d.bars[0].startSec).toBe(start(1, f));
+        expect(d.droppedSec).toBe(droppedSeconds(r, 1, f));
+      }
+    });
+  });
+
   it.each([0.5, 1, 2] as const)(
     'factor %s: valid dash lines, bar counts match, round trip',
     (f) => {
