@@ -153,6 +153,9 @@ export function ChordReview({
 
   const update = (patch: Partial<ReviewState>, message?: string) => {
     setS((cur) => ({ ...cur, ...patch }));
+    // Bars are redrawn: the open panel's bar / token index would point elsewhere.
+    if ('tempoFactor' in patch || 'downbeatShift' in patch || 'key' in patch)
+      setOpen(null);
     if (message) say?.(message);
   };
 

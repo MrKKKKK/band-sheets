@@ -204,3 +204,25 @@ export const DashHelpOpens: Story = {
     await waitFor(() => expect(button).toHaveFocus());
   },
 };
+
+/** An open candidate panel is closed when the bars are redrawn (tempo / shift / key). */
+export const PanelClosesOnRebuild: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const open = async () => {
+      await userEvent.click(
+        c.getByRole('button', {
+          name: /^6 小節目 Am\??.*の候補/,
+        }),
+      );
+      expect(c.getByTestId('candidate-panel')).toBeVisible();
+    };
+    await open();
+    await userEvent.click(c.getByRole('button', { name: /倍 192/ }));
+    expect(c.queryByTestId('candidate-panel')).toBeNull();
+    await userEvent.click(c.getByRole('button', { name: /解析のまま 96/ }));
+    await open();
+    await userEvent.click(c.getByRole('button', { name: '1 拍後へ ›' }));
+    expect(c.queryByTestId('candidate-panel')).toBeNull();
+  },
+};
