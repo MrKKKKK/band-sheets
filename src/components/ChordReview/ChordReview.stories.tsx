@@ -188,3 +188,19 @@ export const BackAsksAfterChange: Story = {
     expect(args.onBack).not.toHaveBeenCalled();
   },
 };
+
+/** 「? 書き方」 (T4-3): the shared dash-notation help opens, Esc closes and returns focus. */
+export const DashHelpOpens: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const button = c.getByRole('button', { name: '? 書き方' });
+    await userEvent.click(button);
+    const dialog = await c.findByRole('dialog', {
+      name: 'コードだけの行の書き方',
+    });
+    expect(dialog).toHaveTextContent('八分音符');
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(c.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(button).toHaveFocus());
+  },
+};

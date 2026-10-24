@@ -197,3 +197,46 @@ export function insertSection(
     insertedAt: pos, // always a pure insertion — never deletes anything
   };
 }
+
+/**
+ * Replaces ONE text line: the `occurrence`-th (0-based) line whose content
+ * (without a trailing `\r`) equals `from` becomes `to`; the rest of the text
+ * is untouched. Returns null when there is no such line. The caret keeps its
+ * place: before the line it stays, after the line it shifts by the length
+ * difference, inside the line it keeps its offset (clamped to the new line).
+ */
+export function replaceLine(
+  text: string,
+  from: string,
+  to: string,
+  occurrence: number,
+  caret: number,
+): TextEdit | null {
+  let seen = 0;
+  let start = 0;
+  while (start <= text.length) {
+    const nl = text.indexOf('\n', start);
+    let end = nl < 0 ? text.length : nl;
+    if (end > start && text[end - 1] === '\r') end -= 1;
+    if (text.slice(start, end) === from) {
+      if (seen === occurrence) {
+        const delta = to.length - from.length;
+        const c = clamp(caret, text);
+        const newCaret =
+          c <= start
+            ? c
+            : c >= end
+              ? c + delta
+              : Math.min(c, start + to.length);
+        return {
+          text: text.slice(0, start) + to + text.slice(end),
+          caret: newCaret,
+        };
+      }
+      seen += 1;
+    }
+    if (nl < 0) break;
+    start = nl + 1;
+  }
+  return null;
+}

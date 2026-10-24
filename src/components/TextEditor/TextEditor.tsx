@@ -9,10 +9,16 @@ import { nextSectionLabel } from '../../lib/lyrics';
 import { paletteGroups } from '../../lib/palette';
 import { parseSong } from '../../lib/parseSong';
 import { serializeSong } from '../../lib/serializeSong';
-import { insertAt, insertSection, type TextEdit } from '../../lib/textEdit';
+import {
+  insertAt,
+  insertSection,
+  replaceLine,
+  type TextEdit,
+} from '../../lib/textEdit';
 import { Button } from '../Button/Button';
 import { Chip } from '../Button/Chip';
 import { ChartPreview } from '../ChartPreview/ChartPreview';
+import { DashHelp } from '../DashHelp/DashHelp';
 import { PaletteEditor } from '../PaletteEditor/PaletteEditor';
 import styles from './TextEditor.module.css';
 
@@ -146,6 +152,12 @@ export function TextEditor({ text, onTextChange }: TextEditorProps) {
     );
   };
 
+  /** One combined update: only that text line changes (one onChange). */
+  const fixFullWidth = (from: string, to: string, occurrence: number) => {
+    const edit = replaceLine(text, from, to, occurrence, selection().start);
+    if (edit) apply(edit);
+  };
+
   return (
     <div className={styles.editor}>
       <div className={styles.toolbar}>
@@ -175,6 +187,7 @@ export function TextEditor({ text, onTextChange }: TextEditorProps) {
             onChange={(next) => onTextChange(serializeSong(next))}
           />
         </div>
+        <DashHelp />
       </div>
 
       <div className={styles.columns}>
@@ -199,7 +212,7 @@ export function TextEditor({ text, onTextChange }: TextEditorProps) {
             プレビュー
           </h2>
           <div className={styles.preview}>
-            <ChartPreview song={song} />
+            <ChartPreview song={song} onFixFullWidth={fixFullWidth} />
           </div>
         </section>
       </div>
