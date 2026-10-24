@@ -34,6 +34,14 @@ export const IMPORT_ERROR_MESSAGES: Record<AnalysisErrorCode, string> = {
 export const PLAYBACK_FAILED_MESSAGE =
   'このファイルは、このブラウザでは再生できません。';
 
+/** S2: the humming analysis found no sung note (no AnalysisErrorCode: the run itself worked). */
+export const HUM_NO_VOICE_MESSAGE =
+  '歌の声が見つかりませんでした。マイクに近づいて「ラ」や「ん〜」ではっきり歌い、クリックはヘッドホンで聞くようにして、録り直してください。';
+
+/** S4: a whole-draft fix that would move a triplet across a barline is refused. */
+export const HUM_TUPLET_SHIFT_MESSAGE =
+  'そこへはずらせません。3 連符が小節の線をまたいでしまいます。';
+
 export interface ImportNotice {
   /** `notice` = the user asked for it (cancel): show it plainly, not as an error. */
   severity: 'error' | 'notice';
@@ -62,4 +70,9 @@ export function noticeFor(code: AnalysisErrorCode): ImportNotice {
     ...importErrorInfo(code),
     retry: code === 'cancelled' || RETRYABLE.has(code),
   };
+}
+
+/** The S2 notice when the analysis found no sung note (choose another file; a retry would give the same). */
+export function humNoVoiceNotice(): ImportNotice {
+  return { severity: 'error', message: HUM_NO_VOICE_MESSAGE };
 }
