@@ -8,6 +8,7 @@ import {
   type ReactNode,
   type Ref,
 } from 'react';
+import { DashHelp } from '../DashHelp/DashHelp';
 import type { AudioPlayer } from '../../hooks/useAudioPlayer';
 import type { TsAnalysisResult } from '../../lib/analysis/chords/result';
 import {
@@ -412,6 +413,7 @@ export function ChordReview({
                 {barCount} 小節 ・ {sections.length} セクション ・
                 確かめたいコード {lowCount} 件
               </span>
+              <DashHelp align="start" />
             </div>
             <p className={styles.muted}>
               コードを押すと、ほかの候補が出ます。選ばなければ、解析の第 1

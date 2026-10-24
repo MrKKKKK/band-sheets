@@ -83,7 +83,7 @@ Before building any editor or view screen, sketch it with **Claude Design** (Art
 `src/components/` (CSS Modules, a Storybook story each):
 
 - `Button` (+ `Chip`), `Popover`, `Tabs` (ARIA tabs, arrow keys), `SegmentedControl` (aria-pressed toggle group) — generic UI.
-- `ChordLyricLine` — one chords-over-lyrics line (`char-<sec>-<line>-<i>` / `chord-<sec>-<line>-<seg>` test ids); `ChartPreview` — read-only chart.
+- `ChordLyricLine` — one chords-over-lyrics line (`char-<sec>-<line>-<i>` / `chord-<sec>-<line>-<seg>` test ids); `ChartPreview` — read-only chart (dash-line warnings; `onFixFullWidth` adds 「半角に直す」 for full-width ｜ ー lines, editor only, via `textEdit.ts` `replaceLine`); `DashHelp` — 「? 書き方」 button + popover for the dash notation, shared by `ChordReview` (S3) and `TextEditor` (T4-3).
 - `ChordPopover` — place / change / delete one chord; `PaletteEditor` — manage `{x_palette:}`; `SongInfoPopover` — title / key / tempo / time.
 - `EasyEditor` — editor A 「かんたん入力」 (step 1 lyrics, step 2 click a character); `TextEditor` — editor B 「テキスト入力」 (textarea + live preview).
 - `PartScore` — alphaTab rendering of parts (M2).
