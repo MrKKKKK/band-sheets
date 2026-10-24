@@ -117,14 +117,16 @@ export function ImportScreen({
   useEffect(() => {
     const target = focusNext.current;
     if (!target) return;
-    focusNext.current = null;
     const el = {
       h1: h1Ref,
       progress: progressRef,
       notice: noticeRef,
       review: reviewRef,
     }[target].current;
-    el?.focus();
+    // Not rendered yet (an earlier update of the same run committed first): try on the next commit.
+    if (!el) return;
+    focusNext.current = null;
+    el.focus();
   }, [phase]);
 
   // Leaving the screen stops a running analysis (plan §6.2).
