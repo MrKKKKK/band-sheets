@@ -1,5 +1,5 @@
 /**
- * Plays the picked recording on the review screen S3 (plan sections 4, 5): an <audio> element on an object URL
+ * Plays the picked recording on the review screens S3 / S4 (plan sections 4, 5): an <audio> element on an object URL
  * of the File — local only, no network. The URL is revoked when the file changes or the screen unmounts.
  * While playing, `currentTime` is checked on every animation frame but the state is only set when the bar
  * (from `setBarResolver`) changes or every `TIME_STEP_SEC`, so the screen does not re-render at 60 fps.
@@ -18,6 +18,10 @@ export interface AudioPlayer {
   play(fromSec?: number): void;
   pause(): void;
   seek(sec: number): void;
+  /** The element's exact current second (the `currentTime` state moves only at ~4 Hz). */
+  now(): number;
+  /** Silences the recording while it keeps playing (S4 「下書き」: the recording is then only the clock). */
+  setMuted(muted: boolean): void;
   /** Tells the player which bar a time is in, so it updates at once when the bar changes (null = none). */
   setBarResolver(fn: ((sec: number) => number | null) | null): void;
 }
@@ -42,6 +46,7 @@ export function useAudioPlayer(
   const elRef = useRef<HTMLAudioElement | null>(null);
   const depsRef = useRef(deps);
   const barRef = useRef<((sec: number) => number | null) | null>(null);
+  const mutedRef = useRef(false);
 
   useEffect(() => {
     if (!file) return;
@@ -78,6 +83,7 @@ export function useAudioPlayer(
       frame = 0;
     };
     el.preload = 'metadata';
+    el.muted = mutedRef.current;
     el.onloadedmetadata = () =>
       setDuration(Number.isFinite(el.duration) ? el.duration : null);
     el.onplay = () => {
@@ -132,6 +138,12 @@ export function useAudioPlayer(
     setCurrentTime(el.currentTime);
   }, []);
 
+  const now = useCallback(() => elRef.current?.currentTime ?? 0, []);
+  const setMuted = useCallback((muted: boolean) => {
+    mutedRef.current = muted;
+    if (elRef.current) elRef.current.muted = muted;
+  }, []);
+
   const setBarResolver = useCallback(
     (fn: ((sec: number) => number | null) | null) => {
       barRef.current = fn;
@@ -147,6 +159,8 @@ export function useAudioPlayer(
     play,
     pause,
     seek,
+    now,
+    setMuted,
     setBarResolver,
   };
 }
