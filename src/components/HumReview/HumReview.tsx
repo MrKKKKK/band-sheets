@@ -2,6 +2,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent,
   type Ref,
@@ -175,6 +176,13 @@ export function HumReview({
     player.playing || player.currentTime > 0
       ? soundingAt(sounding, player.currentTime)
       : null;
+
+  // A note's candidates open below the staff: bring them into view.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (openId !== null)
+      panelRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [openId]);
 
   const selected = openId === null ? -1 : (ok?.ids.indexOf(openId) ?? -1);
   const open = selected >= 0 ? cands[selected] : null;
@@ -489,6 +497,7 @@ export function HumReview({
 
             {open && selected >= 0 ? (
               <CandidatePanel
+                panelRef={panelRef}
                 titleId={ids.panel}
                 title={notePlaceLabel(events, selected, ts)}
                 cand={open}
@@ -578,7 +587,7 @@ export function HumReview({
             ) : null}
             <Button
               variant="primary"
-              className={styles.wide}
+              className={`${styles.wide} ${styles.insert}`}
               disabled={noteCount === 0}
               onClick={insert}
             >
@@ -670,6 +679,7 @@ function PlayerBar({
 }
 
 function CandidatePanel({
+  panelRef,
   titleId,
   title,
   cand,
@@ -681,6 +691,7 @@ function CandidatePanel({
   onListenRecording,
   onListenDraft,
 }: {
+  panelRef: Ref<HTMLDivElement>;
   titleId: string;
   title: string;
   cand: HumNoteCandidates;
@@ -708,11 +719,14 @@ function CandidatePanel({
           : ''
     }`;
   const pct = (c?: number) =>
-    c === undefined ? null : (
+    c === undefined ? null : c < 0.01 ? (
+      <small className={styles.small}>1% 未満</small>
+    ) : (
       <small className={styles.small}>{Math.round(c * 100)}%</small>
     );
   return (
     <div
+      ref={panelRef}
       className={styles.panel}
       role="group"
       aria-labelledby={titleId}
@@ -743,6 +757,7 @@ function CandidatePanel({
         >
           {cand.pitch.map((o) => (
             <Chip
+              className={styles.chip}
               key={o.midi}
               selected={o.selected}
               onClick={() => onPitch(o.midi, o.pitch)}
@@ -767,6 +782,7 @@ function CandidatePanel({
         >
           {cand.position.map((o) => (
             <Chip
+              className={styles.chip}
               key={`${o.startTick}:${o.ticks}`}
               selected={o.selected}
               onClick={() => onPosition(o.startTick, o.ticks)}

@@ -245,15 +245,15 @@ export function semitoneLabel(semitones: number): string {
   return `${n === 1 ? '半音' : `${n} 半音`}${semitones > 0 ? '上' : '下'}`;
 }
 
-/** A length in beats of the time signature: 「1 拍」「半拍」「1 拍半」「1/4 拍」「3/4 拍」, else 「0.33 拍」. */
+/** A length in beats of the time signature: 「1 拍」「半拍」「1 拍半」「1/4 拍」「1 拍と 3/4」, else 「0.33 拍」. */
 export function beatsLabel(ticks: number, ts: TimeSig): string {
   const beats = ticks / beatTicksOf(ts);
   const whole = Math.floor(beats);
   const frac = beats - whole;
   if (frac === 0) return `${whole} 拍`;
   if (frac === 0.5) return whole === 0 ? '半拍' : `${whole} 拍半`;
-  if (whole === 0 && (frac === 0.25 || frac === 0.75))
-    return `${frac * 4}/4 拍`;
+  if (frac === 0.25 || frac === 0.75)
+    return whole === 0 ? `${frac * 4}/4 拍` : `${whole} 拍と ${frac * 4}/4`;
   return `${Number(beats.toFixed(2))} 拍`;
 }
 

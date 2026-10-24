@@ -34,7 +34,7 @@
 }
 .label {
   composes: label from '../ChordReview/ChordReview.module.css';
-  width: 120px;
+  width: 136px;
 }
 .inline {
   composes: inline from '../ChordReview/ChordReview.module.css';
@@ -44,6 +44,9 @@
 }
 .muted {
   composes: muted from '../ChordReview/ChordReview.module.css';
+}
+.chip {
+  composes: chip from '../ChordReview/ChordReview.module.css';
 }
 .small {
   composes: small from '../ChordReview/ChordReview.module.css';
@@ -119,4 +122,11 @@
   background: var(--warning-bg);
   font-size: var(--font-size-sm);
   line-height: 1.6;
+}
+
+.insert {
+  height: auto;
+  min-height: 52px;
+  padding-block: var(--space-2);
+  line-height: 1.35;
 }

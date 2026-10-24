@@ -217,6 +217,7 @@ describe('labels', () => {
     expect(beatsLabel(24, T44)).toBe('1 拍半');
     expect(beatsLabel(4, T44)).toBe('1/4 拍');
     expect(beatsLabel(12, T44)).toBe('3/4 拍');
+    expect(beatsLabel(20, T44)).toBe('1 拍と 1/4');
     expect(beatsLabel(64, T44)).toBe('4 拍');
     expect(beatsLabel(8, T68)).toBe('1 拍');
   });

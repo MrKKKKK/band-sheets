@@ -231,6 +231,42 @@ test('録音から新しい曲 (lazy screen + analysis + <audio> on a blob: URL 
   await expectNoViolations(page, w);
 });
 
+test('鼻歌から下書き (lazy screen from the editor + hum Worker + <audio> on a blob: URL + Web Audio tone): no CSP violation', async ({
+  page,
+}) => {
+  const w = await watchCsp(page);
+  await installFakeDrive(page);
+  await page.goto('./');
+  await expectPolicy(page);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page
+    .getByRole('button', { name: 'サンプル曲で試す（聖者の行進）' })
+    .click();
+  await page.getByRole('tab', { name: 'メロディ' }).click();
+  await page.getByRole('button', { name: '鼻歌から下書き' }).click();
+  await page.getByRole('combobox', { name: '歌い始めの拍' }).selectOption('2');
+  await page
+    .getByTestId('audio-file-input')
+    .setInputFiles(join(FIXTURES, 'hum.wav'));
+  await expect(page.getByTestId('picked-file')).toContainText('hum.wav');
+  await page.getByRole('button', { name: '解析する' }).click();
+  await expect(
+    page.getByRole('heading', { name: '鼻歌の下書きを確かめる' }),
+  ).toBeVisible({ timeout: 60_000 });
+  await page.getByRole('button', { name: '▶ 再生' }).click();
+  await expect(page.getByRole('button', { name: '❚❚ 止める' })).toBeVisible();
+  await page.getByRole('button', { name: '❚❚ 止める' }).click();
+  await page
+    .getByRole('button', { name: 'このセクションに下書きを入れる' })
+    .click();
+  await page.getByRole('button', { name: '置き換えて入れる' }).click();
+  await expect(
+    page.getByRole('application', { name: 'セクション A のメロディ' }),
+  ).toBeFocused();
+  await expectNoViolations(page, w);
+});
+
 test('positive control: an injected inline script is blocked and reported', async ({
   page,
 }) => {
