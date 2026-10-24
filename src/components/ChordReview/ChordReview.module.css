@@ -195,6 +195,11 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
+  /* Stays visible while the chart scrolls (the bar sits above the chart in
+     the DOM, so it sticks to the top edge). */
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .playButton {
@@ -277,6 +282,8 @@
 
 .barText {
   border-radius: var(--radius-sm);
+  /* scrollIntoView('nearest') must not leave the bar under the sticky player */
+  scroll-margin-top: 96px;
 }
 
 .current {
