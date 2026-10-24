@@ -1,4 +1,4 @@
-// Follows librosa 0.11.0 (ISC, (c) 2013--2023 librosa development team); see ts/THIRD_PARTY.md.
+// Follows librosa 0.11.0 (ISC, (c) 2013--2023 librosa development team); see src/lib/analysis/THIRD_PARTY.md.
 // Ported: feature.chroma_cqt, filters.cq_to_chroma, core.convert.time_to_frames; and py/dsp/chroma.py.
 /**
  * Per-beat chroma (py/dsp/chroma.py, default config): CQT chroma of y_harm over 6 octaves from

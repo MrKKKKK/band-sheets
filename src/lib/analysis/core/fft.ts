@@ -1,5 +1,5 @@
 /**
- * FFT wrapper around fft.js 4.0.4 (MIT, Fedor Indutny; see ../../THIRD_PARTY.md). Plan
+ * FFT wrapper around fft.js 4.0.4 (MIT, Fedor Indutny; see ../THIRD_PARTY.md). Plan
  * decision 4: the FFT is the only library; everything else is ours.
  *
  * All transforms run in float64 (like scipy.fft on float64 input). librosa's STFT computes in

@@ -1,4 +1,4 @@
-// Follows librosa 0.11.0 (ISC, (c) 2013--2023 librosa development team); see ts/THIRD_PARTY.md.
+// Follows librosa 0.11.0 (ISC, (c) 2013--2023 librosa development team); see src/lib/analysis/THIRD_PARTY.md.
 // Ported: filters.chroma, feature.chroma_stft(S=..., tuning=0.0), util.localmax, fft_frequencies.
 /**
  * py/dsp/tempo.py event_times: onset peaks of the percussive envelope plus peaks of the novelty
