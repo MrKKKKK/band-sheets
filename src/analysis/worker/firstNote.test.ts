@@ -2,7 +2,20 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { HumAnalysisResult } from '../../lib/analysis/hum/types';
+import { analyzeHum } from '../../lib/analysis/hum/analyze';
 import { requantizeAtFirstNote } from './firstNote';
+
+const FIXTURES = join(import.meta.dirname, '../../lib/analysis/fixtures');
+
+/** 44-byte header, 16-bit LE mono PCM (the fixtures). */
+function readPcmWav(name: string): { y: Float32Array; sr: number } {
+  const b = readFileSync(join(FIXTURES, name));
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const y = new Float32Array((b.byteLength - 44) / 2);
+  for (let i = 0; i < y.length; i++)
+    y[i] = v.getInt16(44 + i * 2, true) / 32768;
+  return { y, sr: v.getUint32(24, true) };
+}
 
 const golden = JSON.parse(
   readFileSync(
@@ -46,5 +59,23 @@ describe('requantizeAtFirstNote', () => {
     const r = placeholderRun();
     r.melody.notes = [];
     expect(requantizeAtFirstNote(r, 0)).toBe(r);
+  });
+
+  it('equals analyzeHum given that second (guards the copied grid metadata and the default config)', () => {
+    const { y, sr } = readPcmWav('hum.wav');
+    const base = {
+      bpm: 116,
+      ts: [4, 4] as [number, number],
+      firstNoteTick: 16,
+    };
+    const first = analyzeHum(y, sr, { ...base, firstNoteSec: 0 });
+    const ours = requantizeAtFirstNote(first, 16);
+    const direct = analyzeHum(y, sr, {
+      ...base,
+      firstNoteSec: first.melody.notes[0].start,
+    });
+    expect(ours.melody).toEqual(direct.melody);
+    expect(ours.hum.meta.info).toEqual(direct.hum.meta.info);
+    expect(ours.hum.meta.grid).toEqual(direct.hum.meta.grid);
   });
 });
