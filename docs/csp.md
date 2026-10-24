@@ -49,4 +49,7 @@ e2e では本物の Google に接続できないため、デプロイ後に GitH
 8. 1 時間以上たってからの操作など、トークンの再取得が起きたときにもエラーが出ないか、気づいたら確認する。
 9. （任意）iPad の Safari でも 2〜6 を行い、表示と保存ができる。
 
+- 結果（2026-10-24、ユーザーが PC の Chrome で確認）: 1〜7 はすべて正常で、CSP の違反は 0 件。
+- ログインの間だけ `Cross-Origin-Opener-Policy policy would block the window.closed call.` が何度も出る。これは CSP ではなく、Google のライブラリがポップアップの `window.closed` を確かめるときに、Google 側のページの COOP が止めて出る警告。ログインは完了するので、無視してよい。
+
 違反が出たら、Console のメッセージ（ブロックされた URL とディレクティブ）を控え、`src/lib/csp.ts` に必要最小限の値を足して `npm run e2e:csp` を通す。
