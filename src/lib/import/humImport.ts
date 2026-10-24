@@ -10,6 +10,12 @@ import { parsePitch } from '../pitch';
 import { sectionLabels } from '../sections';
 import type { Song } from '../song';
 import { atoms } from '../tuplet';
+import {
+  barBeatAt,
+  beatTicksOf,
+  eventStarts,
+  positionLabel,
+} from '../melodyPosition';
 import type { ImportStep } from './chordReview';
 import { humBpmFromSongTempo, type HumNoteCandidates } from './humDraft';
 import type { SoundingNote } from './playback';
@@ -32,8 +38,6 @@ export const HUM_STEPS: readonly ImportStep[] = [
   },
   { label: '音の長さにまとめる', stages: ['notes', 'quantize'] },
 ];
-
-const beatTicksOf = (ts: TimeSig) => WHOLE_TICKS / ts.den;
 
 /** Ticks from the section's bar 1 beat 1 to bar `bar`, beat `beat` (both 1-based). */
 export function firstNoteTick(bar: number, beat: number, ts: TimeSig): number {
@@ -117,24 +121,8 @@ export function insertHumDraft(
 
 // ---------------------------------------------------------------- positions
 
-/** Real start tick of every event (tuplet slots at their actual fractional position). */
-export function eventStarts(events: readonly MelodyEvent[]): number[] {
-  const out: number[] = new Array(events.length);
-  let pos = 0;
-  for (const a of atoms(events)) {
-    if (a.kind === 'single') {
-      out[a.index] = pos;
-      pos += a.ticks;
-    } else {
-      const slot = a.group.span / a.group.n;
-      for (let i = a.group.start; i < a.group.end; i++) {
-        out[i] = pos;
-        pos += slot;
-      }
-    }
-  }
-  return out;
-}
+// Moved to melodyPosition.ts (shared with the melody editor's playback); re-exported for the S2 / S4 callers.
+export { barBeatAt, eventStarts, positionLabel };
 
 /** The real length of the events in ticks (tuplets at their real span). */
 export function totalTicks(events: readonly MelodyEvent[]): number {
@@ -142,27 +130,6 @@ export function totalTicks(events: readonly MelodyEvent[]): number {
     (t, a) => t + (a.kind === 'single' ? a.ticks : a.group.span),
     0,
   );
-}
-
-/** 1-based bar and beat of a tick; `onBeat` false when it is between beats. */
-export function barBeatAt(
-  tick: number,
-  ts: TimeSig,
-): { bar: number; beat: number; onBeat: boolean } {
-  const bar = barTicks(ts);
-  const beat = beatTicksOf(ts);
-  const inBar = tick - Math.floor(tick / bar) * bar;
-  return {
-    bar: Math.floor(tick / bar) + 1,
-    beat: Math.floor(inBar / beat) + 1,
-    onBeat: inBar % beat === 0,
-  };
-}
-
-/** 「1 小節目の 1 拍目」, 「2 小節目の 3 拍目のすこし後」 (between beats). */
-export function positionLabel(tick: number, ts: TimeSig): string {
-  const p = barBeatAt(tick, ts);
-  return `${p.bar} 小節目の ${p.beat} 拍目${p.onBeat ? '' : 'のすこし後'}`;
 }
 
 /** Tick of the draft's first note, or null without notes. */
