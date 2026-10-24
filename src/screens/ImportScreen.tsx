@@ -5,37 +5,22 @@
  *
  * Loaded ONLY with React.lazy from Root: this module (and the analysis client it imports) is its own chunk, so the
  * first load (list, editor, tablet viewer) carries no analysis code (scripts/check-bundle.mjs). The client is
- * imported statically HERE on purpose: a second dynamic import() would put rolldown's namespace helper in the
+ * imported statically (by useAnalysisRun, which only the import screens use) on purpose: a second dynamic import() would put rolldown's namespace helper in the
  * app's entry chunk, which the CSP e2e harness page (sharing the client chunk) would then have to load. Nothing is stored:
  * the file, the result and the review choices live in this component's state only (plan §5).
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { createAnalysisClient } from '../analysis/analysisClient';
 import { probeDuration } from '../analysis/probeDuration';
-import {
-  isAnalysisError,
-  MAX_DURATION_SEC,
-  type AnalysisClient,
-  type AnalysisErrorCode,
-  type AnalysisProgress,
-} from '../analysis/types';
+import type { AnalysisClient, ChordsRequest } from '../analysis/types';
 import { ChordReview } from '../components/ChordReview/ChordReview';
 import { ImportFrame } from '../components/ImportFrame/ImportFrame';
 import { ImportPicker } from '../components/ImportPicker/ImportPicker';
 import { ImportProgress } from '../components/ImportProgress/ImportProgress';
+import { useAnalysisRun } from '../hooks/useAnalysisRun';
 import { useAudioPlayer } from '../hooks/useAudioPlayer';
 import { usePageDropGuard } from '../hooks/usePageDropGuard';
-import type { TsAnalysisResult } from '../lib/analysis/chords/result';
 import { CHORDS_CONFIG_HASH } from '../lib/analysis/origin';
-import {
-  draftSongText,
-  formatDurationJa,
-  importProgressView,
-  type ImportProgressView,
-  type ReviewState,
-} from '../lib/import/chordReview';
+import { draftSongText, type ReviewState } from '../lib/import/chordReview';
 import { formatDraftDate } from '../lib/import/draftMarks';
-import { noticeFor, type ImportNotice } from '../lib/import/importErrors';
 import styles from './ImportScreen.module.css';
 
 export type ImportScreenProps = {
@@ -49,28 +34,6 @@ export type ImportScreenProps = {
   probe?: (file: Blob) => Promise<number | null>;
 };
 
-type Phase =
-  | {
-      kind: 'pick';
-      file: File | null;
-      duration: number | null;
-      /** The chosen file's length is still being read. */
-      probing?: boolean;
-      notice: ImportNotice | null;
-    }
-  | {
-      kind: 'analyzing';
-      file: File;
-      duration: number | null;
-      progress: AnalysisProgress | null;
-    }
-  | { kind: 'review'; file: File; result: TsAnalysisResult };
-
-/** `3 / 6 段階: コードを調べる` for the running step. */
-function stepText(v: ImportProgressView): string {
-  return `${v.current} / ${v.steps.length} 段階: ${v.steps[v.current - 1].label}`;
-}
-
 export function ImportScreen({
   client: injected,
   onBackToList,
@@ -78,133 +41,24 @@ export function ImportScreen({
   now = () => new Date(),
   probe = probeDuration,
 }: ImportScreenProps) {
-  const [phase, setPhase] = useState<Phase>({
-    kind: 'pick',
-    file: null,
-    duration: null,
-    notice: null,
+  const {
+    phase,
+    live,
+    say,
+    h1Ref,
+    progressRef,
+    noticeRef,
+    reviewRef,
+    pick,
+    start,
+    cancel,
+  } = useAnalysisRun<ChordsRequest>({
+    client: injected,
+    probe,
+    doneMessage: '解析が終わりました。コード譜の下書きを確かめてください',
   });
-  const [live, setLive] = useState('');
-  const clientRef = useRef<AnalysisClient | null>(injected ?? null);
-  /** Bumped by every start / cancel / unmount: late results of an older run are dropped. */
-  const runRef = useRef(0);
-  const h1Ref = useRef<HTMLHeadingElement>(null);
-  const progressRef = useRef<HTMLHeadingElement>(null);
-  const noticeRef = useRef<HTMLDivElement>(null);
-  const reviewRef = useRef<HTMLHeadingElement>(null);
-  const focusNext = useRef<'h1' | 'progress' | 'notice' | 'review' | null>(
-    'h1',
-  );
-
-  const say = useCallback((msg: string) => {
-    // An unchanged live region is not read again: toggle a trailing NBSP.
-    setLive((prev) => (prev === msg ? `${msg} ` : msg));
-  }, []);
-
-  // Move focus to what the new phase is about.
-  useEffect(() => {
-    const target = focusNext.current;
-    if (!target) return;
-    const el = {
-      h1: h1Ref,
-      progress: progressRef,
-      notice: noticeRef,
-      review: reviewRef,
-    }[target].current;
-    // Not rendered yet (an earlier update of the same run committed first): try on the next commit.
-    if (!el) return;
-    focusNext.current = null;
-    el.focus();
-  }, [phase]);
 
   usePageDropGuard();
-
-  // Leaving the screen stops a running analysis (plan §6.2).
-  useEffect(
-    () => () => {
-      runRef.current++;
-      clientRef.current?.cancel();
-    },
-    [],
-  );
-
-  const pick = async (file: File) => {
-    const run = ++runRef.current;
-    // Show the new file at once; 「解析を始める」 waits for its length.
-    setPhase({
-      kind: 'pick',
-      file,
-      duration: null,
-      probing: true,
-      notice: null,
-    });
-    const duration = await probe(file).catch(() => null);
-    if (run !== runRef.current) return;
-    if (duration !== null && duration > MAX_DURATION_SEC) {
-      fail(file, null, 'too-long');
-      return;
-    }
-    setPhase({ kind: 'pick', file, duration, notice: null });
-    say(
-      `${file.name} を選びました${duration !== null ? `。長さ ${formatDurationJa(duration)}` : ''}`,
-    );
-  };
-
-  const fail = (
-    file: File,
-    duration: number | null,
-    code: AnalysisErrorCode,
-  ) => {
-    const notice = noticeFor(code);
-    focusNext.current = 'notice';
-    setPhase({
-      kind: 'pick',
-      file: code === 'too-long' ? null : file,
-      duration: code === 'too-long' ? null : duration,
-      notice,
-    });
-    say(notice.message);
-  };
-
-  const start = async (file: File, duration: number | null) => {
-    const run = ++runRef.current;
-    focusNext.current = 'progress';
-    setPhase({ kind: 'analyzing', file, duration, progress: null });
-    say(`解析を始めました。${stepText(importProgressView(null))}`);
-    const client = clientRef.current ?? createAnalysisClient();
-    clientRef.current = client;
-    let step = 1;
-    try {
-      const result = await client.run(
-        { kind: 'chords', source: { file } },
-        (p) => {
-          if (run !== runRef.current) return;
-          setPhase((ph) =>
-            ph.kind === 'analyzing' ? { ...ph, progress: p } : ph,
-          );
-          const v = importProgressView(p);
-          if (v.current !== step && v.fraction < 1) {
-            step = v.current;
-            say(stepText(v));
-          }
-        },
-      );
-      if (run !== runRef.current) return;
-      focusNext.current = 'review';
-      setPhase({ kind: 'review', file, result });
-      say('解析が終わりました。コード譜の下書きを確かめてください');
-    } catch (e) {
-      if (run !== runRef.current) return;
-      fail(file, duration, isAnalysisError(e) ? e.code : 'internal');
-    }
-  };
-
-  const cancel = () => {
-    if (phase.kind !== 'analyzing') return;
-    runRef.current++;
-    clientRef.current?.cancel();
-    fail(phase.file, phase.duration, 'cancelled');
-  };
 
   const player = useAudioPlayer(phase.kind === 'review' ? phase.file : null);
 
@@ -285,7 +139,10 @@ export function ImportScreen({
               onPick={(f) => void pick(f)}
               onStart={() => {
                 if (phase.file && !phase.probing)
-                  void start(phase.file, phase.duration);
+                  void start(phase.file, phase.duration, {
+                    kind: 'chords',
+                    source: { file: phase.file },
+                  });
               }}
             />
           )}
