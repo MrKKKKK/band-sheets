@@ -150,7 +150,7 @@ export function beatGrid(
 ): BeatGrid {
   const { t: beats, phase } = tempoBeats(result, tempoFactor);
   const count = beats.length;
-  const interval = median(beats.slice(1).map((x, i) => x - beats[i]));
+  const interval = medianBeatInterval(result, tempoFactor);
   const bpb = draftBeatsPerBar(result);
   let first = phase + Math.round(downbeatShift);
   // A shift to before the first beat: the first whole bar starts one bar later.
@@ -172,7 +172,7 @@ export function droppedSeconds(
 }
 
 /** Analyzer text without its `?` mark. */
-function plainText(text: string): string {
+export function plainText(text: string): string {
   return text.endsWith('?') ? text.slice(0, -1) : text;
 }
 

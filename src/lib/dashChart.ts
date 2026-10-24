@@ -72,7 +72,10 @@ const FULL_WIDTH_DASH: Record<string, string> = {
   '—': '-',
   '＝': '=',
 };
-const FULL_WIDTH_DASH_RE = /[｜ー－—＝]/g;
+const FULL_WIDTH_DASH_RE = new RegExp(
+  `[${Object.keys(FULL_WIDTH_DASH).join('')}]`,
+  'g',
+);
 
 const toHalfWidth = (text: string): string =>
   text.replace(FULL_WIDTH_DASH_RE, (c) => FULL_WIDTH_DASH[c]);
@@ -215,7 +218,8 @@ export interface DashChordInput {
 /** Name used for a bar with no chord. */
 export const NO_CHORD = 'N.C.';
 
-function dashes(units: number): string {
+/** `-` per eighth, a trailing `=` for an odd sixteenth (the writer's form). */
+export function dashes(units: number): string {
   return '-'.repeat(Math.floor(units / 2)) + (units % 2 === 1 ? '=' : '');
 }
 

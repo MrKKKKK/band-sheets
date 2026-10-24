@@ -1,8 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, userEvent, within } from 'storybook/test';
 import type { AnalysisErrorCode } from '../../analysis/types';
-import { IMPORT_ERROR_MESSAGES } from '../../lib/import/importErrors';
-import { ImportPicker, type ImportNotice } from './ImportPicker';
+import {
+  IMPORT_ERROR_MESSAGES,
+  type ImportNotice,
+} from '../../lib/import/importErrors';
+import { ImportPicker } from './ImportPicker';
 
 const meta = {
   title: 'Import/ImportPicker',
@@ -15,7 +18,7 @@ const meta = {
       </div>
     ),
   ],
-  args: { file: null, onPick: fn(), onStart: fn(), onRetry: fn() },
+  args: { file: null, onPick: fn(), onStart: fn() },
 } satisfies Meta<typeof ImportPicker>;
 
 export default meta;
@@ -102,7 +105,7 @@ export const ErrorCrashed: Story = {
     const n = within(within(canvasElement).getByTestId('import-notice'));
     expect(n.getByText(IMPORT_ERROR_MESSAGES['worker-crashed'])).toBeVisible();
     await userEvent.click(n.getByRole('button', { name: 'もう一度試す' }));
-    expect(args.onRetry).toHaveBeenCalledTimes(1);
+    expect(args.onStart).toHaveBeenCalledTimes(1);
   },
 };
 
@@ -126,7 +129,7 @@ export const Cancelled: Story = {
     await userEvent.click(
       within(n).getByRole('button', { name: 'もう一度解析する' }),
     );
-    expect(args.onRetry).toHaveBeenCalledTimes(1);
+    expect(args.onStart).toHaveBeenCalledTimes(1);
   },
 };
 

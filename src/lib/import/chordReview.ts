@@ -1,6 +1,6 @@
 import { ANALYSIS_STAGES, type AnalysisProgress } from '../../analysis/types';
 import type { TsAnalysisResult } from '../analysis/chords/result';
-import { parseDashLine, type DashMeter } from '../dashChart';
+import { dashes, parseDashLine, type DashMeter } from '../dashChart';
 import { parseKey } from '../keys';
 import { TEMPO_MAX, TEMPO_MIN } from '../meta';
 import { serializeSong, UNTITLED } from '../serializeSong';
@@ -147,7 +147,7 @@ export function keyCandidates(result: TsAnalysisResult): KeyCandidate[] {
 }
 
 /** The analyzer's own key as written (the first candidate), or undefined. */
-export function analyzerKey(result: TsAnalysisResult): string | undefined {
+function analyzerKey(result: TsAnalysisResult): string | undefined {
   return keyCandidates(result)[0]?.key;
 }
 
@@ -245,9 +245,8 @@ export function draftSongText(
 export interface ReviewToken {
   /** As written, `?` included. */
   chord: string;
-  /** Sixteenths from the bar start, and length. */
+  /** Sixteenths from the bar start. */
   start: number;
-  length: number;
   /** `-` / `=` written after the chord. */
   dashes: string;
   /** Index in `result.chords` (the key of `chosen`), or null (a no-chord gap). */
@@ -259,7 +258,6 @@ export interface ReviewBar {
   /** 0-based bar number of the draft. */
   index: number;
   startSec: number;
-  endSec: number;
   /** Dashes before the first chord (continuing the previous bar's chord). */
   leading: string;
   tokens: ReviewToken[];
@@ -269,17 +267,10 @@ export interface ReviewSection {
   /** Index in the draft's chart (the key of `sectionNames`). */
   index: number;
   label: string;
-  startBar: number;
   barCount: number;
   startSec: number;
   /** Lines of up to 4 bars, exactly as they are written. */
   lines: ReviewBar[][];
-}
-
-/** `-` per eighth, a trailing `=` for an odd sixteenth (the writer's form). */
-export function dashText(units: number): string {
-  const u = Math.max(0, Math.round(units));
-  return '-'.repeat(Math.floor(u / 2)) + (u % 2 ? '=' : '');
 }
 
 /** Which analyzer chord a written chord stands for (by text, nearest start; a chord continued from the previous bar). */
@@ -330,13 +321,11 @@ export function reviewSections(
           return {
             index: b,
             startSec: db?.startSec ?? 0,
-            endSec: db?.endSec ?? 0,
-            leading: dashText(pb.leading),
+            leading: dashes(pb.leading),
             tokens: pb.chords.map((c) => ({
               chord: c.chord,
               start: c.start,
-              length: c.length,
-              dashes: dashText(c.length),
+              dashes: dashes(c.length),
               id: tokenId(draft.bars, b, c.chord, c.start),
               lowConfidence: c.chord.endsWith('?'),
             })),
@@ -347,22 +336,11 @@ export function reviewSections(
     return {
       index,
       label: sec.label,
-      startBar,
       barCount: bar - startBar,
       startSec: draft.bars[startBar]?.startSec ?? 0,
       lines,
     };
   });
-}
-
-/** The text of one review line (same as the song text's line). */
-export function reviewLineText(bars: readonly ReviewBar[]): string {
-  return `|${bars
-    .map(
-      (b) =>
-        b.leading + b.tokens.map((t) => `[${t.chord}]${t.dashes}`).join(''),
-    )
-    .join('|')}|`;
 }
 
 /** Number of written chords still carrying `?`. */

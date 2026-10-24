@@ -14,12 +14,11 @@ import styles from './ChartPreview.module.css';
 export type ChartPreviewProps = {
   song: Song;
   /**
-   * Editor only: shows 「半角に直す」 under a line with full-width dash
-   * symbols. Gets the line's text now, its half-width text, and which
-   * occurrence (0-based) of that text it is, so the caller can replace
-   * just that text line. Without it the warning is shown without a button.
+   * 「半角に直す」 under a line with full-width dash symbols. Gets the line's
+   * text now, its half-width text, and which occurrence (0-based) of that
+   * text it is, so the caller can replace just that text line.
    */
-  onFixFullWidth?: (from: string, to: string, occurrence: number) => void;
+  onFixFullWidth: (from: string, to: string, occurrence: number) => void;
 };
 
 /** Read-only chord chart (editor preview): headings, chord/lyric lines, raw lines; dash lines that fail validation get a warning list. */
@@ -70,21 +69,19 @@ export function ChartPreview({ song, onFixFullWidth }: ChartPreviewProps) {
                       data-testid={`fullwidth-warning-${key}`}
                     >
                       <span>全角の記号があります（｜ ー －）。</span>
-                      {onFixFullWidth && (
-                        <Button
-                          variant="secondary"
-                          className={styles.fixButton}
-                          onClick={() =>
-                            onFixFullWidth(
-                              text,
-                              serializeLine(toHalfWidthDashLine(line)),
-                              occurrence,
-                            )
-                          }
-                        >
-                          半角に直す
-                        </Button>
-                      )}
+                      <Button
+                        variant="secondary"
+                        className={styles.fixButton}
+                        onClick={() =>
+                          onFixFullWidth(
+                            text,
+                            serializeLine(toHalfWidthDashLine(line)),
+                            occurrence,
+                          )
+                        }
+                      >
+                        半角に直す
+                      </Button>
                     </div>
                   </div>
                 );

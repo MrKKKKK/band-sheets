@@ -14,6 +14,7 @@ import type { TsAnalysisResult } from '../../lib/analysis/chords/result';
 import {
   chordCandidates,
   draftMeter,
+  plainText,
   titleFromFileName,
   type TempoFactor,
 } from '../../lib/import/chordDraft';
@@ -41,6 +42,7 @@ import { displayKey, respellChord } from '../../lib/transpose';
 import { Button } from '../Button/Button';
 import { Chip } from '../Button/Chip';
 import { ConfirmDialog } from '../ConfirmDialog/ConfirmDialog';
+import { ImportFrame } from '../ImportFrame/ImportFrame';
 import styles from './ChordReview.module.css';
 
 export type ChordReviewProps = {
@@ -78,11 +80,6 @@ interface OpenChord {
 function shiftLabel(n: number): string {
   if (n === 0) return 'ずれなし';
   return n > 0 ? `${n} 拍後へ` : `${-n} 拍前へ`;
-}
-
-/** Chord name without the analyzer's `?`. */
-function plain(text: string): string {
-  return text.endsWith('?') ? text.slice(0, -1) : text;
 }
 
 /**
@@ -205,18 +202,12 @@ export function ChordReview({
     .join(' ');
 
   return (
-    <div className={styles.page}>
-      <header className={styles.bar}>
-        <Button variant="ghost" className={styles.back} onClick={back}>
-          ‹ やめて戻る
-        </Button>
-        <p className={styles.brand}>band-sheets</p>
-        <span className={styles.spacer} />
-        <span className={styles.muted}>
-          録音から新しい曲 ・ 2 / 2（確かめる）
-        </span>
-      </header>
-
+    <ImportFrame
+      backLabel="‹ やめて戻る"
+      onBack={back}
+      note="録音から新しい曲 ・ 2 / 2（確かめる）"
+      noteClassName={styles.headerNote}
+    >
       <div className={styles.layout}>
         <main className={styles.main}>
           <div className={styles.titleRow}>
@@ -463,7 +454,7 @@ export function ChordReview({
                   renderPanel={(o) => {
                     const c = candidates[o.id];
                     if (!c) return null;
-                    const current = s.chosen[o.id] ?? plain(c.text);
+                    const current = s.chosen[o.id] ?? plainText(c.text);
                     const picked = s.chosen[o.id] !== undefined;
                     return (
                       <div
@@ -509,7 +500,7 @@ export function ChordReview({
                         </div>
                         <p className={styles.note}>
                           {c.lowConfidence && !picked
-                            ? `いまは第 1 候補の ${spell(plain(c.text))} で、? つきです。どれかを押して選ぶと ? が外れます。`
+                            ? `いまは第 1 候補の ${spell(plainText(c.text))} で、? つきです。どれかを押して選ぶと ? が外れます。`
                             : ''}
                           ％は解析の確からしさで、正解の確率ではありません。
                         </p>
@@ -608,7 +599,7 @@ export function ChordReview({
         }}
         onCancel={() => setConfirmBack(false)}
       />
-    </div>
+    </ImportFrame>
   );
 }
 

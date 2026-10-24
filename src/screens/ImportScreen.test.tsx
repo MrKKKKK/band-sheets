@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { createFakeAnalysisClient } from '../analysis/fakeAnalysisClient';
 import { reviewSampleResult } from '../lib/import/fixtures/chordResults';
@@ -173,6 +174,35 @@ describe('ImportScreen', () => {
     expect(
       screen.getByRole('button', { name: 'もう一度解析する' }),
     ).toBeInTheDocument();
+  });
+
+  it('「曲の一覧」 during a run leaves the screen and cancels the analysis once', async () => {
+    const client = createFakeAnalysisClient({ holdAfterStages: 3 });
+    const user = userEvent.setup();
+    const onBackToList = vi.fn();
+    // Like Root: going back unmounts the screen.
+    function Host() {
+      const [shown, setShown] = useState(true);
+      if (!shown) return <p>list</p>;
+      return (
+        <ImportScreen
+          client={client}
+          onCreate={vi.fn()}
+          onBackToList={() => {
+            onBackToList();
+            setShown(false);
+          }}
+          probe={() => Promise.resolve(120)}
+        />
+      );
+    }
+    render(<Host />);
+    await pickAndStart(user);
+    await screen.findByRole('heading', { name: '解析しています' });
+    await user.click(screen.getByRole('button', { name: '‹ 曲の一覧' }));
+    expect(onBackToList).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('list')).toBeInTheDocument();
+    expect(client.cancelCount).toBe(1);
   });
 
   it('shows the analyzer error above the picker, the file kept', async () => {

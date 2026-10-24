@@ -4,14 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { ANALYSIS_STAGES } from '../../analysis/types';
 import type { TsAnalysisResult } from '../analysis/chords/result';
 import { CHORDS_CONFIG_HASH } from '../analysis/origin';
-import { meterOf } from '../dashChart';
+import { dashes, meterOf } from '../dashChart';
 import { parseSong } from '../parseSong';
 import { serializeLine } from '../serializeSong';
 import { isRawLine } from '../song';
 import { draftMeter, draftTempo } from './chordDraft';
 import {
   barAtTime,
-  dashText,
   draftSongText,
   formatClock,
   formatDurationJa,
@@ -23,13 +22,22 @@ import {
   lowConfidenceCount,
   reviewChanged,
   reviewDraft,
-  reviewLineText,
   reviewSections,
   shiftLimit,
   tempoCandidates,
+  type ReviewBar,
   type ReviewState,
 } from './chordReview';
 import { madeResult, reviewSampleResult } from './fixtures/chordResults';
+
+/** The text of one review line (same as the song text's line). */
+const reviewLineText = (bars: readonly ReviewBar[]): string =>
+  `|${bars
+    .map(
+      (b) =>
+        b.leading + b.tokens.map((t) => `[${t.chord}]${t.dashes}`).join(''),
+    )
+    .join('|')}|`;
 
 const golden = JSON.parse(
   readFileSync(
@@ -106,10 +114,10 @@ describe('formatting', () => {
     expect(formatFileSize(10)).toBe('1 KB');
   });
   it('writes dashes like the dash writer', () => {
-    expect(dashText(16)).toBe('--------');
-    expect(dashText(8)).toBe('----');
-    expect(dashText(3)).toBe('-=');
-    expect(dashText(0)).toBe('');
+    expect(dashes(16)).toBe('--------');
+    expect(dashes(8)).toBe('----');
+    expect(dashes(3)).toBe('-=');
+    expect(dashes(0)).toBe('');
   });
 });
 
@@ -194,10 +202,10 @@ describe('reviewSections', () => {
 
   it('lists sections with bar counts and start times', () => {
     const secs = sectionsOf(sample, s0);
-    expect(secs.map((s) => [s.label, s.startBar, s.barCount])).toEqual([
-      ['A', 0, 8],
-      ['B', 8, 8],
-      ['A', 16, 4],
+    expect(secs.map((s) => [s.label, s.barCount])).toEqual([
+      ['A', 8],
+      ['B', 8],
+      ['A', 4],
     ]);
     expect(secs[1].startSec).toBeCloseTo(0.05 + 33 * (60 / 96));
     expect(secs.map((s) => s.lines.map((l) => l.length))).toEqual([
@@ -227,7 +235,6 @@ describe('reviewSections', () => {
       {
         chord: 'Am?',
         start: 0,
-        length: 16,
         dashes: '--------',
         id: 5,
         lowConfidence: true,

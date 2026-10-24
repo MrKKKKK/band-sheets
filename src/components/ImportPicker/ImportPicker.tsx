@@ -7,6 +7,7 @@ import {
   type Ref,
 } from 'react';
 import { formatClock, formatFileSize } from '../../lib/import/chordReview';
+import type { ImportNotice } from '../../lib/import/importErrors';
 import { Button } from '../Button/Button';
 import styles from './ImportPicker.module.css';
 
@@ -19,22 +20,13 @@ export interface PickedFile {
   probing?: boolean;
 }
 
-export interface ImportNotice {
-  /** `notice` = the user cancelled (neutral), `error` = something went wrong. */
-  severity: 'error' | 'notice';
-  message: string;
-  /** Offer 「もう一度試す」 (crash / memory / internal errors, and after a cancel). */
-  retry?: boolean;
-}
-
 export type ImportPickerProps = {
   file: PickedFile | null;
   /** Shown above the file picker (plan §6.2; texts from importErrors.ts). */
   notice?: ImportNotice | null;
   onPick: (file: File) => void;
+  /** 「解析を始める」, and also 「もう一度試す」 / 「もう一度解析する」 (same file). */
   onStart: () => void;
-  /** 「もう一度試す」 / 「もう一度解析する」 with the same file. */
-  onRetry?: () => void;
   /** The notice box (focused by the screen when a notice appears). */
   noticeRef?: Ref<HTMLDivElement>;
 };
@@ -47,7 +39,6 @@ export function ImportPicker({
   notice,
   onPick,
   onStart,
-  onRetry,
   noticeRef,
 }: ImportPickerProps) {
   const input = useRef<HTMLInputElement>(null);
@@ -103,8 +94,8 @@ export function ImportPicker({
         >
           <p className={styles.noticeText}>{notice.message}</p>
           <div className={styles.noticeActions}>
-            {notice.retry && onRetry ? (
-              <Button variant="primary" onClick={onRetry}>
+            {notice.retry ? (
+              <Button variant="primary" onClick={onStart}>
                 {notice.severity === 'notice'
                   ? 'もう一度解析する'
                   : 'もう一度試す'}
