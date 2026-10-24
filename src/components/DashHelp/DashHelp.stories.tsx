@@ -47,6 +47,7 @@ export const OpenAndEscCloses: Story = {
     expect(dialog).toHaveTextContent('十六分音符');
     expect(dialog).toHaveTextContent('[N.C.]');
     expect(dialog).toHaveTextContent('半角');
+    expect(dialog).toHaveTextContent('[Am?]');
     expect(within(dialog).getByTestId('dash-help-example')).toHaveTextContent(
       '|[C]--------|[C]----[F]----|',
     );

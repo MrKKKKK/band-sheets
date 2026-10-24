@@ -52,6 +52,11 @@ export function DashHelp({ align = 'end' }: { align?: 'start' | 'end' }) {
           <dd>十六分音符 1 つぶん（- の半分）</dd>
           <dt className={styles.mono}>|</dt>
           <dd>小節の区切り</dd>
+          <dt className={styles.mono}>[Am?]</dt>
+          <dd>
+            自信がないコード（自動解析の下書きで付く印。確かめたら ?
+            を消してよい）
+          </dd>
         </dl>
         <p className={styles.note}>
           数えるのは「-」と「=」だけです（コード名は長さに入りません）。
