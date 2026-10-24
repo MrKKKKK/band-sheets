@@ -8,6 +8,8 @@ export interface PickedFile {
   size: number;
   /** Seconds; null = not known before decoding. */
   duration: number | null;
+  /** The length is being read: show it, and keep 「解析を始める」 off. */
+  probing?: boolean;
 }
 
 export interface ImportNotice {
@@ -106,9 +108,11 @@ export function ImportPicker({
           <div className={styles.fileText}>
             <p className={styles.fileName}>{file.name}</p>
             <p className={styles.muted}>
-              {file.duration !== null
-                ? `長さ ${formatClock(file.duration)}`
-                : '長さは解析のときに確かめます'}
+              {file.probing
+                ? '長さを調べています'
+                : file.duration !== null
+                  ? `長さ ${formatClock(file.duration)}`
+                  : '長さは解析のときに確かめます'}
               {` ・ ${formatFileSize(file.size)}`}
             </p>
           </div>
@@ -169,7 +173,11 @@ export function ImportPicker({
       </section>
 
       <div className={styles.footer}>
-        <Button variant="primary" disabled={!file} onClick={onStart}>
+        <Button
+          variant="primary"
+          disabled={!file || file.probing}
+          onClick={onStart}
+        >
           解析を始める
         </Button>
         <p className={styles.muted}>
