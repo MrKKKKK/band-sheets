@@ -441,6 +441,10 @@ export function ChordReview({
                       sectionNames: { ...s.sectionNames, [sec.index]: name },
                     })
                   }
+                  onRevert={() => {
+                    const { [sec.index]: _gone, ...rest } = s.sectionNames;
+                    update({ sectionNames: rest });
+                  }}
                   currentBar={currentBar}
                   open={open}
                   onOpen={(o) => setOpen(o)}
@@ -604,6 +608,7 @@ function SectionBlock({
   sec,
   name,
   onRename,
+  onRevert,
   currentBar,
   open,
   onOpen,
@@ -613,6 +618,8 @@ function SectionBlock({
   sec: ReviewSection;
   name: string;
   onRename: (name: string) => void;
+  /** Drop the typed name (back to the analyzer's). */
+  onRevert: () => void;
   currentBar: number | null;
   open: OpenChord | null;
   onOpen: (o: OpenChord) => void;
@@ -627,6 +634,9 @@ function SectionBlock({
           aria-label={`セクション ${sec.index + 1} の名前`}
           value={name}
           onChange={(e) => onRename(e.target.value)}
+          onBlur={() => {
+            if (name.replace(/[{}\r\n]/g, '').trim() === '') onRevert();
+          }}
         />
         <span className={styles.muted}>
           {sec.barCount} 小節 ・ 録音の {formatClock(sec.startSec)} から

@@ -177,6 +177,13 @@ describe('initialReviewState / reviewChanged', () => {
       expect(reviewChanged(s, { ...s, ...c })).toBe(true);
   });
 
+  it('an emptied section name is not a change', () => {
+    const s = initialReviewState(sample, 't');
+    expect(reviewChanged(s, { ...s, sectionNames: { 0: '' } })).toBe(false);
+    expect(reviewChanged(s, { ...s, sectionNames: { 0: '  ' } })).toBe(false);
+    expect(reviewChanged(s, { ...s, sectionNames: { 0: 'x' } })).toBe(true);
+  });
+
   it('shift limit is one beat less than a bar', () => {
     expect(shiftLimit(sample)).toBe(3);
   });

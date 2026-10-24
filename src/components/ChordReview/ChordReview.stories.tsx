@@ -226,3 +226,18 @@ export const PanelClosesOnRebuild: Story = {
     expect(c.queryByTestId('candidate-panel')).toBeNull();
   },
 };
+
+/** An emptied section name goes back to the analyzer's on blur and is no change. */
+export const EmptySectionNameReverts: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const input = c.getByLabelText('セクション 2 の名前');
+    await userEvent.clear(input);
+    expect(input).toHaveValue('');
+    await userEvent.tab();
+    expect(input).toHaveValue('B');
+    // not an edit: going back does not ask
+    await userEvent.click(c.getByRole('button', { name: '‹ やめて戻る' }));
+    expect(within(document.body).queryByRole('dialog')).toBeNull();
+  },
+};

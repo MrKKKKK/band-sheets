@@ -182,6 +182,11 @@ export function initialReviewState(
 
 /** Whether the user changed anything on S3 (「やめて戻る」 asks only then). */
 export function reviewChanged(a: ReviewState, b: ReviewState): boolean {
+  // An emptied section name falls back to the analyzer's: not an edit.
+  const named = (x: Readonly<Record<number, string>>) =>
+    Object.fromEntries(
+      Object.entries(x).filter(([, v]) => cleanDirectiveValue(v) !== ''),
+    );
   const same = (x: object, y: object) =>
     JSON.stringify(Object.entries(x).sort()) ===
     JSON.stringify(Object.entries(y).sort());
@@ -191,7 +196,7 @@ export function reviewChanged(a: ReviewState, b: ReviewState): boolean {
     a.tempo === b.tempo &&
     a.key === b.key &&
     a.downbeatShift === b.downbeatShift &&
-    same(a.sectionNames, b.sectionNames) &&
+    same(named(a.sectionNames), named(b.sectionNames)) &&
     same(a.chosen, b.chosen)
   );
 }
