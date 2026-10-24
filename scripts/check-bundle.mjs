@@ -8,6 +8,8 @@
  * 2. Every analysis Worker chunk keeps the third-party notices: each ```text block of
  *    src/lib/analysis/THIRD_PARTY.md (librosa ISC, fft.js MIT) verbatim (vite.config.ts analysisLicenseBanner).
  * 3. Size budget: the Worker chunks together <= 60 KB gzip (tables included).
+ * 4. dist/index.html carries the Content-Security-Policy meta of src/lib/csp.ts (vite.config.ts cspMeta), before
+ *    every script / stylesheet, and nothing inline that the policy would block.
  *
  * The Worker chunks are checked in a separate build of src/analysis/analysisClient.ts (into
  * node_modules/.tmp/analysis-probe, same vite.config.ts), so 2 and 3 are checked even while the app does not
@@ -19,6 +21,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { build } from 'vite';
+import { CSP_DIRECTIVES, CSP_META_RE, parseCsp } from '../src/lib/csp.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
 const DIST = path.join(ROOT, 'dist');
@@ -167,6 +170,23 @@ for (const f of initial) {
       fail(
         `first-load chunk ${path.basename(f)} contains analysis marker "${m}"`,
       );
+}
+
+// --- the CSP meta (src/lib/csp.ts)
+{
+  const html = readFileSync(path.join(DIST, 'index.html'), 'utf8');
+  const meta = CSP_META_RE.exec(html);
+  if (!meta) fail('dist/index.html: no Content-Security-Policy meta');
+  else {
+    const got = JSON.stringify(parseCsp(meta[1]));
+    if (got !== JSON.stringify(CSP_DIRECTIVES))
+      fail(`dist/index.html: CSP differs from src/lib/csp.ts: ${meta[1]}`);
+    const first = html.search(/<script|<link|<style/);
+    if (first !== -1 && first < meta.index)
+      fail('dist/index.html: a script/link/style comes before the CSP meta');
+    if (/<script(?![^>]*\ssrc=)[^>]*>/.test(html))
+      fail('dist/index.html: inline <script> (blocked by script-src)');
+  }
 }
 
 // --- Worker chunks of the app itself (once the import screen uses the client)
