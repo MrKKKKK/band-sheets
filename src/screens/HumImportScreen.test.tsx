@@ -255,4 +255,44 @@ describe('HumImportScreen', () => {
       HUM_DRAFT_FAILED_MESSAGE,
     );
   });
+
+  it('S4: the browser back asks first when something was fixed; cancelling stays (onStay), confirming leaves', async () => {
+    const onStay = vi.fn();
+    const onBack = vi.fn();
+    const client = createFakeAnalysisClient({
+      results: { hum: humSampleResult() },
+    });
+    const props = {
+      song: sampleSong,
+      partIndex: vocal,
+      initialLabel: 'A',
+      ts: T44,
+      storage: createMemoryStorage(),
+      onInsert: vi.fn(),
+      onBack,
+      onStay,
+      client,
+      probe: () => Promise.resolve(12),
+      playbackDeps: { createTone: tone },
+    };
+    const { rerender } = render(<HumImportScreen {...props} backRequest={0} />);
+    const user = userEvent.setup();
+    await analyse(user);
+    await screen.findByRole('heading', { name: '鼻歌の下書きを確かめる' });
+    await user.click(
+      screen.getByRole('button', { name: '1 オクターブ上げる' }),
+    );
+    rerender(<HumImportScreen {...props} backRequest={1} />);
+    const dialog = await screen.findByRole('dialog', {
+      name: 'ここでの直しを捨てて戻りますか？',
+    });
+    await user.click(
+      within(dialog).getByRole('button', { name: 'キャンセル' }),
+    );
+    expect(onStay).toHaveBeenCalledTimes(1);
+    expect(onBack).not.toHaveBeenCalled();
+    rerender(<HumImportScreen {...props} backRequest={2} />);
+    await user.click(await screen.findByRole('button', { name: '捨てて戻る' }));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
 });

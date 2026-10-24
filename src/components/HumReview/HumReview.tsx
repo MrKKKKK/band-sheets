@@ -79,6 +79,10 @@ export type HumReviewProps = {
   /** 「このセクションに下書きを入れる」 (after the confirmation when needed). */
   onInsert: (events: MelodyEvent[], ts: TimeSig) => void;
   onBack: () => void;
+  /** A new value = the browser's back button: same as 「やめて戻る」. */
+  backRequest?: number;
+  /** The browser's back was cancelled on the confirmation. */
+  onStay?: () => void;
   /** Why the last 「下書きを入れる」 failed (shown above the button). */
   insertError?: string | null;
   /** The screen's one live region: its text (shown by the staff) and the setter. */
@@ -129,6 +133,8 @@ export function HumReview({
   onNoteNamesChange,
   onInsert,
   onBack,
+  backRequest,
+  onStay,
   insertError,
   live,
   say,
@@ -301,12 +307,31 @@ export function HumReview({
     else onInsert(ok.events, ok.ts);
   };
 
+  // 「やめて戻る」 (and the browser's back): ask first when something was fixed here.
+  const [confirmBack, setConfirmBack] = useState<'button' | 'browser' | null>(
+    null,
+  );
+  const changed = fixSummary.length > 0;
+  const back = (from: 'button' | 'browser' = 'button') => {
+    pb.pause();
+    if (changed) setConfirmBack(from);
+    else onBack();
+  };
+  const backRef = useRef(back);
+  useEffect(() => {
+    backRef.current = back;
+  });
+  const [firstBack] = useState(backRequest);
+  useEffect(() => {
+    if (backRequest !== firstBack) backRef.current('browser');
+  }, [backRequest, firstBack]);
+
   const where = `${songTitle}${partName ? ` / ${partName}` : ''} / ${label}`;
 
   return (
     <ImportFrame
       backLabel="‹ やめて戻る"
-      onBack={onBack}
+      onBack={() => back()}
       note="鼻歌から下書き ・ 2 / 2（確かめる）"
     >
       <div className={styles.layout}>
@@ -622,7 +647,7 @@ export function HumReview({
             <p className={styles.note}>
               入れたあとは、ふつうの音符です。曲のテキストに「下書き」の印は付きません。この画面でだけ、下書きと示します。
             </p>
-            <Button className={styles.wide} onClick={onBack}>
+            <Button className={styles.wide} onClick={() => back()}>
               やめて戻る
             </Button>
             <p className={styles.note}>
@@ -632,6 +657,21 @@ export function HumReview({
         </aside>
       </div>
 
+      <ConfirmDialog
+        open={confirmBack !== null}
+        title="ここでの直しを捨てて戻りますか？"
+        message="選んだ候補と全体の直しは消えます。もう一度使うには、録音を解析し直します。"
+        confirmLabel="捨てて戻る"
+        danger
+        onConfirm={() => {
+          setConfirmBack(null);
+          onBack();
+        }}
+        onCancel={() => {
+          if (confirmBack === 'browser') onStay?.();
+          setConfirmBack(null);
+        }}
+      />
       <ConfirmDialog
         open={confirm}
         title={`${label}の音符を置き換えますか`}

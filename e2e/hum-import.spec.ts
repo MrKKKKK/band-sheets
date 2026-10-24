@@ -125,6 +125,9 @@ test('happy path: analyse the synthetic hum, check it, replace section B, the ed
   await expect.poll(sectionB).toMatch(/:4 r (D#4|Eb4) G4 (G#4|Ab4) \|/);
   const text = await draftText(page, songId);
   expect(text).not.toMatch(/下書き/);
+  // the insert consumed the screens' history entry: back goes to the list as before
+  await page.goBack();
+  await expect(page).toHaveURL(/#\/$/);
   expect(offOrigin).toEqual([]);
 });
 
@@ -153,5 +156,45 @@ test('cancel: stops the analysis, neutral notice, back to the editor', async ({
   await expect(
     page.getByRole('application', { name: 'セクション A のメロディ' }),
   ).toBeVisible();
+  expect(offOrigin).toEqual([]);
+});
+
+test('browser back: S2 → the editor; S4 with a fix asks first; back from the editor still goes to the list', async ({
+  page,
+}) => {
+  const offOrigin = await openHum(page);
+  const editUrl = page.url();
+  const entry = page.getByRole('button', { name: '鼻歌から下書き' });
+  await page.goBack();
+  await expect(entry).toBeFocused();
+  expect(page.url()).toBe(editUrl);
+
+  await entry.click();
+  await page.getByRole('combobox', { name: '歌い始めの拍' }).selectOption('2');
+  await fileInput(page).setInputFiles(join(FIXTURES, 'hum.wav'));
+  await page.getByRole('button', { name: '解析する' }).click();
+  const h1 = page.getByRole('heading', {
+    level: 1,
+    name: '鼻歌の下書きを確かめる',
+  });
+  await expect(h1).toBeVisible({ timeout: 60_000 });
+  await page.getByRole('button', { name: '1 オクターブ上げる' }).click();
+
+  await page.goBack();
+  const dialog = page.getByRole('dialog', {
+    name: 'ここでの直しを捨てて戻りますか？',
+  });
+  await dialog.getByRole('button', { name: 'キャンセル' }).click();
+  await expect(h1).toBeVisible();
+  await expect(page.getByTestId('hum-octave')).toHaveText('1 オクターブ上');
+
+  await page.goBack();
+  await dialog.getByRole('button', { name: '捨てて戻る' }).click();
+  await expect(entry).toBeFocused();
+  expect(page.url()).toBe(editUrl);
+
+  // the screens left nothing behind in the history
+  await page.goBack();
+  await expect(page).toHaveURL(/#\/$/);
   expect(offOrigin).toEqual([]);
 });

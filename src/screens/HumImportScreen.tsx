@@ -69,6 +69,10 @@ export type HumImportScreenProps = {
   /** The song with the draft written into `label`. */
   onInsert: (song: Song, label: string) => void;
   onBack: () => void;
+  /** A new value = the browser's back button: same as 「やめて戻る」 (S4 may ask first). */
+  backRequest?: number;
+  /** The browser's back was cancelled on S4's confirmation. */
+  onStay?: () => void;
   /** Default: the real client, made on the first run. */
   client?: AnalysisClient;
   /** Default: probeDuration. */
@@ -107,6 +111,8 @@ export function HumImportScreen({
   storage,
   onInsert,
   onBack,
+  backRequest,
+  onStay,
   client: injected,
   probe = probeDuration,
   playbackDeps,
@@ -164,6 +170,19 @@ export function HumImportScreen({
   }, [phase]);
 
   usePageDropGuard();
+
+  // The browser's back before S4 leaves at once (S4 handles it itself: it may ask first).
+  const inReview = phase.kind === 'review';
+  const [firstBack] = useState(backRequest);
+  const onBackRef = useRef(onBack);
+  useEffect(() => {
+    onBackRef.current = onBack;
+  });
+  useEffect(() => {
+    if (backRequest !== firstBack && !inReview) onBackRef.current();
+    // only on a new back request
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backRequest]);
 
   // Leaving the screen stops a running analysis (plan §6.2).
   useEffect(
@@ -292,6 +311,8 @@ export function HumImportScreen({
         onNoteNamesChange={(m) => saveNoteNameMode(storage, m)}
         onInsert={insert}
         onBack={onBack}
+        backRequest={backRequest}
+        onStay={onStay}
         insertError={insertError}
         live={live}
         say={say}

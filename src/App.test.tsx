@@ -664,6 +664,31 @@ describe('App: 鼻歌から下書き entry (plan §4: PC only)', () => {
     expect(screen.queryByRole('tab', { name: 'メロディ' })).toBeNull();
     await user.click(screen.getByRole('button', { name: 'やめて戻る' }));
     expect(screen.getByRole('tab', { name: 'メロディ' })).toBeVisible();
+    // focus goes back to the entry, and the history entry the screen added is consumed
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: '鼻歌から下書き' }),
+      ).toHaveFocus(),
+    );
+    await waitFor(() => expect(window.history.state).toBeNull());
+    vi.unstubAllGlobals();
+  });
+
+  it('the browser back button on S2 returns to the editor like 「やめて戻る」', async () => {
+    withPointer(false);
+    window.history.replaceState(null, '');
+    const { user } = renderApp(undefined, { initialText: DRAFT });
+    await user.click(screen.getByRole('tab', { name: 'メロディ' }));
+    await user.click(screen.getByRole('button', { name: '鼻歌から下書き' }));
+    await screen.findByRole('heading', { name: '鼻歌から下書きを作る' });
+    expect(window.history.state).toEqual({ bandSheetsHum: true });
+    act(() => window.history.back());
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: '鼻歌から下書き' }),
+      ).toHaveFocus(),
+    );
+    expect(window.history.state).toBeNull();
     vi.unstubAllGlobals();
   });
 

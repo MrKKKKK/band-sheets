@@ -94,6 +94,8 @@ export interface MelodyEditorProps {
   onHumImport?: (req: HumImportRequest) => void;
   /** Show this section (after a draft was put into it); a new `seq` = a new request. */
   showSection?: { label: string; seq: number } | null;
+  /** A new value (not the first) = focus the 「鼻歌から下書き」 button (back from the humming screens). */
+  focusHumEntry?: number;
 }
 
 /** Where a humming draft goes: the editor's part, section, and its effective time signature / key. */
@@ -206,6 +208,7 @@ export function MelodyEditor({
   onRequestTextEdit,
   onHumImport,
   showSection,
+  focusHumEntry,
 }: MelodyEditorProps) {
   // Part ------------------------------------------------------------------
   const parts = melodyParts(song);
@@ -383,6 +386,11 @@ export function MelodyEditor({
       ?.querySelector<HTMLElement>('[role="application"]')
       ?.focus();
   };
+  const humEntryRef = useRef<HTMLButtonElement>(null);
+  const [firstEntryFocus] = useState(focusHumEntry);
+  useEffect(() => {
+    if (focusHumEntry !== firstEntryFocus) humEntryRef.current?.focus();
+  }, [focusHumEntry, firstEntryFocus]);
   const showSeq = showSection?.seq;
   useEffect(() => {
     if (showSeq === undefined) return;
@@ -636,6 +644,7 @@ export function MelodyEditor({
       {onHumImport && (
         <div className={styles.humRow}>
           <Button
+            ref={humEntryRef}
             disabled={label === NO_SECTION || unsupportedPreamble}
             onClick={() =>
               onHumImport({

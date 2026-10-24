@@ -227,15 +227,62 @@ function App({
   useAutosave(text, songId, store, openedBase);
 
   // The humming import screens replace the editor (which stays mounted, hidden) until inserted / cancelled.
+  // Opening them pushes ONE history entry (same URL, so Root's hash routing does not see it): browser back acts
+  // like 「やめて戻る」, and leaving by a button consumes the entry, so back from the editor still goes to the list.
   const [hum, setHum] = useState<HumImportRequest | null>(null);
   const [humEntry] = useState(() => !isTouchOnly());
   const [shownSection, setShownSection] = useState<{
     label: string;
     seq: number;
   } | null>(null);
+  /** A new value = focus the 「鼻歌から下書き」 button again (after 「やめて戻る」). */
+  const [entryFocus, setEntryFocus] = useState(0);
+  /** A new value = the browser's back button was pressed on the humming screens. */
+  const [humBack, setHumBack] = useState(0);
+  /** The entry was already popped by the browser (do not consume it again). */
+  const humPopped = useRef(false);
+  /** Our own history.back() (consuming the entry) must not count as the user's back. */
+  const ignorePop = useRef(false);
+
+  const openHum = (req: HumImportRequest) => {
+    window.history.pushState({ bandSheetsHum: true }, '', window.location.href);
+    humPopped.current = false;
+    ignorePop.current = false;
+    setHum(req);
+  };
+  const closeHum = () => {
+    if (!humPopped.current) {
+      ignorePop.current = true;
+      window.history.back();
+    }
+    humPopped.current = false;
+    setHum(null);
+  };
+  useEffect(() => {
+    if (!hum) return;
+    const onPop = () => {
+      if (ignorePop.current) {
+        ignorePop.current = false;
+        return;
+      }
+      humPopped.current = true;
+      setHumBack((n) => n + 1);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [hum]);
+  // Browser back cancelled on the confirmation: stay, with the entry back in place.
+  const stayOnHum = () => {
+    window.history.pushState({ bandSheetsHum: true }, '', window.location.href);
+    humPopped.current = false;
+  };
+  const leaveHum = () => {
+    closeHum();
+    setEntryFocus((n) => n + 1);
+  };
   const insertHum = (next: Song, label: string) => {
     setText(serializeSong(next));
-    setHum(null);
+    closeHum();
     setShownSection((s) => ({ label, seq: (s?.seq ?? 0) + 1 }));
   };
 
@@ -334,7 +381,9 @@ function App({
             keySig={hum.keySig}
             storage={store}
             onInsert={insertHum}
-            onBack={() => setHum(null)}
+            onBack={leaveHum}
+            backRequest={humBack}
+            onStay={stayOnHum}
           />
         </Suspense>
       )}
@@ -390,7 +439,8 @@ function App({
                     song={song}
                     onChange={(next) => setText(serializeSong(next))}
                     onRequestTextEdit={requestTextEdit}
-                    onHumImport={humEntry ? setHum : undefined}
+                    onHumImport={humEntry ? openHum : undefined}
+                    focusHumEntry={entryFocus}
                     showSection={shownSection}
                   />
                 </EditorErrorBoundary>
