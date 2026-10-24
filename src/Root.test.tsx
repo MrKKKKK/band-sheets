@@ -9,6 +9,9 @@ import {
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Root } from './Root';
+import { createFakeAnalysisClient } from './analysis/fakeAnalysisClient';
+import { wavBytes } from './analysis/testing/wavBytes';
+import { reviewSampleResult } from './lib/import/fixtures/chordResults';
 import { saintsSampleText } from './lib/saintsSample';
 import type { AuthStatus } from './lib/auth/gis';
 import { createFakeAuth } from './lib/auth/fakeAuth';
@@ -65,6 +68,7 @@ function setup(
     files?: FakeSeedFile[];
     init?: Record<string, string>;
     tablet?: boolean;
+    analysis?: ReturnType<typeof createFakeAnalysisClient>;
     before?: (drive: ReturnType<typeof createFakeDriveClient>) => void;
   } = {},
 ) {
@@ -85,6 +89,7 @@ function setup(
       detectDevice={() => 'Windows PC'}
       newId={() => `new-${++n}`}
       now={() => new Date('2026-10-06T12:00:00.000Z')}
+      analysisClient={o.analysis}
     />,
   );
   return { auth, drive, storage, user };
@@ -580,5 +585,73 @@ describe('Root review fixes (m7-review.md)', () => {
     await waitFor(() =>
       expect(screen.queryByTestId('refresh-failed')).toBeNull(),
     );
+  });
+});
+
+describe('Root 録音から新しい曲', () => {
+  it('list → pick → analyse → review → a new device-only song opens in the editor', async () => {
+    const analysis = createFakeAnalysisClient({
+      results: { chords: reviewSampleResult() },
+    });
+    const { user, storage } = setup({ files: [SONG], analysis });
+    await user.click(
+      await screen.findByRole('button', { name: '録音から新しい曲' }),
+    );
+    expect(window.location.hash).toBe('#/import');
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: '録音から新しい曲',
+      }),
+    ).toBeInTheDocument();
+
+    const file = new File(
+      [wavBytes({ sr: 8000, dataBytes: 8000 * 2 * 3 })],
+      'my-take.wav',
+      { type: 'audio/wav' },
+    );
+    await user.upload(screen.getByTestId('audio-file-input'), file);
+    expect(await screen.findByTestId('picked-file')).toHaveTextContent(
+      '長さ 0:03',
+    );
+    await user.click(screen.getByRole('button', { name: '解析を始める' }));
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'コード譜の下書きを確かめる',
+      }),
+    ).toBeInTheDocument();
+    expect(analysis.requests).toHaveLength(1);
+
+    await user.click(
+      screen.getByRole('button', { name: 'この内容で曲を作る' }),
+    );
+    expect(window.location.hash).toBe('#/edit/new-1');
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'my-take（下書き）',
+      }),
+    ).toBeInTheDocument();
+    const draft = loadDraftRecord(storage, 'new-1');
+    expect(draft?.baseVersion).toBeNull();
+    expect(draft?.text).toContain(
+      '{comment: 自動解析の下書き 2026-10-06 コード adec583eb3c6}',
+    );
+    expect(draft?.text).toContain(
+      '|[Em]--------|[Am?]--------|[D]--------|[G]--------|',
+    );
+    expect(loadIndex(storage).songs.map((e) => e.songId)).toContain('new-1');
+  });
+
+  it('is not offered on a tablet; #/import shows the tablet list there', async () => {
+    setup({ files: [SONG], tablet: true, hash: '#/import' });
+    expect(await screen.findByText('きらきら星')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '録音から新しい曲' }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole('heading', { name: '録音から新しい曲' }),
+    ).toBeNull();
   });
 });

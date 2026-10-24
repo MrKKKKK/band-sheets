@@ -9,7 +9,14 @@
  * `createFakeAuth` / `createFakeDriveClient` / `createMemoryStorage`.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import styles from './Root.module.css';
 import { AccountMenu } from './components/AccountMenu/AccountMenu';
 import { Button } from './components/Button/Button';
@@ -25,6 +32,7 @@ import {
   type ActionResult,
   type SongLibrary,
 } from './hooks/useSongLibrary';
+import type { AnalysisClient } from './analysis/types';
 import type { AuthErrorKind, DriveAuth } from './lib/auth/gis';
 import type { DriveClient } from './lib/drive/driveClient';
 import { parseRoute, routeHash, type Route } from './lib/route';
@@ -38,6 +46,12 @@ import {
 import type { SortOrder } from './lib/syncTypes';
 import { EditorScreen } from './screens/EditorScreen';
 import { ViewerScreen } from './screens/ViewerScreen';
+
+// 「録音から新しい曲」: its own chunk, and it loads the analysis client itself,
+// so the list / editor / tablet viewer never load analysis code (check-bundle).
+const ImportScreen = lazy(() =>
+  import('./screens/ImportScreen').then((m) => ({ default: m.ImportScreen })),
+);
 
 export type RootProps = {
   auth: DriveAuth;
@@ -53,6 +67,8 @@ export type RootProps = {
   now?: () => Date;
   /** Viewer auto-scroll clock (tests). */
   clock?: ViewerClock;
+  /** Audio analysis for 「録音から新しい曲」 (tests). Default: the real one, loaded lazily. */
+  analysisClient?: AnalysisClient;
 };
 
 /** Edit/view routes only: 'new' is resolved to an id before it is stored. */
@@ -118,6 +134,7 @@ export function Root({
   newId = defaultNewId,
   now,
   clock,
+  analysisClient,
 }: RootProps) {
   // Once, before the library first reads the index (a second call — e.g.
   // StrictMode — finds nothing left to move).
@@ -208,6 +225,16 @@ export function Root({
     navigate({ screen: 'edit', songId });
   };
 
+  // 「この内容で曲を作る」 on the import screen: a new device-only song like
+  // the sample, then the editor. Replaces `#/import` in the history, so Back
+  // from the editor goes to the list, not to an empty import screen.
+  const addImported = (text: string) => {
+    const songId = newId();
+    created.add(songId);
+    addLocalSong(storage, songId, text, now?.() ?? new Date());
+    navigate({ screen: 'edit', songId }, { replace: true });
+  };
+
   // Drafts written by the editor (flushed when it unmounts) don't notify
   // the library: re-read when the list is shown.
   const { reload } = library;
@@ -233,7 +260,8 @@ export function Root({
   // new song — saving it would make a second file for the same id (R6).
   // Signed in: wait for the running / first listing, then list once more;
   // still unknown → explain, with a way back.
-  const songIdOf = route.screen === 'list' ? null : route.songId;
+  const songIdOf =
+    route.screen === 'list' || route.screen === 'import' ? null : route.songId;
   const unknown =
     songIdOf !== null &&
     !created.has(songIdOf) &&
@@ -302,6 +330,24 @@ export function Root({
           </Button>
         )}
       </main>
+    );
+  } else if (route.screen === 'import' && !tablet) {
+    // PC only (plan §4): a touch device shows the list instead.
+    screen = (
+      <Suspense
+        fallback={
+          <main className={styles.loading}>
+            <p role="status">読み込んでいます…</p>
+          </main>
+        }
+      >
+        <ImportScreen
+          client={analysisClient}
+          onBackToList={() => navigate({ screen: 'list' })}
+          onCreate={addImported}
+          now={now}
+        />
+      </Suspense>
     );
   } else if (
     route.screen === 'edit' ||
@@ -402,6 +448,7 @@ export function Root({
         }
         onNew={() => navigate({ screen: 'new' })}
         onAddSample={addSample}
+        onImport={() => navigate({ screen: 'import' })}
         onOpen={(id) => navigate({ screen: 'edit', songId: id })}
         onOpenView={(id) => navigate({ screen: 'view', songId: id })}
         canRename={library.canRename}
@@ -418,7 +465,8 @@ export function Root({
     );
   }
 
-  const listShown = route.screen === 'list';
+  const listShown =
+    route.screen === 'list' || (route.screen === 'import' && tablet);
   return (
     <>
       {screen}
