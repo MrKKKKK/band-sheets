@@ -14,6 +14,7 @@ import type { TsAnalysisResult } from '../../lib/analysis/chords/result';
 import {
   chordCandidates,
   draftMeter,
+  plainText,
   titleFromFileName,
   type TempoFactor,
 } from '../../lib/import/chordDraft';
@@ -78,11 +79,6 @@ interface OpenChord {
 function shiftLabel(n: number): string {
   if (n === 0) return 'ずれなし';
   return n > 0 ? `${n} 拍後へ` : `${-n} 拍前へ`;
-}
-
-/** Chord name without the analyzer's `?`. */
-function plain(text: string): string {
-  return text.endsWith('?') ? text.slice(0, -1) : text;
 }
 
 /**
@@ -463,7 +459,7 @@ export function ChordReview({
                   renderPanel={(o) => {
                     const c = candidates[o.id];
                     if (!c) return null;
-                    const current = s.chosen[o.id] ?? plain(c.text);
+                    const current = s.chosen[o.id] ?? plainText(c.text);
                     const picked = s.chosen[o.id] !== undefined;
                     return (
                       <div
@@ -509,7 +505,7 @@ export function ChordReview({
                         </div>
                         <p className={styles.note}>
                           {c.lowConfidence && !picked
-                            ? `いまは第 1 候補の ${spell(plain(c.text))} で、? つきです。どれかを押して選ぶと ? が外れます。`
+                            ? `いまは第 1 候補の ${spell(plainText(c.text))} で、? つきです。どれかを押して選ぶと ? が外れます。`
                             : ''}
                           ％は解析の確からしさで、正解の確率ではありません。
                         </p>
