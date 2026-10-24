@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { playwright } from '@vitest/browser-playwright';
+import { injectCspMeta } from './src/lib/csp.ts';
 
 const THIRD_PARTY = path.join(
   import.meta.dirname,
@@ -57,9 +58,35 @@ function analysisLicenseBanner(): Plugin {
   };
 }
 
+/** Pages that get the CSP meta (paths as Vite's transformIndexHtml reports them). */
+const CSP_PAGES = new Set(['/index.html', '/e2e/harness/analysis.html']);
+
+/**
+ * Adds the Content-Security-Policy `<meta>` (src/lib/csp.ts) to the built pages only. `apply: 'build'`: the dev
+ * server's inline scripts / HMR websocket would violate it, and Storybook's iframe.html is not in CSP_PAGES.
+ * scripts/check-bundle.mjs checks dist/index.html; e2e/csp.spec.ts runs the built app under it.
+ */
+function cspMeta(): Plugin {
+  return {
+    name: 'band-sheets:csp-meta',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler: (html, ctx) =>
+        CSP_PAGES.has(ctx.path) ? injectCspMeta(html) : html,
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), cspMeta()],
+  build: {
+    // Never inline fonts as data: URLs (a few tiny @fontsource subsets would be): the CSP's font-src is 'self'
+    // only (src/lib/csp.ts). Other assets keep Vite's default 4 KB limit.
+    assetsInlineLimit: (file) =>
+      /\.(woff2?|otf|ttf)$/.test(file) ? false : undefined,
+  },
   worker: {
     // the analysis Workers are module Workers (src/analysis/kinds.ts); one chunk per kind
     format: 'es',

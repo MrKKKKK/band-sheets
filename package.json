@@ -16,6 +16,7 @@
     "test:watch": "vitest --project unit",
     "test:storybook": "vitest run --project storybook",
     "e2e": "playwright test",
+    "e2e:csp": "playwright test -c playwright.csp.config.ts",
     "format": "prettier --write ."
   },
   "dependencies": {

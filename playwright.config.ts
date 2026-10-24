@@ -14,7 +14,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: /(viewer|tablet)\.spec/,
+      testIgnore: [/(viewer|tablet)\.spec/, /e2e\/csp\//],
       use: { ...devices['Desktop Chrome'] },
     },
     {
