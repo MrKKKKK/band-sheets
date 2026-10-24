@@ -218,7 +218,8 @@ export interface DashChordInput {
 /** Name used for a bar with no chord. */
 export const NO_CHORD = 'N.C.';
 
-function dashes(units: number): string {
+/** `-` per eighth, a trailing `=` for an odd sixteenth (the writer's form). */
+export function dashes(units: number): string {
   return '-'.repeat(Math.floor(units / 2)) + (units % 2 === 1 ? '=' : '');
 }
 
