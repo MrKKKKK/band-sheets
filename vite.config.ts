@@ -81,6 +81,12 @@ function cspMeta(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), cspMeta()],
+  optimizeDeps: {
+    // fft.js is imported only by the analysis Workers, which the dep scanner does not follow from index.html.
+    // Without this the dev server discovers it on the first Worker load, re-optimizes and RELOADS the page
+    // (e2e: "Execution context was destroyed … navigation" on a cold node_modules/.vite cache).
+    include: ['fft.js'],
+  },
   build: {
     // Never inline fonts as data: URLs (a few tiny @fontsource subsets would be): the CSP's font-src is 'self'
     // only (src/lib/csp.ts). Other assets keep Vite's default 4 KB limit.
