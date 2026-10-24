@@ -21,10 +21,7 @@ import {
 } from '../analysis/types';
 import { Button } from '../components/Button/Button';
 import { ChordReview } from '../components/ChordReview/ChordReview';
-import {
-  ImportPicker,
-  type ImportNotice,
-} from '../components/ImportPicker/ImportPicker';
+import { ImportPicker } from '../components/ImportPicker/ImportPicker';
 import { ImportProgress } from '../components/ImportProgress/ImportProgress';
 import { useAudioPlayer } from '../hooks/useAudioPlayer';
 import type { TsAnalysisResult } from '../lib/analysis/chords/result';
@@ -33,10 +30,11 @@ import {
   draftSongText,
   formatDurationJa,
   importProgressView,
+  type ImportProgressView,
   type ReviewState,
 } from '../lib/import/chordReview';
 import { formatDraftDate } from '../lib/import/draftMarks';
-import { importErrorInfo } from '../lib/import/importErrors';
+import { noticeFor, type ImportNotice } from '../lib/import/importErrors';
 import styles from './ImportScreen.module.css';
 
 export type ImportScreenProps = {
@@ -67,20 +65,9 @@ type Phase =
     }
   | { kind: 'review'; file: File; result: TsAnalysisResult };
 
-/** Errors after which the same file may work on a second try. */
-const RETRYABLE = new Set<AnalysisErrorCode>([
-  'worker-crashed',
-  'out-of-memory',
-  'internal',
-]);
-
-function noticeFor(code: AnalysisErrorCode): ImportNotice {
-  const info = importErrorInfo(code);
-  return {
-    severity: info.severity,
-    message: info.message,
-    retry: code === 'cancelled' || RETRYABLE.has(code),
-  };
+/** `3 / 6 段階: コードを調べる` for the running step. */
+function stepText(v: ImportProgressView): string {
+  return `${v.current} / ${v.steps.length} 段階: ${v.steps[v.current - 1].label}`;
 }
 
 export function ImportScreen({
@@ -162,10 +149,7 @@ export function ImportScreen({
     const duration = await probe(file).catch(() => null);
     if (run !== runRef.current) return;
     if (duration !== null && duration > MAX_DURATION_SEC) {
-      const notice = noticeFor('too-long');
-      focusNext.current = 'notice';
-      setPhase({ kind: 'pick', file: null, duration: null, notice });
-      say(notice.message);
+      fail(file, null, 'too-long');
       return;
     }
     setPhase({ kind: 'pick', file, duration, notice: null });
@@ -194,7 +178,7 @@ export function ImportScreen({
     const run = ++runRef.current;
     focusNext.current = 'progress';
     setPhase({ kind: 'analyzing', file, duration, progress: null });
-    say('解析を始めました。1 / 6 段階: 音声を読み込む');
+    say(`解析を始めました。${stepText(importProgressView(null))}`);
     const client = clientRef.current ?? createAnalysisClient();
     clientRef.current = client;
     let step = 1;
@@ -209,7 +193,7 @@ export function ImportScreen({
           const v = importProgressView(p);
           if (v.current !== step && v.fraction < 1) {
             step = v.current;
-            say(`${step} / ${v.steps.length} 段階: ${v.steps[step - 1].label}`);
+            say(stepText(v));
           }
         },
       );
@@ -266,18 +250,10 @@ export function ImportScreen({
     );
   }
 
-  const back = () => {
-    if (phase.kind === 'analyzing') {
-      runRef.current++;
-      clientRef.current?.cancel();
-    }
-    onBackToList();
-  };
-
   return (
     <div className={styles.page}>
       <header className={styles.bar}>
-        <Button variant="ghost" className={styles.back} onClick={back}>
+        <Button variant="ghost" className={styles.back} onClick={onBackToList}>
           ‹ 曲の一覧
         </Button>
         <p className={styles.brand}>band-sheets</p>
@@ -320,10 +296,6 @@ export function ImportScreen({
               noticeRef={noticeRef}
               onPick={(f) => void pick(f)}
               onStart={() => {
-                if (phase.file && !phase.probing)
-                  void start(phase.file, phase.duration);
-              }}
-              onRetry={() => {
                 if (phase.file && !phase.probing)
                   void start(phase.file, phase.duration);
               }}

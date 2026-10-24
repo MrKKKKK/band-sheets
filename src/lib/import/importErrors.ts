@@ -34,15 +34,32 @@ export const IMPORT_ERROR_MESSAGES: Record<AnalysisErrorCode, string> = {
 export const PLAYBACK_FAILED_MESSAGE =
   'このファイルは、このブラウザでは再生できません。';
 
-export interface ImportErrorInfo {
+export interface ImportNotice {
   /** `notice` = the user asked for it (cancel): show it plainly, not as an error. */
   severity: 'error' | 'notice';
   message: string;
+  /** Offer 「もう一度試す」 (crash / memory / internal errors, and after a cancel). */
+  retry?: boolean;
 }
 
-export function importErrorInfo(code: AnalysisErrorCode): ImportErrorInfo {
+/** Errors after which the same file may work on a second try. */
+const RETRYABLE = new Set<AnalysisErrorCode>([
+  'worker-crashed',
+  'out-of-memory',
+  'internal',
+]);
+
+export function importErrorInfo(code: AnalysisErrorCode): ImportNotice {
   return {
     severity: code === 'cancelled' ? 'notice' : 'error',
     message: IMPORT_ERROR_MESSAGES[code],
+  };
+}
+
+/** The notice box for an error code, with the retry offer. */
+export function noticeFor(code: AnalysisErrorCode): ImportNotice {
+  return {
+    ...importErrorInfo(code),
+    retry: code === 'cancelled' || RETRYABLE.has(code),
   };
 }
