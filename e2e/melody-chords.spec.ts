@@ -49,14 +49,19 @@ test('melody chords: copy from the chart, shown on the staff and in the preview'
 
   // The alphaTab preview draws the chord names too.
   const preview = page.getByRole('region', { name: '仕上がりの確認' });
+  // The preview re-renders after the copy, and alphaTab lazy-loads: it only
+  // draws once the preview is in the viewport. The re-render collapses the
+  // preview's height and can leave it below the fold with nothing drawn, and
+  // `data-state="rendered"` can't tell (it's also true for the render before
+  // the copy). So wait for the chord text itself, scrolling the preview back
+  // into view on every attempt.
   const score = preview.locator('[data-state]');
-  await expect(score).toHaveAttribute('data-state', 'rendered', {
-    timeout: 10000,
-  });
-  await score.evaluate((e) => e.scrollIntoView({ block: 'start' }));
-  await expect(
-    preview.locator('svg text', { hasText: /^G7$/ }).first(),
-  ).toBeVisible({ timeout: 10000 });
+  await expect(async () => {
+    await score.evaluate((e) => e.scrollIntoView({ block: 'start' }));
+    await expect(
+      preview.locator('svg text', { hasText: /^G7$/ }).first(),
+    ).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 15000 });
 });
 
 test('melody chords: confirm when chords exist, edit / delete per note, text keeps ch', async ({
