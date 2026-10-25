@@ -60,3 +60,21 @@ DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
+
+## Drum samples for spike 5's synthetic data (not shipped, not in git)
+
+Downloaded by `spikes/analysis/fetch-drum-samples.sh` (SHA-256 pinned) into the gitignored
+`spikes/analysis/soundfonts/` and `spikes/analysis/drumkits/`. Used only by `render/drum/` to render local test
+audio; never committed, never bundled into the app. Details: `spikes/analysis/DRUM_SAMPLES.md`.
+
+- MuseScore_General 0.2 (MIT; drum kit = FluidR3Mono samples). Notice required in derivative
+  works: "FluidR3 (original version) by Frank Wen Copyright (c) 2000-02; Mono conversion
+  (FluidR3Mono) by Michael Cowgill Copyright (c) 2014-17; Adaptation for MuseScore_General.sf2 by
+  S. Christian Collins Copyright (c) 2018-19." Full text: `soundfonts/MuseScore_General_License.md`.
+- Virtuosity Drums v0.925 by Versilian Studios and Karoryfer Samples (CC0 1.0 Universal).
+  https://github.com/sfzinstruments/virtuosity_drums
+- Big Rusty Drums v1.100 by Karoryfer Samples (CC0 1.0 Universal).
+  https://github.com/sfzinstruments/karoryfer.big-rusty-drums
+
+`render/drum/flac.ts` (FLAC decoder) is our own code written from the format specification (RFC 9639); no
+third-party decoder code was read or copied.
