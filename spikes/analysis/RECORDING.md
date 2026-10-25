@@ -232,3 +232,25 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -e NUMBA_CACHE_DIR=/work/out/.numba-ca
 - 音声は モノ・44.1 kHz の WAV に直して `recordings/hum-NN-x.wav` に、正解（音符の位置と、`bpm` と `開始:`（最初の音の秒）から計算した秒）は `recordings/hum-NN-x.truth.json` と `out/rec/` に置かれます。元のファイルは `recordings/hum-originals/` に移り、`hum-inbox` は空になります（エラーのものだけ残る。エラーの文は日本語で、曲名や音符の並びは表示しません）。
 - 最後に `privacy_check`（曲名・音符の並びが git に入っていないか）が自動で走ります。ホスト側でも `python3 spikes/analysis/py/privacy_check.py --history` で全体を確かめられます。
 - **PC の外には何も出ません**（音も、音符の並びも、図も、git・Drive・ログ・報告に出しません）。ここでは解析は走りません。
+
+## 8. ドラムの録音（スパイク 5）
+
+想定読者: 取り込みを走らせる人（ユーザーと作業するエージェント）。ユーザーが録る手順は `DRUM_RECORDING.md` にあります（ここには書きません）。
+
+**取り込み**（`spikes/analysis` で。2 段階）:
+
+```
+# 1) 楽譜（recordings/drum-scores/x.song.txt）から正解の小節・拍の位置を作る（devcontainer 側。アプリの parseDrums を使う）
+docker exec -u node -w /workspaces/band-sheets/spikes/analysis band-sheets npx tsx ts/drum/recscore/truthCli.ts
+# 2) 取り込み（Python 側）
+docker run --rm -u 1000:1000 -e HOME=/tmp -e NUMBA_CACHE_DIR=/work/out/.numba-cache \
+  -v /home/mrk5/projects/band-sheets/spikes/analysis:/work -w /work band-sheets-analysis python py/drum_intake.py
+```
+
+- `recordings/drm-inbox/{a..f}.wav` + `.txt` を `drm-01-a` … `drm-06-f` に変え、モノ・44.1 kHz の WAV を `recordings/drm-NN-x.wav`、正解を `recordings/drm-NN-x.truth.json`（と `out/rec/`、`manifest.drum.json`）に置く。元は `recordings/drm-originals/`。
+- **ホールドアウト**は e・f（`builder.ts` の `TAKE_ROLE` で決めてあり、1) が `ticks.json` に入れる）。解析の前に `out/results/heldout-log.jsonl`（`kind: register`, `input: drum`）と `recordings/drm-ids.local.json` に記録。`.txt` の `ホールドアウト:` が違うとエラー。取り込み済みの録音は拒否。やり直しは開発用が `--reintake`、ホールドアウトは `--reintake-held-out`（ログに `reintake`）。
+- **外す小節**: `.txt` の「楽譜と違って叩いた小節:」（`3, 5-6`、1 始まり）を 0 始まりで `excludedBars` に入れる。採点側（`ts/drum/score.ts` の `excludedBars`）が正解・推定・全指標から外す。範囲外はエラー。
+- **特殊奏法**（d）: `特殊奏法:` の行を `extraLabels`（小節・楽器・ベル/クロススティック/リムショット）に入れる。「出なかった」は無視。
+- **正解の時刻**: `開始:` と bpm から計算。シャッフルの小節では裏拍を 2:1 の位置にずらす（`playTick`）。`キット:` は必須で、ホールドアウトが開発用と同じキットなら警告。
+- `.txt` を直したら `python py/drum_intake.py --reparse [drm-NN-x …]`（`drm-originals/` を読み直し。id・ホールドアウト・音声はそのまま、ログに `reparse`）。
+- 最後に `privacy_check`。楽譜は自作なので音符の並びの検査はありません。録音は手元だけ（git・Drive に出さない）。
