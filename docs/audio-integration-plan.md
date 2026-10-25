@@ -147,9 +147,9 @@ File ─decodeFile→ Float32Array(モノラル) ─Worker→ 解析結果（中
 
 ### 3.5 ドラムを後で足すために
 
-- 解析の種類を 1 か所の表にする: `kind`（`'chords' | 'hum'`、後で `'drums'`）ごとに、Worker の中の入口、入力の型、結果の型、変換の関数、確かめの画面。
+- 解析の種類ごとに足す場所: `types.ts`（`kind`・リクエスト型・結果型・段階名。`AnalysisKind` は `lib/import/analysisTypes.ts`）、`kinds.ts`（Worker の作り方の表。1 種類 1 行）、`*.worker.ts` と `worker/run*.ts`（Worker の入口）。`protocol.ts` のメッセージ型はリクエスト型から導くので手を入れない。
 - 中間 JSON には既に `drums: [{t, inst, strength, confidence}]` と `swing` の欄がある（メモ §5.2）。変換は `serializeDrums` で書く（`drumDraft.ts`）。画面は「録音から取り込む」の種類を 1 つ足し、確かめの画面を 1 つ足す。
-- Worker の `kind` ごとに、使わない解析器を読まないように、Worker の中で動的 `import()` で分ける（大きさが気になったとき）。
+- `kind` ごとに Worker が別のチャンクなので、使わない解析器は読み込まれない（済み。`kinds.ts`）。
 
 ### 3.6 コードだけの行の書き方（ダッシュ記法。§9 Q3 の決定）
 

@@ -36,17 +36,8 @@ interface ActiveRun {
 
 function runMessage(req: AnalysisRequest, audio: DecodedAudio): RunMessage {
   const { samples, sampleRate } = audio;
-  return req.kind === 'chords'
-    ? { type: 'run', kind: 'chords', samples, sampleRate }
-    : {
-        type: 'run',
-        kind: 'hum',
-        samples,
-        sampleRate,
-        info: req.info,
-        f0Track: req.f0Track ?? false,
-        firstNoteAuto: req.firstNoteAuto ?? false,
-      };
+  const { source: _source, ...rest } = req;
+  return { type: 'run', ...rest, samples, sampleRate };
 }
 
 export function createAnalysisClient(

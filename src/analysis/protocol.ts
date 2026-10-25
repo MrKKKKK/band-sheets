@@ -1,19 +1,18 @@
 /** Messages between the main thread (analysisClient.ts) and an analysis Worker. One Worker = one run. */
-import type { HumInput } from '../lib/analysis/hum/types';
-import type { AnalysisErrorCode } from './types';
+import type { AnalysisErrorCode, AnalysisRequest } from './types';
 
-/** main -> Worker. `samples` is transferred (zero copy). */
-export type RunMessage =
-  | { type: 'run'; kind: 'chords'; samples: Float32Array; sampleRate: number }
-  | {
-      type: 'run';
-      kind: 'hum';
-      samples: Float32Array;
-      sampleRate: number;
-      info: HumInput;
-      f0Track: boolean;
-      firstNoteAuto: boolean;
-    };
+/** A request as the Worker gets it: the audio is `samples` / `sampleRate`, so no `source`. */
+type WorkerRequest<R> = R extends AnalysisRequest ? Omit<R, 'source'> : never;
+
+/**
+ * main -> Worker: the request of each kind (optional fields as the caller gave them; the runners apply the
+ * defaults) with the decoded audio. `samples` is transferred (zero copy).
+ */
+export type RunMessage = WorkerRequest<AnalysisRequest> & {
+  type: 'run';
+  samples: Float32Array;
+  sampleRate: number;
+};
 
 /** Worker -> main. A run ends with exactly one `result` or `error`. */
 export type WorkerMessage =

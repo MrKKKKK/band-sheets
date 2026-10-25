@@ -24,10 +24,10 @@ export function runHum(
   // analyzeHum drops its own reference after resampling; take the samples out of the message (no local variable)
   // so nothing else keeps the file-rate signal alive while f0 / notes run
   const result = analyzeHum(takeSamples(msg), msg.sampleRate, msg.info, {
-    f0Track: msg.f0Track,
+    f0Track: msg.f0Track ?? false,
     onStage,
   });
-  return msg.firstNoteAuto
+  return (msg.firstNoteAuto ?? false)
     ? requantizeAtFirstNote(result, msg.info.firstNoteTick ?? 0)
     : result;
 }

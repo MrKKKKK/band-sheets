@@ -3,6 +3,7 @@
  * Errors are reduced to a code (plus the analyzer's own Japanese message for unusable input): other error texts
  * could hold song content and are never posted (plan section 5).
  */
+import type { InputErrorCode } from '../../lib/analysis/chords/analyze';
 import type { RunMessage, WorkerMessage } from '../protocol';
 import type { AnalysisErrorCode } from '../types';
 
@@ -25,13 +26,15 @@ export class RunnerError extends Error {
   }
 }
 
-const INPUT_CODES = new Set([
-  'empty',
-  'too-short',
-  'non-finite',
-  'silent',
-  'no-beats',
-]);
+/** Every analyzer input code (a code missing here is a compile error). */
+const INPUT_CODE_TABLE: Record<InputErrorCode, true> = {
+  empty: true,
+  'too-short': true,
+  'non-finite': true,
+  silent: true,
+  'no-beats': true,
+};
+const INPUT_CODES = new Set<string>(Object.keys(INPUT_CODE_TABLE));
 
 /** Maps anything a runner threw to the error message posted to the main thread. */
 export function errorMessage(err: unknown): WorkerMessage {
