@@ -8,7 +8,7 @@ import {
   type ReactNode,
   type Ref,
 } from 'react';
-import type { AudioPlayer } from '../../hooks/useAudioPlayer';
+import type { AudioPlayer, AudioPlayerView } from '../../hooks/useAudioPlayer';
 import type { TsAnalysisResult } from '../../lib/analysis/chords/result';
 import {
   chordCandidates,
@@ -44,10 +44,14 @@ import { ConfirmDialog } from '../ConfirmDialog/ConfirmDialog';
 import { ImportFrame } from '../ImportFrame/ImportFrame';
 import styles from './ChordReview.module.css';
 
+/** What the review screen does with the recording: show its state and play / pause / seek. */
+type ReviewPlayer = AudioPlayerView &
+  Pick<AudioPlayer, 'play' | 'pause' | 'seek'>;
+
 export type ChordReviewProps = {
   result: TsAnalysisResult;
   fileName: string;
-  player: AudioPlayer;
+  player: ReviewPlayer;
   /** 「この内容で曲を作る」 with the reviewed state (the screen writes the song). */
   onCreate: (state: ReviewState) => void;
   /** 「やめて戻る」, after the confirmation when something was changed. */
@@ -730,7 +734,7 @@ function PlayerBar({
   durationSec,
   say,
 }: {
-  player: AudioPlayer;
+  player: ReviewPlayer;
   durationSec: number;
   say?: (m: string) => void;
 }) {

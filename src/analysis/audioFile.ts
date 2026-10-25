@@ -107,8 +107,8 @@ export function mp3SampleRate(bytes: Uint8Array): number | null {
 }
 
 /** Rates an OfflineAudioContext accepts in every current browser (the spec minimum range). */
-export const MIN_CONTEXT_RATE = 8000;
-export const MAX_CONTEXT_RATE = 96000;
+const MIN_CONTEXT_RATE = 8000;
+const MAX_CONTEXT_RATE = 96000;
 /** Used when the rate cannot be read from the file (m4a, ogg, …): the browser resamples to it. */
 export const FALLBACK_RATE = 44100;
 

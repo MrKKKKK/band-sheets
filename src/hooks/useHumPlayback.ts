@@ -9,14 +9,14 @@ import { createTonePlayer } from './tonePlayer';
 import type { TonePlayer } from './tonePlayer.types';
 import {
   useAudioPlayer,
-  type AudioPlayer,
+  type AudioPlayerView,
   type AudioPlayerDeps,
 } from './useAudioPlayer';
 
 export type ListenMode = 'recording' | 'draft' | 'both';
 
 export interface HumPlayback {
-  player: AudioPlayer;
+  player: AudioPlayerView;
   mode: ListenMode;
   setMode(mode: ListenMode): void;
   /** From `fromSec` (default: where it is). */

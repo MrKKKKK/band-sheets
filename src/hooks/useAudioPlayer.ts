@@ -32,6 +32,12 @@ export interface AudioPlayer {
   setBarResolver(fn: ((sec: number) => number | null) | null): void;
 }
 
+/** What a screen that only shows the player reads (state + the bar resolver); the sync members are useHumPlayback's. */
+export type AudioPlayerView = Pick<
+  AudioPlayer,
+  'playing' | 'currentTime' | 'duration' | 'failed' | 'setBarResolver'
+>;
+
 /** The displayed time (seek bar, clock) moves at about 4 Hz. */
 const TIME_STEP_SEC = 0.25;
 

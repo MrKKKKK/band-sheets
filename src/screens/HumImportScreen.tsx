@@ -96,7 +96,6 @@ export function HumImportScreen({
     beat: 1,
   }));
   const [insertError, setInsertError] = useState<string | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
   const {
     phase,
     live,
@@ -208,7 +207,6 @@ export function HumImportScreen({
             : null
         }
         onPick={(f) => void pick(f)}
-        fileInputRef={fileInput}
         notice={phase.kind === 'pick' ? phase.notice : null}
         noticeRef={noticeRef}
         progress={
