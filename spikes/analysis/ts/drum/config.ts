@@ -53,13 +53,53 @@ export interface DrumConfig {
     edgesHz: number[];
   };
   classify: {
-    /** Switches tried in order by T6 (each gets its own table). */
+    /** Switches tried in order by T6 (each gets its own table; classify.ts explains each step). */
     nmf: boolean;
     refit: boolean;
     hpss: boolean;
     nmfIterations: number;
     /** Number of 2nd-candidate instruments kept per hit (plan decision 5). */
     candidatesMax: number;
+    /** Band rules (nmf off): onset flux / band threshold of T5 at least rule{Low,Mid,High}; SD needs mid / low flux ratio, HH high / mid. */
+    ruleLow: number;
+    ruleMid: number;
+    ruleHigh: number;
+    ruleMidOverLow: number;
+    ruleHighOverMid: number;
+    /** Onset spectrum (NMF input, also the templates): STFT win / hop, mel bands over [fminHz, fmaxHz] of |X|. */
+    win: number;
+    hop: number;
+    melBands: number;
+    fminHz: number;
+    fmaxHz: number;
+    /** Observation = max(0, mean of postCount frames from onset frame + postFrom - frame (onset - preFrames)) (removes ringing). */
+    preFrames: number;
+    postFrom: number;
+    postCount: number;
+    /** NMF divergence: 1 = KL, 2 = Euclidean (multiplicative updates of the activations only, templates fixed). */
+    nmfBeta: number;
+    /** Absorber templates whose activations are never output: RD CR toms (nmfOthers), CB SD.xs (nmfExt), RD.bell SP CN (nmfExtCymbals). */
+    nmfOthers: boolean;
+    nmfExt: boolean;
+    nmfExtCymbals: boolean;
+    /** Metal split (classify.ts step 2b): fast decay (>= hhMinDecayDbPerSec above decayFminHz, measured over decayMinMs..decayMaxMs) -> metal absorbers count for HH. */
+    metalDecay: boolean;
+    hhMinDecayDbPerSec: number;
+    decayFminHz: number;
+    decayMinMs: number;
+    decayMaxMs: number;
+    /** Decision: class share of the activations >= shareMin[BD, SD, HH] and level >= levelMinDb re the take's reference. */
+    shareMin: number[];
+    levelMinDb: number;
+    /** Take reference of a class: this quantile of its activation over the onsets it dominates (refMinHits needed). */
+    refQuantile: number;
+    refMinHits: number;
+    /** Refit: confident single-class onsets (share >= refitShare, >= refitMinHits of them) give one more template column per class. */
+    refitShare: number;
+    refitMinHits: number;
+    /** HPSS on the mel spectrogram: harmonic = median over hpssTimeFrames frames, percussive = median over hpssFreqBins bands; soft mask power 2. */
+    hpssTimeFrames: number;
+    hpssFreqBins: number;
   };
   toms: {
     /** S-9 (T11): tom hits are split by low-peak height into this many groups. */
@@ -144,7 +184,50 @@ export const DEFAULT_DRUM_CONFIG: DrumConfig = deepFreeze({
     featureMs: 30,
   },
   bands: { edgesHz: [30, 250, 5000, 16000] },
-  classify: { nmf: false, refit: false, hpss: false, nmfIterations: 100, candidatesMax: 1 },
+  // T6 (tuning split only; per-switch tables in the T6 report): band rules all F50 .52 -> fixed-template NMF .91;
+  // RD/CR/tom absorbers (nmfOthers) .87 -> .91; CB/SD.xs (nmfExt) + RD.bell/SP/CN (nmfExtCymbals) absorbers .94 -> .95
+  // (cross-sticks / cowbells were SD / HH extras); HH.foot is no template (it absorbed real HH). refit off (D3 HH
+  // .73 -> .67, the rest +-.01), hpss off (SD .92 -> .67: the snare's noise is masked as non-percussive).
+  classify: {
+    nmf: true,
+    refit: false,
+    hpss: false,
+    nmfIterations: 100,
+    candidatesMax: 1,
+    // rules: only for the step-1 table (tuning all F50 .52; they cannot tell an SD's noise from a HH)
+    ruleLow: 2,
+    ruleMid: 2,
+    ruleHigh: 2,
+    ruleMidOverLow: 0.5,
+    ruleHighOverMid: 1,
+    win: 2048,
+    hop: 512,
+    melBands: 64, // 40 -> 64: all F50 .930 -> .935
+    fminHz: 30,
+    fmaxHz: 16000,
+    preFrames: 3, // 2 -> 3: SD .908 -> .919 (1: .894)
+    postFrom: 0,
+    postCount: 3, // 2: .917, 4: .931
+    nmfBeta: 1, // KL; Euclidean (2) HH .905 -> .816
+    nmfOthers: true,
+    nmfExt: true,
+    nmfExtCymbals: true,
+    // metal split: tuning all .951 -> .940 (thr 100) so off by the tuning rule; dev CHECK: all .762 -> .814 (kit B closed HH
+    // looks like kit A's RD template: kit B D0 HH F50 .05 -> .53). Left for T10 / T11 (S-9 cymbals use decay anyway).
+    metalDecay: false,
+    hhMinDecayDbPerSec: 100, // tuning: 30 .913, 60 .938, 100 .940, 150 .941
+    decayFminHz: 5000,
+    decayMinMs: 35,
+    decayMaxMs: 300,
+    shareMin: [0.1, 0.05, 0.05], // [.2 .2 .1] -> these: all .912 -> .930 (ghost SD under BD + HH has share < .05: lost)
+    levelMinDb: -25, // -20 .. -50 within +-.005
+    refQuantile: 0.9,
+    refMinHits: 4,
+    refitShare: 0.8,
+    refitMinHits: 4,
+    hpssTimeFrames: 17,
+    hpssFreqBins: 9,
+  },
   toms: { groups: 3 },
   cymbals: { openDecayMs: 250, openExclusiveMs: 50 },
   strength: { refPercentile: 0.9, ghostDb: -10, normalPercentile: 0.25, accentDb: 5, minHits: 4 },
