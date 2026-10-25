@@ -1,14 +1,12 @@
 /**
- * Auto-scroll math for the viewer (M6, docs/m6-plan.md 設計判断 8).
+ * Auto-scroll math for the viewer (M6, docs/m6-plan.md 設計判断 8; issue #62).
  *
- * A timeline maps time → the y of the "now playing" position inside the
- * content column: one key at the top of every timed unit (an alphaTab
- * system, or a chart-only block) at the time its first bar starts, plus an
- * end key at the bottom of the last unit; y is linearly interpolated between
- * keys. Time-less units (chart lines between systems) are not in the input,
- * so the position simply passes through them. The viewer keeps that position
- * on a line `anchorPx` below the top of the viewport (30% of its height):
- * `scrollTop = y(t) − anchorPx`.
+ * A timeline maps time → the timed units (an alphaTab system, or a chart-only
+ * block): one key at the top of every unit at the time its first bar starts,
+ * plus an end key at the bottom of the last unit (`sectionAt` reads it).
+ * Time-less units (chart lines between systems) are not in the input.
+ * The view moves system by system (`buildScrollPlan`): the playing unit
+ * stays still and the next one eases to the top during the last beat.
  */
 import { dashBarCount, isDashLine } from './dashChart';
 import type { ChartLine, ChartSection } from './song';
@@ -88,53 +86,6 @@ function keyIndexAt(keys: Timeline['keys'], t: number): number {
     else break;
   }
   return i;
-}
-
-/** The content y playing at time t (clamped to the timeline). */
-function yAt(tl: Timeline, t: number): number {
-  const { keys } = tl;
-  if (keys.length === 0) return 0;
-  if (!(t > keys[0].t)) return keys[0].y;
-  const i = keyIndexAt(keys, t);
-  if (i >= keys.length - 1) return keys[keys.length - 1].y;
-  const a = keys[i];
-  const b = keys[i + 1];
-  // keyIndexAt picks the last key at t, so b.t > t ≥ a.t here.
-  return a.y + ((t - a.t) / (b.t - a.t)) * (b.y - a.y);
-}
-
-/**
- * scrollTop that puts the position at time t on the anchor line. At a
- * zero-length jump the later position wins. Never negative.
- */
-export function scrollTopAt(tl: Timeline, t: number, anchorPx: number): number {
-  if (tl.keys.length === 0) return 0;
-  return Math.max(0, yAt(tl, t) - anchorPx);
-}
-
-/**
- * Inverse of `scrollTopAt`: the earliest time whose scrollTop is ≥ the given
- * one (so a flat stretch maps to its start, a jump to its time). scrollTop ≤ 0
- * → 0 (the top of the content is where playback starts); past the end →
- * duration.
- */
-export function timeAtScrollTop(
-  tl: Timeline,
-  scrollTop: number,
-  anchorPx: number,
-): number {
-  const { keys } = tl;
-  if (keys.length === 0 || !(scrollTop > 0)) return 0;
-  const target = scrollTop + anchorPx;
-  if (target <= keys[0].y) return keys[0].t;
-  for (let i = 0; i < keys.length - 1; i++) {
-    const a = keys[i];
-    const b = keys[i + 1];
-    if (b.y < target) continue;
-    if (target <= a.y || b.y === a.y) return a.t;
-    return a.t + ((target - a.y) / (b.y - a.y)) * (b.t - a.t);
-  }
-  return tl.duration;
 }
 
 /** The viewport as the system-by-system auto-scroll sees it (issue #62). */

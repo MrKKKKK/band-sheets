@@ -15,9 +15,7 @@ import {
   planStepAt,
   planTimeAtScrollTop,
   rescaleTime,
-  scrollTopAt,
   sectionAt,
-  timeAtScrollTop,
   type TimedUnit,
 } from './autoScroll';
 
@@ -114,124 +112,28 @@ describe('buildTimeline', () => {
   });
 });
 
-describe('scrollTopAt', () => {
-  const tl = buildTimeline(
-    [
-      { top: 100, height: 200, bars: bars(4) }, // t 0..8, y 100..400 (to the next top)
-      { top: 400, height: 100, bars: bars(2) }, // t 8..12, y 400..500
-    ],
-    120,
-    100,
-  );
-
-  it('interpolates linearly and subtracts the anchor', () => {
-    expect(scrollTopAt(tl, 0, 50)).toBe(50);
-    expect(scrollTopAt(tl, 4, 50)).toBeCloseTo(200);
-    // keys are unit tops: the chart lines in the gap (300..400) are passed
-    // through during the first unit (y 100 → 400 over t 0 → 8)
-    expect(scrollTopAt(tl, 10, 0)).toBeCloseTo(450);
-  });
-  it('clamps time to the timeline and scrollTop to ≥ 0', () => {
-    expect(scrollTopAt(tl, -3, 0)).toBe(100);
-    expect(scrollTopAt(tl, 99, 0)).toBe(500);
-    expect(scrollTopAt(tl, 0, 250)).toBe(0);
-  });
-  it('is 0 for an empty timeline', () => {
-    expect(scrollTopAt({ keys: [], duration: 0 }, 5, 100)).toBe(0);
-  });
-  it('takes the later position at a zero-length jump', () => {
-    const jump = buildTimeline(
-      [
-        { top: 0, height: 100, bars: bars(1) },
-        { top: 100, height: 50, bars: [] },
-        { top: 150, height: 100, bars: bars(1) },
-      ],
-      120,
-      100,
-    );
-    expect(scrollTopAt(jump, 2, 0)).toBe(150);
-    expect(scrollTopAt(jump, 1, 0)).toBeCloseTo(50);
-  });
-});
-
-describe('timeAtScrollTop', () => {
-  const tl = buildTimeline(
-    [
-      { top: 100, height: 200, bars: bars(4) },
-      { top: 400, height: 100, bars: bars(2) },
-    ],
-    120,
-    100,
-  );
-
-  it('inverts scrollTopAt', () => {
-    for (const t of [0.5, 3, 7.9, 9, 11.5]) {
-      expect(timeAtScrollTop(tl, scrollTopAt(tl, t, 80), 80)).toBeCloseTo(t);
-    }
-  });
-  it('starts from 0 when the first unit is not yet past the anchor line', () => {
-    expect(timeAtScrollTop(tl, 0, 0)).toBe(0);
-    expect(timeAtScrollTop(tl, 0, 250)).toBe(0);
-    expect(timeAtScrollTop(tl, 20, 50)).toBe(0);
-  });
-  it('returns duration beyond the end', () => {
-    expect(timeAtScrollTop(tl, 10_000, 0)).toBe(12);
-  });
-  it('is 0 for an empty timeline', () => {
-    expect(timeAtScrollTop({ keys: [], duration: 0 }, 300, 100)).toBe(0);
-  });
-  it('maps a y inside a zero-length jump to the jump time', () => {
-    const jump = buildTimeline(
-      [
-        { top: 0, height: 100, bars: bars(1) },
-        { top: 100, height: 50, bars: [] },
-        { top: 150, height: 100, bars: bars(1) },
-      ],
-      120,
-      100,
-    );
-    expect(timeAtScrollTop(jump, 120, 0)).toBe(2);
-    expect(timeAtScrollTop(jump, 200, 0)).toBeCloseTo(3);
-  });
-  it('maps a flat stretch (zero-height unit) to its start', () => {
-    const flat = buildTimeline(
-      [
-        { top: 0, height: 100, bars: bars(1) },
-        { top: 100, height: 0, bars: bars(2) }, // t 2..6 at y 100
-        { top: 100, height: 100, bars: bars(1) },
-      ],
-      120,
-      100,
-    );
-    expect(timeAtScrollTop(flat, 100, 0)).toBe(2);
-    expect(scrollTopAt(flat, 4, 0)).toBe(100);
-  });
-});
-
 describe('rescaleTime (speed change mid-play keeps the position)', () => {
   const units: TimedUnit[] = [
     { top: 0, height: 300, bars: [b44, b34, b68] },
     { top: 350, height: 300, bars: bars(3) },
   ];
-  it('maps a time on the old timeline to the same y on the new one', () => {
-    const before = buildTimeline(units, 90, 100);
-    const after = buildTimeline(units, 90, 135);
+  const view = {
+    height: 500,
+    bottomReserve: 60,
+    topGap: 16,
+    maxScrollTop: 9999,
+  };
+  it('maps a time on the old plan to the same scrollTop on the new one', () => {
+    const before = buildScrollPlan(units, 90, 100, view);
+    const after = buildScrollPlan(units, 90, 135, view);
     for (const t of [0, 1.3, 5, 9.9, before.duration]) {
-      expect(scrollTopAt(after, rescaleTime(t, 100, 135), 120)).toBeCloseTo(
-        scrollTopAt(before, t, 120),
+      expect(planScrollTopAt(after, rescaleTime(t, 100, 135))).toBeCloseTo(
+        planScrollTopAt(before, t),
       );
     }
   });
   it('is the same time when the speed is unchanged', () => {
     expect(rescaleTime(4.2, 105, 105)).toBe(4.2);
-  });
-  it('agrees with timeAtScrollTop on the new timeline', () => {
-    const before = buildTimeline(units, 90, 100);
-    const after = buildTimeline(units, 90, 60);
-    const st = scrollTopAt(before, 7, 100);
-    expect(timeAtScrollTop(after, st, 100)).toBeCloseTo(
-      rescaleTime(7, 100, 60),
-    );
   });
 });
 
@@ -347,7 +249,12 @@ describe('lineBarCount of dash lines', () => {
 
 describe('buildScrollPlan / planScrollTopAt (issue #62: system by system)', () => {
   // ♩=120 4/4: a bar is 2s, a beat 0.5s → the ease is 0.5s (the last beat).
-  const view = { height: 800, bottomReserve: 100, topGap: 16, maxScrollTop: 5000 };
+  const view = {
+    height: 800,
+    bottomReserve: 100,
+    topGap: 16,
+    maxScrollTop: 5000,
+  };
   const sys = (top: number, height = 200, n = 4): TimedUnit => ({
     top,
     height,

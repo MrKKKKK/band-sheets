@@ -8,15 +8,18 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {
+  approach,
   barAt,
   barSeconds,
+  buildScrollPlan,
   buildTimeline,
   countInBeats,
   DEFAULT_TEMPO,
+  planScrollTopAt,
+  planStepAt,
+  planTimeAtScrollTop,
   rescaleTime,
-  scrollTopAt,
   sectionAt,
-  timeAtScrollTop,
 } from '../../lib/autoScroll';
 import { pageIndexAt, paginate, type Page } from '../../lib/pagination';
 import type { Song } from '../../lib/song';
@@ -78,10 +81,14 @@ const TOP_GAP_HINTS = 44;
 const PAGE_BAR_H = 44;
 /** Scroll / pedal step in the scroll modes (a little overlap to keep reading). */
 const SCROLL_STEP = 0.85;
-/** Auto-scroll keeps the playing position on this line of the viewport. */
-const PLAY_LINE = 0.3;
 /** A scrollTop this far from the one auto-scroll wrote = the user scrolled. */
 const USER_SCROLL_PX = 2;
+/** After a finger / pedal scroll, auto-scroll keeps its hands off this long. */
+const USER_HOLD_MS = 800;
+/** Time constant (s) of the glide back onto the plan after that. */
+const SETTLE_TAU_SEC = 0.12;
+/** Space between the auto-scroll bar's top and the content it uncovers. */
+const BAR_GAP = 8;
 const FALLBACK_BAR = { num: 4, den: 4 };
 
 function isEditable(t: EventTarget | null): boolean {
@@ -212,6 +219,26 @@ export function Viewer({
     () => buildTimeline(timedUnits, tempo, settings.speedPct),
     [timedUnits, tempo, settings.speedPct],
   );
+  // Auto mode: the bar covers the bottom of the viewport; the content gets
+  // the same space below it so the last system can rise above the bar (#62).
+  const autoBarRef = useRef<HTMLDivElement>(null);
+  const [barReserve, setBarReserve] = useState(0);
+  useLayoutEffect(() => {
+    const bar = autoBarRef.current;
+    const vp = viewportRef.current;
+    if (!bar || !vp) return;
+    const measure = () =>
+      setBarReserve(
+        Math.ceil(
+          vp.getBoundingClientRect().bottom - bar.getBoundingClientRect().top,
+        ) + BAR_GAP,
+      );
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, [nav, vh, playMode]);
+  const reserve = nav === 'auto' ? barReserve : 0;
   /** What the rAF loop reads (always the committed values). */
   const live = useRef({
     timeline,
@@ -219,6 +246,7 @@ export function Viewer({
     tempo,
     speedPct: settings.speedPct,
     ready: layout.ready,
+    reserve,
   });
   useLayoutEffect(() => {
     live.current = {
@@ -227,6 +255,7 @@ export function Viewer({
       timedUnits,
       tempo,
       speedPct: settings.speedPct,
+      reserve,
     };
   });
   const playRef = useRef({
@@ -237,12 +266,48 @@ export function Viewer({
     frame: null as number | null,
     /** The scrollTop auto-scroll last wrote. */
     written: Number.NaN,
+    /** Gliding onto the plan (after play / a user scroll) from `pos`. */
+    settle: false,
+    pos: 0,
+    /** clock.now() of the last user scroll during playback. */
+    userAt: Number.NEGATIVE_INFINITY,
     countElapsed: 0,
     beats: 0,
     beatSec: 0,
   });
 
-  const playLine = () => (viewportRef.current?.clientHeight ?? 0) * PLAY_LINE;
+  /** System-by-system scroll plan for the current layout / speed / size. */
+  const scrollPlan = () => {
+    const el = viewportRef.current;
+    const { timedUnits: tu, tempo: bpm, speedPct, reserve: r } = live.current;
+    return buildScrollPlan(tu, bpm, speedPct, {
+      height: el?.clientHeight ?? 0,
+      bottomReserve: r,
+      topGap: TOP_GAP,
+      maxScrollTop: el ? el.scrollHeight - el.clientHeight : 0,
+    });
+  };
+
+  /** Writes the plan's scrollTop for the current time (or glides to it). */
+  const place = (
+    el: HTMLElement,
+    plan: ReturnType<typeof buildScrollPlan>,
+    now: number,
+    dt: number,
+  ) => {
+    const p = playRef.current;
+    const target = planScrollTopAt(plan, p.t);
+    if (p.settle) {
+      // Let a finger scroll (and its momentum) finish first.
+      if (now - p.userAt < USER_HOLD_MS) return;
+      p.pos = approach(p.pos, target, dt, SETTLE_TAU_SEC);
+      if (p.pos === target) p.settle = false;
+      el.scrollTop = p.pos;
+    } else {
+      el.scrollTop = target;
+    }
+    p.written = el.scrollTop;
+  };
 
   const showSection = (t: number) => {
     const { timeline: tl, timedUnits: tu } = live.current;
@@ -266,7 +331,7 @@ export function Viewer({
     const dt = Math.max(0, (now - p.last) / 1000);
     p.last = now;
     const el = viewportRef.current;
-    const tl = live.current.timeline;
+    const plan = scrollPlan();
     if (p.state === 'countIn') {
       p.countElapsed += dt;
       const b = Math.floor(p.countElapsed / p.beatSec) + 1;
@@ -278,23 +343,29 @@ export function Viewer({
         setBeat(b);
       }
     } else if (p.state === 'playing') {
-      // A finger scroll during playback: carry on from there (no pause).
+      // A finger (or pedal) scroll during playback: carry on from the
+      // system now in view (no pause), and leave the view alone for a moment.
       if (el && Math.abs(el.scrollTop - p.written) > USER_SCROLL_PX) {
-        p.t = timeAtScrollTop(tl, el.scrollTop, playLine());
+        const seen = planTimeAtScrollTop(plan, el.scrollTop);
+        if (planStepAt(plan, seen) !== planStepAt(plan, p.t)) p.t = seen;
+        else p.t += dt;
+        p.written = el.scrollTop;
+        p.pos = el.scrollTop;
+        p.settle = true;
+        p.userAt = now;
       } else {
         p.t += dt;
       }
-      if (p.t >= tl.duration) {
-        p.t = tl.duration;
+      if (p.t >= plan.duration) {
+        p.t = plan.duration;
         p.state = 'ended';
         setPlayState('ended');
         say('最後まで来ました');
       }
-      if (el) {
-        el.scrollTop = scrollTopAt(tl, p.t, playLine());
-        p.written = el.scrollTop;
-      }
       showSection(p.t);
+    }
+    if (el && p.state !== 'paused' && p.state !== 'idle') {
+      place(el, plan, now, dt);
     }
     if (p.state === 'countIn' || p.state === 'playing') {
       p.frame = clock.requestFrame(() => tickRef.current());
@@ -307,7 +378,7 @@ export function Viewer({
   const play = (fromStart: boolean) => {
     const p = playRef.current;
     const el = viewportRef.current;
-    const { timeline: tl, timedUnits: tu, speedPct, ready } = live.current;
+    const { timedUnits: tu, speedPct, ready } = live.current;
     // Before the sheet is laid out the timeline is empty: it would end at once.
     if (!ready) {
       say('譜面を準備中です');
@@ -317,14 +388,19 @@ export function Viewer({
       p.state === 'paused' &&
       el !== null &&
       Math.abs(el.scrollTop - p.written) <= USER_SCROLL_PX;
+    const plan = scrollPlan();
     if (!fromStart && !unmoved) {
-      p.t = el ? timeAtScrollTop(tl, el.scrollTop, playLine()) : 0;
+      p.t = el ? planTimeAtScrollTop(plan, el.scrollTop) : 0;
     }
-    if (fromStart || p.t >= tl.duration) {
+    if (fromStart || p.t >= plan.duration) {
       p.t = 0;
       if (el) el.scrollTop = 0;
     }
     p.written = el?.scrollTop ?? 0;
+    // Glide from where the view is onto the system playback starts at.
+    p.pos = p.written;
+    p.settle = true;
+    p.userAt = Number.NEGATIVE_INFINITY;
     p.last = clock.now();
     if (settings.countIn) {
       const bar = barAt(tu, tempo, speedPct, p.t) ?? FALLBACK_BAR;
@@ -718,7 +794,9 @@ export function Viewer({
             style={
               nav === 'page'
                 ? { transform: `translateY(${-pageOffset}px)` }
-                : undefined
+                : reserve > 0
+                  ? { paddingBottom: reserve }
+                  : undefined
             }
           >
             <Sheet
@@ -782,7 +860,7 @@ export function Viewer({
         {nav === 'auto' && (
           <>
             <CountIn beat={beat} />
-            <div className={styles.autoBar}>
+            <div ref={autoBarRef} className={styles.autoBar}>
               {!hasTempo && (
                 <p className={styles.tempoNote}>
                   テンポ未設定（♩={DEFAULT_TEMPO}）
