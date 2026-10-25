@@ -50,9 +50,17 @@ export interface DrumConfig {
     openExclusiveMs: number;
   };
   strength: {
-    /** Strength percentiles (0..1) of the recording splitting ghost / normal / accent. */
-    ghostPercentile: number;
-    accentPercentile: number;
+    /**
+     * T7 (strength.ts): levels relative to the take, per instrument, in dB of the strength (treated as an amplitude).
+     * ghost: below (refPercentile of the instrument's hits) + ghostDb. accent: at or above (normalPercentile of the
+     * non-ghost hits) + accentDb. Instruments with fewer than minHits hits get no marks. (T0 had ghost / accent
+     * percentiles; a fixed share would mark 20 % ghosts in a take without any, so T7 changed the keys.)
+     */
+    refPercentile: number;
+    ghostDb: number;
+    normalPercentile: number;
+    accentDb: number;
+    minHits: number;
   };
   grid: {
     /** Grid per whole note: 16 = 16th-note grid. */
@@ -68,6 +76,13 @@ export interface DrumConfig {
     ratioMin: number;
     /** Minimum off-beat pairs in a bar to decide. */
     minPairs: number;
+    /**
+     * T7 (swing.ts): an off-beat sample is the only onset cluster of a beat pair (span) at a relative position in
+     * [innerMin, innerMax); onsets closer than clusterFrac of the span are one cluster (simultaneous hits).
+     */
+    innerMin: number;
+    innerMax: number;
+    clusterFrac: number;
   };
   score: {
     /** Onset match tolerance (s): main (mir_eval default) and the tight one (synthetic only). Plan section 3 decision 4. */
@@ -93,9 +108,9 @@ export const DEFAULT_DRUM_CONFIG: DrumConfig = deepFreeze({
   classify: { nmf: false, refit: false, hpss: false, nmfIterations: 100, candidatesMax: 1 },
   toms: { groups: 3 },
   cymbals: { openDecayMs: 250, openExclusiveMs: 50 },
-  strength: { ghostPercentile: 0.2, accentPercentile: 0.85 },
+  strength: { refPercentile: 0.9, ghostDb: -10, normalPercentile: 0.25, accentDb: 5, minHits: 4 },
   grid: { subdivision: 16, triplet: false, onsetBias: true, maxBiasSec: 0.08 },
-  swing: { ratioMin: 0.58, minPairs: 3 },
+  swing: { ratioMin: 0.58, minPairs: 3, innerMin: 0.25, innerMax: 0.8, clusterFrac: 0.1 },
   score: { toleranceSec: 0.05, tightSec: 0.025 },
 });
 
