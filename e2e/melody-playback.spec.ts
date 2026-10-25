@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { freshStart } from './support/app';
 
-// Melody-tab playback (sketch https://claude.ai/artifact/WjYDhuLPY7TRVZHH1BTcta). Only the UI state and the
+// Melody-tab playback (lib/melodyPlayback.ts). Only the UI state and the
 // live text are checked, never the sound.
 
 async function openSampleMelody(page: Page) {

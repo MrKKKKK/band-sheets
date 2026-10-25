@@ -29,7 +29,7 @@ const plan: PlaybackPlan = {
 
 beforeEach(() => {
   vi.useFakeTimers({
-    toFake: ['requestAnimationFrame', 'cancelAnimationFrame'],
+    toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'],
   });
 });
 afterEach(() => {
@@ -66,13 +66,14 @@ describe('useMelodyPlayback', () => {
     expect(hook.result.current.at).toBe(3);
   });
 
-  it('stops by itself at the end and calls onFinish once', () => {
+  it('stops by itself at the end and calls onEnd(finished) once', () => {
     const { hook, tone, onFinish, at } = setup();
     act(() => hook.result.current.play(plan));
     at(2.01);
     expect(hook.result.current.playing).toBe(false);
     expect(hook.result.current.at).toBeNull();
     expect(onFinish).toHaveBeenCalledTimes(1);
+    expect(onFinish).toHaveBeenCalledWith('finished');
     expect(tone.stop).toHaveBeenCalled();
     at(3);
     expect(onFinish).toHaveBeenCalledTimes(1);
@@ -118,6 +119,20 @@ describe('useMelodyPlayback', () => {
     act(() => hook.result.current.play(plan));
     expect(hook.result.current.playing).toBe(false);
     expect(() => hook.result.current.playNote(60)).not.toThrow();
+  });
+
+  it('a context clock that never moves (suspended) stops it after ~1 s: onEnd(failed)', () => {
+    const { hook, onFinish } = setup();
+    act(() => hook.result.current.play(plan));
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(hook.result.current.playing).toBe(true);
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
+    expect(hook.result.current.playing).toBe(false);
+    expect(onFinish).toHaveBeenCalledWith('failed');
   });
 
   it('a plan without steps plays nothing', () => {

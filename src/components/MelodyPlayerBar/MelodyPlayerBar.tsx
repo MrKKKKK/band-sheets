@@ -1,3 +1,4 @@
+import type { Ref } from 'react';
 import { Button } from '../Button/Button';
 import styles from './MelodyPlayerBar.module.css';
 
@@ -5,8 +6,8 @@ export interface MelodyPlayerBarProps {
   playing: boolean;
   /** 再生 / 最初から can't be used (read-only section, no notes). */
   disabled: boolean;
-  /** Id of the text that explains why it is disabled (the read-only notice). */
-  describedBy?: string;
+  /** The 再生 / 停止 button (the caller may move focus to it). */
+  playButtonRef?: Ref<HTMLButtonElement>;
   /** While stopped: where 再生 starts, or why it can't. */
   hint: string;
   /** While playing: 「3 小節目の 2 拍目」 and the bar of the section. */
@@ -20,13 +21,13 @@ export interface MelodyPlayerBarProps {
 }
 
 /**
- * The melody editor's player bar (sketch P1–P3): sticky above the note-length row, the current section only.
+ * The melody editor's player bar: sticky above the note-length row, the current section only.
  * Display only; `MelodyEditor` owns the playback and the live region.
  */
 export function MelodyPlayerBar({
   playing,
   disabled,
-  describedBy,
+  playButtonRef,
   hint,
   position,
   tempo,
@@ -47,7 +48,7 @@ export function MelodyPlayerBar({
         variant="primary"
         className={styles.play}
         disabled={disabled && !playing}
-        aria-describedby={disabled ? describedBy : undefined}
+        ref={playButtonRef}
         onClick={playing ? onStop : onPlay}
       >
         {playing ? <StopIcon /> : <PlayIcon />}

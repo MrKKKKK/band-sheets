@@ -52,12 +52,16 @@ import { chartOrder } from '../../lib/melodyEditor';
 import {
   barProgress,
   eventPosition,
+  FAILED_MESSAGE,
   FINISHED_MESSAGE,
+  NO_NOTES_HINT,
+  NO_NOTES_MESSAGE,
   playbackPlan,
   playbackStart,
   playbackTempo,
   startHint,
   startMessage,
+  READ_ONLY_MESSAGE,
   STOPPED_MESSAGE,
   type PlaybackStart,
 } from '../../lib/melodyPlayback';
@@ -331,24 +335,29 @@ export function MelodyEditor({
     say(msg);
   };
 
-  // Playback (sketch https://claude.ai/artifact/WjYDhuLPY7TRVZHH1BTcta) -------
-  // The current section only. Any other action (an edit, moving the cursor, selecting, a button) stops it
-  // first and then takes effect; only Space / the player bar's buttons start or stop it.
+  // Playback (lib/melodyPlayback.ts) -----------------------------------------
+  // The current section only; Space (staff focused) and the player bar start / stop it, Esc only stops it.
+  // Every other editor action (an edit, a cursor move, selecting, a lyric / chord / reflow button) stops it
+  // first, silently, then takes effect; so does any change of the section's notes, the tempo or the time
+  // signature from elsewhere (song info), a section / part switch and the tab leaving the screen. In a
+  // read-only / barMismatch section the staff is not focusable: only the buttons work there.
   const tempo = playbackTempo(song.meta.tempo);
-  const pb = useMelodyPlayback(() => say(FINISHED_MESSAGE), playbackDeps);
+  const pb = useMelodyPlayback(
+    (how) => say(how === 'finished' ? FINISHED_MESSAGE : FAILED_MESSAGE),
+    playbackDeps,
+  );
   const playStart =
     view.status === 'readonly' ? null : playbackStart(events, state);
   const startPlayback = (from: PlaybackStart | null) => {
     if (!from) {
-      say(
-        view.status === 'readonly'
-          ? '読み取り専用のセクションは再生できません'
-          : '再生する音符がありません',
-      );
+      say(view.status === 'readonly' ? READ_ONLY_MESSAGE : NO_NOTES_MESSAGE);
       return;
     }
-    if (pb.play(playbackPlan(events, tempo.tempo, from.index)))
-      say(startMessage(events, ts, from.index));
+    say(
+      pb.play(playbackPlan(events, tempo.tempo, from.index))
+        ? startMessage(events, ts, from.index)
+        : FAILED_MESSAGE,
+    );
   };
   const stopPlayback = () => {
     pb.stop();
@@ -358,9 +367,15 @@ export function MelodyEditor({
   const stopForAction = () => {
     if (pb.playing) pb.stop();
   };
-  // A section / part change, or the tab leaving the screen, stops it.
+  // Stops when what it plays changes underneath (not by `events` identity: a re-render re-reads it).
+  const playKey = [
+    stateKey,
+    JSON.stringify(events),
+    tempo.tempo,
+    `${ts.num}/${ts.den}`,
+  ].join('\u0000');
   const { stop: stopPb } = pb;
-  useEffect(() => () => stopPb(), [stateKey, active, stopPb]);
+  useEffect(() => () => stopPb(), [playKey, active, stopPb]);
 
   // A humming draft was put into a section: show it and announce it (the staff gets focus below).
   const [seenShow, setSeenShow] = useState(showSection?.seq);
@@ -454,6 +469,17 @@ export function MelodyEditor({
     staffContainerRef.current
       ?.querySelector<HTMLElement>('[role="application"]')
       ?.focus();
+  };
+  /**
+   * After a player-bar button: the staff, so Space / Esc keep working (「最初から」 is disabled while playing,
+   * which would drop focus to the page). A read-only staff can't take it: the play / stop button then.
+   */
+  const playButtonRef = useRef<HTMLButtonElement>(null);
+  const focusAfterBar = () => {
+    const staff = staffContainerRef.current?.querySelector<HTMLElement>(
+      '[role="application"]',
+    );
+    (staff ?? playButtonRef.current)?.focus();
   };
   const humEntryRef = useRef<HTMLButtonElement>(null);
   const [firstEntryFocus] = useState(focusHumEntry);
@@ -623,6 +649,7 @@ export function MelodyEditor({
 
   const convertLyrics = () => {
     if (!part) return;
+    stopForAction();
     const out = convertPartLevelLyrics(part.body, ts);
     if (typeof out !== 'string') {
       reject(out.error);
@@ -642,6 +669,7 @@ export function MelodyEditor({
   const noticeId = useId();
   const reflow = () => {
     if (partBody === undefined || partIndex < 0) return;
+    stopForAction();
     try {
       const body = reflowSection(partBody, label, ts, chartOrder(song));
       setError('');
@@ -782,13 +810,13 @@ export function MelodyEditor({
       <MelodyPlayerBar
         playing={pb.playing}
         disabled={playStart === null}
-        describedBy={view.status === 'readonly' ? noticeId : undefined}
+        playButtonRef={playButtonRef}
         hint={
           view.status === 'readonly'
-            ? '読み取り専用のセクションは再生できません'
+            ? READ_ONLY_MESSAGE
             : playStart
               ? startHint(playStart, events, ts)
-              : '音符を入れると再生できます'
+              : NO_NOTES_HINT
         }
         position={
           pb.at !== null
@@ -800,11 +828,18 @@ export function MelodyEditor({
         }
         tempo={tempo.tempo}
         tempoSet={tempo.set}
-        onPlay={() => startPlayback(playStart)}
-        onPlayFromHead={() =>
-          startPlayback(playbackStart(events, { cursor: 0, selected: null }))
-        }
-        onStop={stopPlayback}
+        onPlay={() => {
+          startPlayback(playStart);
+          focusAfterBar();
+        }}
+        onPlayFromHead={() => {
+          startPlayback(playbackStart(events, { cursor: 0, selected: null }));
+          focusAfterBar();
+        }}
+        onStop={() => {
+          stopPlayback();
+          focusAfterBar();
+        }}
       />
 
       <fieldset

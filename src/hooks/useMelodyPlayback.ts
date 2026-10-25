@@ -22,21 +22,26 @@ export interface MelodyPlayback {
 }
 
 /** Length of the tone of an entered note (seconds). */
-export const NOTE_PREVIEW_SEC = 0.35;
+const NOTE_PREVIEW_SEC = 0.35;
+/** The context clock not moving this long (ms of wall time) after play = Web Audio is not running. */
+const STALL_MS = 1000;
 
 export function useMelodyPlayback(
-  /** Called when the plan played to its end (not on `stop`). */
-  onFinish: () => void,
+  /**
+   * Called when playback ends by itself (not on `stop`): `finished` = the plan played to its end, `failed` =
+   * the audio context never ran (still suspended after `STALL_MS`).
+   */
+  onEnd: (how: 'finished' | 'failed') => void,
   deps: { createTone?: () => TonePlayer } = {},
 ): MelodyPlayback {
   const [at, setAt] = useState<number | null>(null);
   const toneRef = useRef<TonePlayer | null>(null);
   const createToneRef = useRef(deps.createTone ?? (() => createTonePlayer()));
   const frameRef = useRef<number | null>(null);
-  const onFinishRef = useRef(onFinish);
+  const onEndRef = useRef(onEnd);
   useEffect(() => {
-    onFinishRef.current = onFinish;
-  }, [onFinish]);
+    onEndRef.current = onEnd;
+  }, [onEnd]);
 
   const tone = useCallback(() => {
     toneRef.current ??= createToneRef.current();
@@ -62,11 +67,19 @@ export function useMelodyPlayback(
         return false; // no Web Audio here (e.g. jsdom): stay stopped rather than break the editor
       }
       setAt(plan.steps[0].index);
+      const c0 = t.now();
+      const w0 = performance.now();
       const frame = () => {
-        const i = stepAt(plan, Math.max(0, t.now() - t0));
+        const now = t.now();
+        if (now === c0 && performance.now() - w0 > STALL_MS) {
+          stop();
+          onEndRef.current('failed');
+          return;
+        }
+        const i = stepAt(plan, Math.max(0, now - t0));
         if (i === null) {
           stop();
-          onFinishRef.current();
+          onEndRef.current('finished');
           return;
         }
         setAt(i);

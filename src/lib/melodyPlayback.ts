@@ -133,3 +133,8 @@ export function startMessage(
 }
 export const STOPPED_MESSAGE = '止めました';
 export const FINISHED_MESSAGE = '最後まで再生しました';
+export const FAILED_MESSAGE = '音を鳴らせませんでした';
+/** Player-bar hint and live text when 再生 can't be used. */
+export const READ_ONLY_MESSAGE = '読み取り専用のセクションは再生できません';
+export const NO_NOTES_HINT = '音符を入れると再生できます';
+export const NO_NOTES_MESSAGE = '再生する音符がありません';

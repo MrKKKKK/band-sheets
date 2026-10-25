@@ -83,22 +83,12 @@ export const NoTempo: Story = {
 export const ReadOnlyDisabled: Story = {
   args: {
     disabled: true,
-    describedBy: 'notice',
     hint: '読み取り専用のセクションは再生できません',
   },
-  render: (args) => (
-    <>
-      <p id="notice">このセクションはアプリでは編集できません。</p>
-      <Demo {...args} />
-    </>
-  ),
   play: async ({ canvasElement, args }) => {
     const c = within(canvasElement);
-    const play = c.getByRole('button', { name: '再生' });
-    await expect(play).toBeDisabled();
-    await expect(play).toHaveAccessibleDescription(
-      'このセクションはアプリでは編集できません。',
-    );
+    await expect(c.getByRole('button', { name: '再生' })).toBeDisabled();
+    await expect(c.getByText(args.hint)).toBeVisible();
     await expect(
       c.getByRole('button', { name: 'セクションの最初から再生' }),
     ).toBeDisabled();
