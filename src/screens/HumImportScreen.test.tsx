@@ -21,7 +21,7 @@ const vocal = sampleSong.parts.findIndex((p) => p.name === 'Vocal');
 const file = () => new File(['x'], 'hum.wav', { type: 'audio/wav' });
 
 const tone = () => ({
-  start: vi.fn(),
+  start: vi.fn(() => 0),
   stop: vi.fn(),
   playOne: vi.fn(),
   close: vi.fn(),

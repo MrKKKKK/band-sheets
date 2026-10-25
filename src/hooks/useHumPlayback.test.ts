@@ -9,7 +9,7 @@ const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
 function setup({ loaded = true } = {}) {
   const el = fakeAudio();
   const tone: TonePlayer = {
-    start: vi.fn(),
+    start: vi.fn(() => 0),
     stop: vi.fn(),
     playOne: vi.fn(),
     close: vi.fn(),
