@@ -24,7 +24,7 @@ const meta = {
     probe: () => Promise.resolve(12),
     playbackDeps: {
       createTone: () => ({
-        start: fn(),
+        start: fn(() => 0),
         stop: fn(),
         playOne: fn(),
         close: fn(),

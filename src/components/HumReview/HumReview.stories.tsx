@@ -22,7 +22,7 @@ const silentWav = () =>
   );
 
 const tone = {
-  start: fn(),
+  start: fn(() => 0),
   stop: fn(),
   playOne: fn(),
   close: fn(),

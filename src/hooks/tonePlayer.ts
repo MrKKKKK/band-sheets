@@ -5,6 +5,10 @@
  */
 import type { SoundingNote } from '../lib/import/playback';
 
+/**
+ * `start` and `playOne` create the AudioContext on first use and THROW where Web Audio is unavailable (e.g. jsdom,
+ * a browser without it): callers catch and stay silent. `now`, `stop` and `close` never throw.
+ */
 export interface TonePlayer {
   /**
    * Sounds `notes` from second `fromSec` of the recording's clock, at once; replaces what was scheduled. Returns

@@ -34,6 +34,18 @@ export interface FakeAnalysisClient extends AnalysisClient {
   readonly cancelCount: number;
 }
 
+/** Detaches `{audio}` samples as `postMessage(msg, [buffer])` does; false when they are already detached. */
+function detachSamples(req: AnalysisRequest): boolean {
+  if (!('audio' in req.source)) return true;
+  const { buffer } = req.source.audio.samples;
+  try {
+    structuredClone(buffer, { transfer: [buffer as ArrayBuffer] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function createFakeAnalysisClient(
   opts: FakeAnalysisOptions = {},
 ): FakeAnalysisClient {
@@ -53,11 +65,14 @@ export function createFakeAnalysisClient(
   ): Promise<AnalysisResultMap[R['kind']]> {
     cancel();
     requests.push(req);
+    // like the real client, the decoded samples are transferred away (detached) inside run()
+    const transferred = detachSamples(req);
     const kind: AnalysisKind = req.kind;
     const stages: readonly string[] = ANALYSIS_STAGES[kind];
     const failAt = opts.error ? (opts.failAfterStages ?? stages.length) : -1;
     const holdAt = opts.holdAfterStages ?? -1;
     return new Promise((resolve, reject) => {
+      if (!transferred) return reject(new AnalysisError('internal'));
       let timer: ReturnType<typeof setTimeout> | null = null;
       let stopped = false;
       const me = () => {
