@@ -160,6 +160,23 @@ describe('useHumPlayback', () => {
     expect(tone.start).toHaveBeenLastCalledWith(expect.anything(), 0);
   });
 
+  it('without Web Audio, ▶ and a candidate stay silent instead of throwing', async () => {
+    const { el, tone, hook } = setup();
+    const noAudio = () => {
+      throw new Error('no AudioContext');
+    };
+    vi.mocked(tone.start).mockImplementation(noAudio);
+    vi.mocked(tone.playOne).mockImplementation(noAudio);
+    act(() => hook.result.current.play(0));
+    await flush();
+    expect(tone.start).toHaveBeenCalled();
+    expect(el.paused).toBe(false); // the recording plays on
+    expect(() =>
+      act(() => hook.result.current.playNote(69, 0.5)),
+    ).not.toThrow();
+    expect(tone.playOne).toHaveBeenCalled();
+  });
+
   it('playRecording plays a segment of the recording only', async () => {
     vi.useFakeTimers();
     const { el, tone, hook } = setup();

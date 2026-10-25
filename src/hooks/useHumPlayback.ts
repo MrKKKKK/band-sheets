@@ -65,7 +65,11 @@ export function useHumPlayback(
   const align = useCallback(
     (at: number) => {
       if (!playingRef.current || modeRef.current === 'recording') return;
-      tone().start(notesRef.current, at);
+      try {
+        tone().start(notesRef.current, at);
+      } catch {
+        // no Web Audio here: the recording plays on, the draft stays silent
+      }
     },
     [tone],
   );
@@ -124,7 +128,11 @@ export function useHumPlayback(
   };
   const playNote = (midi: number, durationSec: number) => {
     if (playingRef.current || playing) pause();
-    tone().playOne(midiToHz(midi), Math.min(durationSec, MAX_NOTE_SEC));
+    try {
+      tone().playOne(midiToHz(midi), Math.min(durationSec, MAX_NOTE_SEC));
+    } catch {
+      // no Web Audio here: the candidate is applied all the same, silently
+    }
   };
   const playRecording = (from: number, to: number) => {
     clearSegment();
