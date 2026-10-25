@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseSong } from '../../../../../src/lib/parseSong';
 import { chartOrder } from '../../../../../src/lib/melodyEditor';
@@ -66,25 +66,27 @@ describe('recscore builder', () => {
 });
 
 // Real scores live in the gitignored recordings/ dir; skipped when absent.
-const mods = import.meta.glob('../../../recordings/drum-scores/defs.ts', { eager: true }) as Record<string, { ALL: TakeDef[] }>;
-const ALL = Object.values(mods)[0]?.ALL;
+const DEFS = join(REC, 'drum-scores', 'defs.ts');
+const ALL: TakeDef[] | undefined = existsSync(DEFS)
+  ? ((await import(/* @vite-ignore */ DEFS)) as { ALL: TakeDef[] }).ALL
+  : undefined;
 
 describe.skipIf(!ALL)('drum recording scores (local only)', () => {
   const infos = new Map<TakeLetter, ReturnType<typeof checkTake>>();
   it('all six parse, 16-32 bars, 30-90 s, viewer ok', () => {
-    expect(ALL.map((d) => d.letter)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
-    for (const d of ALL) infos.set(d.letter, checkTake(d, [16, 32], [30, 90]));
+    expect(ALL!.map((d) => d.letter)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+    for (const d of ALL!) infos.set(d.letter, checkTake(d, [16, 32], [30, 90]));
     const known = new Set(DRUM_KIT.map((k) => k.id));
     for (const i of infos.values()) for (const x of i.insts) expect(known.has(x as never)).toBe(true);
   });
   it('tempos differ per take; held-out = e, f only', () => {
-    expect(new Set(ALL.map((d) => d.bpm)).size).toBe(6);
+    expect(new Set(ALL!.map((d) => d.bpm)).size).toBe(6);
     expect(Object.entries(TAKE_ROLE).filter(([, v]) => v.heldOut).map(([k]) => k)).toEqual(['e', 'f']);
   });
   it('every instrument / feature in held-out is also in dev', () => {
-    const dev = ALL.filter((d) => !TAKE_ROLE[d.letter].heldOut).map((d) => infos.get(d.letter)!);
+    const dev = ALL!.filter((d) => !TAKE_ROLE[d.letter].heldOut).map((d) => infos.get(d.letter)!);
     const devInsts = new Set(dev.flatMap((i) => [...i.insts]));
-    for (const d of ALL.filter((x) => TAKE_ROLE[x.letter].heldOut)) {
+    for (const d of ALL!.filter((x) => TAKE_ROLE[x.letter].heldOut)) {
       const i = infos.get(d.letter)!;
       for (const x of i.insts) expect(devInsts.has(x)).toBe(true);
       if (i.ghost) expect(dev.some((y) => y.ghost)).toBe(true);
@@ -94,7 +96,7 @@ describe.skipIf(!ALL)('drum recording scores (local only)', () => {
   it.skipIf(!process.env.DRUM_SCORES_WRITE)('writes song texts and .txt templates', () => {
     mkdirSync(join(REC, 'drum-scores'), { recursive: true });
     mkdirSync(join(REC, 'drm-inbox'), { recursive: true });
-    for (const d of ALL) {
+    for (const d of ALL!) {
       writeFileSync(join(REC, 'drum-scores', `${d.letter}.song.txt`), songText(d));
       writeFileSync(join(REC, 'drm-inbox', `${d.letter}.txt`), txtTemplate(d));
     }
