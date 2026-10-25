@@ -26,6 +26,11 @@ export interface TimedUnit {
   top: number;
   height: number;
   bars: BarInfo[];
+  /**
+   * Top of time-less content to keep in view with this unit (the section's
+   * chart lines above its first system); only `buildScrollPlan` reads it.
+   */
+  leadTop?: number;
 }
 
 export interface Timeline {
@@ -130,6 +135,148 @@ export function timeAtScrollTop(
     return a.t + ((target - a.y) / (b.y - a.y)) * (b.t - a.t);
   }
   return tl.duration;
+}
+
+/** The viewport as the system-by-system auto-scroll sees it (issue #62). */
+export interface ScrollView {
+  /** Viewport height (px). */
+  height: number;
+  /** Bottom strip covered by the auto-scroll bar (px). */
+  bottomReserve: number;
+  /** Gap kept above a system resting at the top (px). */
+  topGap: number;
+  /** scrollHeight − clientHeight. */
+  maxScrollTop: number;
+}
+
+interface ScrollStep {
+  /** Song time (s) the unit starts / ends. */
+  start: number;
+  end: number;
+  /** scrollTop while the unit plays. */
+  rest: number;
+  /** Tall unit: scrollTop reached (continuously) when the ease begins. */
+  tallEnd: number | null;
+  /** Length (s) of the move to the next unit, ending at `end`. */
+  ease: number;
+}
+
+export interface ScrollPlan {
+  steps: ScrollStep[];
+  duration: number;
+}
+
+/** The move to the next system takes one beat, within these bounds (s). */
+export const EASE_MIN_SEC = 0.3;
+export const EASE_MAX_SEC = 0.5;
+
+const clamp = (n: number, lo: number, hi: number) =>
+  Math.min(hi, Math.max(lo, n));
+
+/**
+ * System-by-system auto-scroll (issue #62): while a unit plays it stays
+ * still; during its last beat (0.3–0.5s, at most half the unit) the view
+ * eases so the next unit rests `topGap` below the top. The first unit rests
+ * at scrollTop 0 when it fits there. A unit taller than the visible height
+ * (viewport minus the bar) scrolls continuously until its bottom is above the
+ * bar, then eases on. Units without bars are skipped. The time axis is the
+ * same as `buildTimeline`'s.
+ */
+export function buildScrollPlan(
+  units: readonly TimedUnit[],
+  tempo: number,
+  speedPct: number,
+  view: ScrollView,
+): ScrollPlan {
+  const visible = view.height - view.bottomReserve;
+  const max = Math.max(0, view.maxScrollTop);
+  const steps: ScrollStep[] = [];
+  let t = 0;
+  for (const u of units) {
+    const start = t;
+    for (const bar of u.bars) t += barSeconds(bar, tempo, speedPct);
+    if (!(t > start)) continue;
+    const bottom = u.top + u.height;
+    let rest: number;
+    if (steps.length === 0 && bottom <= visible) rest = 0;
+    else {
+      const lead = u.leadTop ?? u.top;
+      const fits = bottom - lead + view.topGap <= visible;
+      rest = (fits ? Math.min(lead, u.top) : u.top) - view.topGap;
+    }
+    rest = clamp(rest, 0, max);
+    const tall = u.height + view.topGap > visible;
+    const last = u.bars[u.bars.length - 1];
+    const beat = barSeconds(last, tempo, speedPct) / last.num;
+    steps.push({
+      start,
+      end: t,
+      rest,
+      tallEnd: tall ? clamp(Math.max(rest, bottom - visible), 0, max) : null,
+      ease: Math.min(clamp(beat, EASE_MIN_SEC, EASE_MAX_SEC), (t - start) / 2),
+    });
+  }
+  return { steps, duration: t };
+}
+
+/** Index of the step playing at t (clamped); -1 for an empty plan. */
+export function planStepAt(plan: ScrollPlan, t: number): number {
+  const { steps } = plan;
+  if (steps.length === 0) return -1;
+  let i = 0;
+  while (i < steps.length - 1 && t >= steps[i].end) i++;
+  return i;
+}
+
+const smoothstep = (p: number) => p * p * (3 - 2 * p);
+
+/** scrollTop at time t (see `buildScrollPlan`). */
+export function planScrollTopAt(plan: ScrollPlan, t: number): number {
+  const i = planStepAt(plan, t);
+  if (i < 0) return 0;
+  const s = plan.steps[i];
+  const next = plan.steps[i + 1];
+  const easeFrom = next ? s.end - s.ease : s.end;
+  let pos = s.rest;
+  if (s.tallEnd !== null && t > s.start) {
+    const p = Math.min(1, (t - s.start) / (easeFrom - s.start));
+    pos = s.rest + p * (s.tallEnd - s.rest);
+  }
+  if (next && t > easeFrom) {
+    const p = Math.min(1, (t - easeFrom) / s.ease);
+    pos += smoothstep(p) * (next.rest - pos);
+  }
+  return pos;
+}
+
+/**
+ * Where playback resumes from a scrolled view: the start of the step whose
+ * rest position is nearest to scrollTop (ties → the earlier one).
+ */
+export function planTimeAtScrollTop(
+  plan: ScrollPlan,
+  scrollTop: number,
+): number {
+  let best: ScrollStep | null = null;
+  for (const s of plan.steps) {
+    if (!best || Math.abs(s.rest - scrollTop) < Math.abs(best.rest - scrollTop))
+      best = s;
+  }
+  return best ? best.start : 0;
+}
+
+/**
+ * One frame of an exponential approach from `current` to `target` (time
+ * constant `tauSec`); within half a pixel it snaps to the target.
+ */
+export function approach(
+  current: number,
+  target: number,
+  dtSec: number,
+  tauSec: number,
+): number {
+  const next = current + (target - current) * (1 - Math.exp(-dtSec / tauSec));
+  return Math.abs(target - next) < 0.5 ? target : next;
 }
 
 /**
