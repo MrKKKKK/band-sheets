@@ -20,11 +20,33 @@ export interface DrumConfig {
     hop: number;
     /** Log compression of the band magnitudes: log(1 + gamma * mag). */
     logGamma: number;
+    /** Flux difference lag (frames) and frequency maximum filter half-width (bins) of the previous frame (T5, SuperFlux). */
+    lag: number;
+    maxBins: number;
+    /** Centred moving average of the band flux before peak picking (frames, odd; 1 = none) (T5). */
+    smoothFrames: number;
     /** Per-recording threshold: median of the onset function + this many MADs (T5). */
     thresholdMads: number;
     /** Local-max picking window (ms) and minimum distance between hits of one band (ms). */
     peakWindowMs: number;
     minDistanceMs: number;
+    /** Local threshold: localMult * mean of the band flux over +-localMs (T5). */
+    localMs: number;
+    localMult: number;
+    /** Threshold floor: at least this share of the band flux's 99th percentile (T5). */
+    relFloor: number;
+    /** Band peaks within this (ms, from the group's first peak) are one onset (T5). */
+    mergeMs: number;
+    /** Time refinement (onset.ts refineOnset): search radius, envelope block, rise length in blocks, minimum rise, level. */
+    refineRadiusMs: number;
+    refineBlockMs: number;
+    refineRiseBlocks: number;
+    refineMinRiseDb: number;
+    refineRelDb: number;
+    /** Corner (Hz) of the refinement envelope's first-order pre-emphasis, so it does not depend on audio.sr. */
+    refinePreEmphHz: number;
+    /** Per-band energy feature: max band power over this long after the onset frame (ms). */
+    featureMs: number;
   };
   bands: {
     /** Band edges in Hz: low (BD), mid (SD body / noise), high (HH, cymbals). */
@@ -95,16 +117,33 @@ export const DRUM_CONFIG_GROUPS = ['audio', 'onset', 'bands', 'classify', 'toms'
 
 export const DEFAULT_DRUM_CONFIG: DrumConfig = deepFreeze({
   name: 'drum-v0',
-  audio: { sr: 22050 },
+  // T5 (tuning split only, out of sweeps; plan T5 report): 44100 = same onset F as 22050 (tuning mean F50 .9896 vs
+  // .9841 with the top band capped at 10 kHz), keeps 10-16 kHz (the 16 kHz top edge raised D3 F50 .950 -> .970) and
+  // skips the resample of 44.1 kHz input (Node: ~280 vs ~660 ms per audio minute). win / hop keep the 22050 time spans.
+  audio: { sr: 44100 },
   onset: {
-    win: 1024,
-    hop: 256,
-    logGamma: 100,
-    thresholdMads: 3,
+    win: 2048,
+    hop: 512,
+    logGamma: 10, // 100 let noise / reverb fluctuations count (D2 F50 .894 -> .981)
+    lag: 2, // lag 1 without the max filter: D0 precision .68 (BD / tom decays fired the low band)
+    maxBins: 1,
+    smoothFrames: 3, // with the local threshold: D3 F50 .72 -> .92
+    thresholdMads: 4, // 3 -> 4: D3 .952 -> .970; 5 was +.001 (kept 4 for ghost recall)
     peakWindowMs: 30,
     minDistanceMs: 30,
+    localMs: 100,
+    localMult: 1.5, // cymbal washes (ballad) fired the high band on D0
+    relFloor: 0.1,
+    mergeMs: 25,
+    refineRadiusMs: 25, // 35: D3 p95 error 16 -> 23 ms
+    refineBlockMs: 0.5,
+    refineRiseBlocks: 4,
+    refineMinRiseDb: 6,
+    refineRelDb: -30, // the truth onset definition of render/drum/kits.ts
+    refinePreEmphHz: 1500, // 180 -> 1500: D2 p95 error 10 -> 5 ms
+    featureMs: 30,
   },
-  bands: { edgesHz: [30, 200, 3000, 10000] },
+  bands: { edgesHz: [30, 250, 5000, 16000] },
   classify: { nmf: false, refit: false, hpss: false, nmfIterations: 100, candidatesMax: 1 },
   toms: { groups: 3 },
   cymbals: { openDecayMs: 250, openExclusiveMs: 50 },

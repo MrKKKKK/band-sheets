@@ -15,7 +15,7 @@ function reorder(o: unknown): unknown {
   return o;
 }
 
-const PINNED = 'a1fbcd60a07e'; // drum-v0 (spike 5 T7: strength / swing keys; was 9a5aebb7fec0 at T0)
+const PINNED = 'e5408bc19f5a'; // drum-v0 (spike 5 T5: onset / bands / audio values and keys; a1fbcd60a07e at T7, 9a5aebb7fec0 at T0)
 
 describe('drum config hash', () => {
   it('is 12 hex chars and stable (pinned)', () => {
@@ -29,13 +29,13 @@ describe('drum config hash', () => {
     expect(drumConfigCanonical(rev)).toBe(drumConfigCanonical());
   });
   it('resolve with overrides in any order gives the same hash; defaults untouched', () => {
-    const a = resolveDrumConfig({ onset: { hop: 128, win: 2048 }, grid: { triplet: true } });
-    const b = resolveDrumConfig({ grid: { triplet: true }, onset: { win: 2048, hop: 128 } });
+    const a = resolveDrumConfig({ onset: { hop: 128, win: 4096 }, grid: { triplet: true } });
+    const b = resolveDrumConfig({ grid: { triplet: true }, onset: { win: 4096, hop: 128 } });
     expect(drumConfigHash(a)).toBe(drumConfigHash(b));
     expect(drumConfigHash(a)).not.toBe(drumConfigHash());
-    expect(drumConfigSummary(a)).toEqual({ 'onset.win': 2048, 'onset.hop': 128, 'grid.triplet': true });
+    expect(drumConfigSummary(a)).toEqual({ 'onset.win': 4096, 'onset.hop': 128, 'grid.triplet': true });
     expect(drumConfigHash(resolveDrumConfig({ bands: { edgesHz: [40, 200, 3000, 10000] } }))).not.toBe(drumConfigHash());
-    expect(DEFAULT_DRUM_CONFIG.bands.edgesHz).toEqual([30, 200, 3000, 10000]);
+    expect(DEFAULT_DRUM_CONFIG.bands.edgesHz).toEqual([30, 250, 5000, 16000]);
     expect(drumConfigHash(resolveDrumConfig({}))).toBe(drumConfigHash());
   });
   it('rejects unknown keys and wrong types', () => {
