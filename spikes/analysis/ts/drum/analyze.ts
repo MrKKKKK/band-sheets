@@ -108,7 +108,7 @@ export function analyzeDrums(input: DrumInput, cfg: DrumConfig = DEFAULT_DRUM_CO
     const g = bySrc.get(i);
     return g ? { ...h, bar: g.bar, tick: g.tick, ...(g.mark ? { mark: g.mark } : {}) } : { ...h };
   });
-  const methods = ['onset-superflux', cfg.classify.nmf ? 'nmf-fixed-templates' : 'band-rules', ...(cfg.classify.refit ? ['refit'] : []), ...(cfg.classify.hpss ? ['hpss'] : []), `grid-${q.quantized.grid}`];
+  const methods = ['onset-superflux', cfg.classify.nmf ? 'nmf-fixed-templates' : 'band-rules', ...(cfg.classify.refit ? ['refit'] : []), ...(cfg.classify.eqRounds > 0 ? ['take-eq'] : []), ...(cfg.classify.adapt ? ['take-adapt'] : []), ...(cfg.classify.hpss ? ['hpss'] : []), `grid-${q.quantized.grid}`];
 
   return {
     format: 'band-sheets-analysis',

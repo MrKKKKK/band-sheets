@@ -85,6 +85,11 @@ export interface DrumConfig {
     /** Metal split (classify.ts step 2b): fast decay (>= hhMinDecayDbPerSec above decayFminHz, measured over decayMinMs..decayMaxMs) -> metal absorbers count for HH. */
     metalDecay: boolean;
     hhMinDecayDbPerSec: number;
+    /** Take test of the metal split (classify.ts metalTakeIsHh): share of the metal-dominated onsets that must decay fast (0 = always split). */
+    metalTakeFastMin: number;
+    /** classify.ts step 2d: rounds of per-take channel equalisation of the templates (0 = off), gain limited to +-eqMaxDb. */
+    eqRounds: number;
+    eqMaxDb: number;
     decayFminHz: number;
     decayMinMs: number;
     decayMaxMs: number;
@@ -100,6 +105,22 @@ export interface DrumConfig {
     /** HPSS on the mel spectrogram: harmonic = median over hpssTimeFrames frames, percussive = median over hpssFreqBins bands; soft mask power 2. */
     hpssTimeFrames: number;
     hpssFreqBins: number;
+    /**
+     * T10 per-take adaptation (classify.ts step 5): adaptIterations rounds of "seeds (present, share >= adaptShare; HH
+     * seeds fast-decaying; band gates) -> mean of their class parts per class (>= adaptMinHits seeds; not when within
+     * adaptKeepCos of a kit column), kept only in the centroid order BD < SD < HH -> replace the class's kit columns -> NMF again".
+     */
+    adapt: boolean;
+    adaptIterations: number;
+    adaptShare: number;
+    adaptMinHits: number;
+    /** No adaptation of a class whose seeds' mean part is within this cosine of one of its kit columns (the kit is known). */
+    adaptKeepCos: number;
+    /** Seed band gates: BD part >= adaptLowMin of its mass below adaptLowHz, HH part >= adaptHighMin at or above adaptHighHz, SD neither. */
+    adaptLowHz: number;
+    adaptLowMin: number;
+    adaptHighHz: number;
+    adaptHighMin: number;
   };
   toms: {
     /** S-9 (T11): tom hits are split by low-peak height into this many groups. */
@@ -216,6 +237,13 @@ export const DEFAULT_DRUM_CONFIG: DrumConfig = deepFreeze({
     // looks like kit A's RD template: kit B D0 HH F50 .05 -> .53). Left for T10 / T11 (S-9 cymbals use decay anyway).
     metalDecay: false,
     hhMinDecayDbPerSec: 100, // tuning: 30 .913, 60 .938, 100 .940, 150 .941
+    // T10: the take test keeps the known kit (tuning all .940 -> .950 at .5) but adds ~0 on leave-one-preset-out; metalDecay stays off
+    metalTakeFastMin: 0,
+    // T10 (tuning; leave-one-preset-out = templates of kit A program 16 / 24 / 25 on the tuning takes): 1 round: known kit
+    // all .951 -> .954 (D3 HH .736 -> .805), LOPO 16 .903 -> .912, 24 .762 -> .775, 25 .763 -> .743; with adapt: known .955,
+    // LOPO .905 / .831 / .809. 2 rounds: known .952. eqMaxDb 10 = 20 (+-.001).
+    eqRounds: 1,
+    eqMaxDb: 20,
     decayFminHz: 5000,
     decayMinMs: 35,
     decayMaxMs: 300,
@@ -227,6 +255,18 @@ export const DEFAULT_DRUM_CONFIG: DrumConfig = deepFreeze({
     refitMinHits: 4,
     hpssTimeFrames: 17,
     hpssFreqBins: 9,
+    // T10 adapt (tables in docs/audio-spike5-t10.md): LOPO mean (16 / 24 / 25) .809 -> .850, known kit .951 -> .952.
+    // Without the band gates LOPO 24 .834 -> .674; without the centroid order known .952 -> .947; without the fast-decay
+    // HH seeds LOPO 16 .910 -> .897; adding instead of replacing LOPO 24 .842 -> .780; 3-4 iterations +-.01.
+    adapt: true,
+    adaptIterations: 2,
+    adaptShare: 0.2, // .1 / .2 / .3 / .6: LOPO mean .850 / .850 / .840 / -; .2 keeps LOPO 16 SD (.907 at .1)
+    adaptMinHits: 4,
+    adaptKeepCos: 0.98, // .9 / .95 / .98: LOPO 24 .762 / .800 / .826 (.9 never adapts); known kit .951 / .951 / .950
+    adaptLowHz: 150,
+    adaptLowMin: 0.3, // kit A presets' one-shots: BD .38-.60 below 150 Hz, SD .04-.27; .2: LOPO 24 .842 -> .835
+    adaptHighHz: 5000,
+    adaptHighMin: 0.3, // HH .36-.84 at or above 5 kHz, SD .06-.18; .2: known .952 -> .944
   },
   toms: { groups: 3 },
   cymbals: { openDecayMs: 250, openExclusiveMs: 50 },

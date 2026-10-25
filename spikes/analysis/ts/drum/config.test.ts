@@ -15,7 +15,7 @@ function reorder(o: unknown): unknown {
   return o;
 }
 
-const PINNED = '94d5028cad36'; // drum-v0 (spike 5 T6: classify keys and values; e5408bc19f5a at T5, a1fbcd60a07e at T7, 9a5aebb7fec0 at T0)
+const PINNED = '3655f276db8a'; // drum-v0 (spike 5 T10: eq + adapt keys and values; 94d5028cad36 at T6 / T9; e5408bc19f5a at T5, a1fbcd60a07e at T7, 9a5aebb7fec0 at T0)
 
 describe('drum config hash', () => {
   it('is 12 hex chars and stable (pinned)', () => {

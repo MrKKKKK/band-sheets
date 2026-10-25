@@ -30,6 +30,9 @@
  *     refitMinHits of them) give one extra column for c = mean of their normalised observations; then step 2 again.
  *  4. HPSS (hpss, needs nmf): the mel spectrogram is replaced by its percussive part (soft mask P^2 / (P^2 + H^2),
  *     H = median over hpssTimeFrames frames, P = median over hpssFreqBins bands) before the observations.
+ *  2b' take test (metalTakeFastMin, T10): the split only in a take whose metal-dominated onsets mostly decay fast.
+ *  2d. channel EQ (eqRounds, T10): templates times the take's per-band gain (takeEq: observed / fitted), then refit.
+ *  5. adapt (T10): per-take templates from the take's own confident hits (adaptColumns), for an unknown kit.
  * Confidence of class c: share-based, present -> 0.5 .. 1 (0.5 + 0.5 (share - shareMin) / (1 - shareMin)), absent ->
  * 0 .. 0.5 (0.5 share / shareMin, capped below 0.5); rules: the same with fluxRel / rule threshold.
  * `alts` of a hit: the absent S-3 classes by confidence, at most candidatesMax.
@@ -199,6 +202,8 @@ export interface ClassifyResult {
   /** Template columns used (after refit). */
   columns: number;
   refitAdded: S3Class[];
+  /** Classes whose templates the last adapt round replaced / extended (step 5). */
+  adapted: S3Class[];
   ms: { spec: number; nmf: number; total: number };
 }
 
@@ -238,12 +243,14 @@ interface Basis {
   W: ArrayLike<number>[];
   group: TemplateGroup[];
   metal: boolean[];
+  /** Kit instrument of the column (null: an adapted column). */
+  inst: (DrumInst | null)[];
 }
 
 function basisOf(table: TemplateTable, cfg: DrumConfig['classify']): Basis {
   const on: Record<TemplateGroup, boolean> = { BD: true, SD: true, HH: true, other: cfg.nmfOthers, ext: cfg.nmfExt, extCym: cfg.nmfExtCymbals };
   const cols = table.columns.filter((c) => on[c.group]);
-  return { W: cols.map((c) => c.w), group: cols.map((c) => c.group), metal: cols.map((c) => METAL_INSTS.includes(c.inst)) };
+  return { W: cols.map((c) => c.w), group: cols.map((c) => c.group), metal: cols.map((c) => METAL_INSTS.includes(c.inst)), inst: cols.map((c) => c.inst) };
 }
 
 interface Act {
@@ -251,6 +258,8 @@ interface Act {
   /** All absorbers, incl. metal. */
   other: number;
   metal: number;
+  /** Per basis column. */
+  h: Float64Array;
 }
 
 function activations(basis: Basis, obs: Float64Array[], cfg: DrumConfig['classify']): Act[] {
@@ -268,13 +277,59 @@ function activations(basis: Basis, obs: Float64Array[], cfg: DrumConfig['classif
         if (basis.metal[k]) metal += v;
       }
     });
-    return { a, other, metal };
+    return { a, other, metal, h };
   });
+}
+
+/**
+ * Step 2b take test (T10): the metal absorbers stand for a closed HH in this take when, of the onsets they dominate
+ * (>= half of all activations; at least minHits of them), >= fastMin decay fast. A real ride / crash rings, so a take
+ * whose metal onsets ring keeps them absorbed. fastMin 0 = every take (T6's metalDecay).
+ */
+export function metalTakeIsHh(acts: readonly Pick<Act, 'a' | 'other' | 'metal'>[], fast: readonly boolean[], fastMin: number, minHits: number): boolean {
+  if (fastMin <= 0) return true;
+  const dom = acts.map((x, i) => ({ x, i })).filter(({ x }) => x.metal >= 0.5 * (x.a[0] + x.a[1] + x.a[2] + x.other) && x.metal > 0);
+  if (dom.length < minHits) return false;
+  return dom.filter(({ i }) => fast[i]).length >= fastMin * dom.length;
+}
+
+/**
+ * Step 2d (eqRounds, T10): the take's channel (mic, room, EQ) as a per-band gain G_m = sum_i x_im / sum_i (W h_i)_m
+ * (3-band moving average, clamped to +-maxDb), from the current fit of all onsets. Kit- and mic-independent: a phone
+ * mic that removes the lows makes every template's lows count less.
+ */
+export function takeEq(obs: readonly ArrayLike<number>[], W: readonly ArrayLike<number>[], hs: readonly ArrayLike<number>[], maxDb: number): Float64Array {
+  const M = obs[0]?.length ?? 0;
+  const sx = new Float64Array(M);
+  const sr = new Float64Array(M);
+  obs.forEach((x, i) => {
+    for (let m = 0; m < M; m++) sx[m] += x[m];
+    W.forEach((w, k) => {
+      const h = hs[i][k];
+      if (h > 0) for (let m = 0; m < M; m++) sr[m] += w[m] * h;
+    });
+  });
+  const lim = 10 ** (maxDb / 20);
+  const g = new Float64Array(M);
+  for (let m = 0; m < M; m++) {
+    let a = 0;
+    let b = 0;
+    for (let j = Math.max(0, m - 1); j <= Math.min(M - 1, m + 1); j++) {
+      a += sx[j];
+      b += sr[j];
+    }
+    g[m] = b > 0 && a > 0 ? Math.min(lim, Math.max(1 / lim, a / b)) : 1;
+  }
+  return g;
+}
+
+function equalised(b: Basis, g: ArrayLike<number>): Basis {
+  return { ...b, W: b.W.map((w) => normalised(Float64Array.from(w, (v, m) => v * g[m]))) };
 }
 
 /** Step 2b (metalDecay): on an onset whose high band decays fast, the metal absorbers' activation is HH's. */
 function mergeMetal(acts: Act[], fast: readonly boolean[]): Act[] {
-  return acts.map((x, i) => (fast[i] ? { a: [x.a[0], x.a[1], x.a[2] + x.metal], other: x.other - x.metal, metal: 0 } : x));
+  return acts.map((x, i) => (fast[i] ? { ...x, a: [x.a[0], x.a[1], x.a[2] + x.metal], other: x.other - x.metal, metal: 0 } : x));
 }
 
 /**
@@ -347,13 +402,131 @@ export function hitsOf(cls: readonly OnsetClass[], candidatesMax: number): Analy
   return hits;
 }
 
+/** Mel-band centroid (in band-index units) of an observation; NaN when empty. Only compared within one take. */
+export function bandCentroid(x: ArrayLike<number>): number {
+  let s = 0;
+  let m1 = 0;
+  for (let m = 0; m < x.length; m++) {
+    s += x[m];
+    m1 += m * x[m];
+  }
+  return s > 0 ? m1 / s : NaN;
+}
+
+/**
+ * Per class c, the part of observation x that c's columns explain: max(0, x - sum of every other column's w h) (the
+ * residual after the rest of the fit; for a single-class onset ~ x). Metal columns count for HH on a `fast` onset.
+ */
+export function classParts(x: ArrayLike<number>, W: readonly ArrayLike<number>[], group: readonly TemplateGroup[], h: ArrayLike<number>, metalAsHh: readonly boolean[]): Float64Array[] {
+  return S3_CLASSES.map((cls) => {
+    const r = Float64Array.from(x);
+    W.forEach((w, k) => {
+      if (group[k] === cls || (cls === 'HH' && metalAsHh[k]) || !(h[k] > 0)) return;
+      for (let m = 0; m < r.length; m++) r[m] -= w[m] * h[k];
+    });
+    for (let m = 0; m < r.length; m++) if (r[m] < 0) r[m] = 0;
+    return r;
+  });
+}
+
+export function cosine(a: ArrayLike<number>, b: ArrayLike<number>): number {
+  let ab = 0;
+  let aa = 0;
+  let bb = 0;
+  for (let m = 0; m < a.length; m++) {
+    ab += a[m] * b[m];
+    aa += a[m] * a[m];
+    bb += b[m] * b[m];
+  }
+  return aa > 0 && bb > 0 ? ab / Math.sqrt(aa * bb) : 0;
+}
+
+/** Share of x's mass in bands whose centre is below / at or above hz (centres: melCentres). */
+export function massBelow(x: ArrayLike<number>, centres: ArrayLike<number>, hz: number): number {
+  let s = 0;
+  let lo = 0;
+  for (let m = 0; m < x.length; m++) {
+    s += x[m];
+    if (centres[m] < hz) lo += x[m];
+  }
+  return s > 0 ? lo / s : 0;
+}
+
+export type AdaptCfg = Pick<
+  DrumConfig['classify'],
+  'adaptKeepCos' | 'adaptShare' | 'adaptMinHits' | 'adaptLowHz' | 'adaptLowMin' | 'adaptHighHz' | 'adaptHighMin'
+>;
+
+/**
+ * Kit-independent gate of a seed part: BD has >= adaptLowMin of its mass below adaptLowHz; HH has >=
+ * adaptHighMin at or above adaptHighHz; SD neither.
+ */
+export function gateOk(k: number, part: ArrayLike<number>, centres: ArrayLike<number>, cfg: AdaptCfg): boolean {
+  const low = massBelow(part, centres, cfg.adaptLowHz);
+  const high = 1 - massBelow(part, centres, cfg.adaptHighHz);
+  if (k === 0) return low >= cfg.adaptLowMin;
+  if (k === 2) return high >= cfg.adaptHighMin;
+  return low < cfg.adaptLowMin && high < cfg.adaptHighMin;
+}
+
+/**
+ * Step 5 (adapt, T10): per-take template adaptation for an unknown kit. Seeds of class c = onsets where c is present
+ * with share_c >= adaptShare (HH seeds also need a fast high-band decay: a closed HH, kit-independent),
+ * and whose c part (classParts) passes the band gate (gateOk). With >= adaptMinHits seeds, c's template = the mean
+ * of the normalised parts. The adapted templates must keep the kit-independent order of their band
+ * centroids BD < SD < HH; both classes of a broken pair keep their kit templates this round. A class whose mean part
+ * is within cosine adaptKeepCos of one of its own kit columns (kitCols: the known kit) is not adapted.
+ */
+export function adaptColumns(
+  parts: readonly Float64Array[][],
+  cls: readonly OnsetClass[],
+  fast: readonly boolean[],
+  centres: ArrayLike<number>,
+  cfg: AdaptCfg,
+  kitCols: readonly (readonly ArrayLike<number>[])[] = [[], [], []],
+): (Float64Array | null)[] {
+  const cols: (Float64Array | null)[] = S3_CLASSES.map((_, k) => {
+    const seeds = cls
+      .map((_, i) => i)
+      .filter((i) => {
+        const o = cls[i];
+        return o.present[k] && o.share[k] >= cfg.adaptShare && (k !== 2 || fast[i]) && gateOk(k, parts[i][k], centres, cfg);
+      });
+    if (seeds.length < cfg.adaptMinHits) return null;
+    const mean = new Float64Array(parts[0][k].length);
+    for (const i of seeds) normalised(parts[i][k]).forEach((v, m) => (mean[m] += v / seeds.length));
+    // the kit's own template already fits this take (a known kit): keep it
+    if (kitCols[k].some((w) => cosine(w, mean) >= cfg.adaptKeepCos)) return null;
+    return normalised(mean);
+  });
+  const c = cols.map((w) => (w ? bandCentroid(w) : NaN));
+  const broken = (a: number, b: number) => Number.isFinite(c[a]) && Number.isFinite(c[b]) && !(c[a] < c[b]);
+  const drop = [broken(0, 1) || broken(0, 2), broken(0, 1) || broken(1, 2), broken(1, 2) || broken(0, 2)];
+  drop.forEach((d, k) => d && (cols[k] = null));
+  return cols;
+}
+
+function adaptedBasis(base: Basis, cols: readonly (Float64Array | null)[]): Basis {
+  // the adapted column replaces the class's own instrument (HH: the closed HH columns; the open HH ones stay, their seeds are not taken)
+  const keep = base.inst.map((inst, k) => !(inst && (S3_CLASSES as readonly string[]).includes(inst) && cols[(S3_CLASSES as readonly string[]).indexOf(base.group[k])]));
+  const out: Basis = { W: base.W.filter((_, k) => keep[k]), group: base.group.filter((_, k) => keep[k]), metal: base.metal.filter((_, k) => keep[k]), inst: base.inst.filter((_, k) => keep[k]) };
+  cols.forEach((w, k) => {
+    if (!w) return;
+    out.W.push(w);
+    out.group.push(S3_CLASSES[k]);
+    out.metal.push(false);
+    out.inst.push(null);
+  });
+  return out;
+}
+
 export function classifyOnsets(det: OnsetDetection, cfg: DrumConfig = DEFAULT_DRUM_CONFIG, table: TemplateTable = DRUM_TEMPLATES): ClassifyResult {
   const t0 = performance.now();
   const c = cfg.classify;
   if (!c.nmf) {
     const onsets = classifyRules(det.onsets, det.thresholds, c);
     const ms = performance.now() - t0;
-    return { hits: hitsOf(onsets, c.candidatesMax), onsets, columns: 0, refitAdded: [], ms: { spec: 0, nmf: ms, total: ms } };
+    return { hits: hitsOf(onsets, c.candidatesMax), onsets, columns: 0, refitAdded: [], adapted: [], ms: { spec: 0, nmf: ms, total: ms } };
   }
   const p = specParams(cfg);
   if (det.sr !== p.sr) throw new Error(`classify: onset sr ${det.sr} != audio.sr ${p.sr}`);
@@ -362,10 +535,24 @@ export function classifyOnsets(det: OnsetDetection, cfg: DrumConfig = DEFAULT_DR
   const spec = c.hpss ? hpssPercussive(raw, c.hpssTimeFrames, c.hpssFreqBins) : raw;
   const obs = det.onsets.map((o) => observation(spec, o.t, p));
   const t1 = performance.now();
-  const basis = basisOf(table, c);
-  const fast = c.metalDecay ? highDecayRates(raw, det.onsets, p, { fminHz: c.decayFminHz, minMs: c.decayMinMs, maxMs: c.decayMaxMs }).map((r) => r >= c.hhMinDecayDbPerSec) : det.onsets.map(() => false);
-  const acts = (b: Basis) => mergeMetal(activations(b, obs, c), fast);
+  let basis = basisOf(table, c);
+  const fast =
+    c.metalDecay || c.adapt
+      ? highDecayRates(raw, det.onsets, p, { fminHz: c.decayFminHz, minMs: c.decayMinMs, maxMs: c.decayMaxMs }).map((r) => r >= c.hhMinDecayDbPerSec)
+      : det.onsets.map(() => false);
+  let last: { b: Basis; acts: Act[] } = { b: basis, acts: [] };
+  let merge: readonly boolean[] = [];
+  const acts = (b: Basis) => {
+    last = { b, acts: activations(b, obs, c) };
+    return mergeMetal(last.acts, merge);
+  };
+  if (c.metalDecay) merge = metalTakeIsHh(activations(basis, obs, c), fast, c.metalTakeFastMin, c.refMinHits) ? fast : [];
+  for (let it = 0; it < c.eqRounds; it++) {
+    const fit = activations(basis, obs, c);
+    basis = equalised(basis, takeEq(obs, basis.W, fit.map((x) => x.h), c.eqMaxDb));
+  }
   let onsets = decideNmf(det.onsets, acts(basis), c);
+  let columns = basis.W.length;
   const refitAdded: S3Class[] = [];
   if (c.refit) {
     S3_CLASSES.forEach((cls, k) => {
@@ -375,10 +562,28 @@ export function classifyOnsets(det: OnsetDetection, cfg: DrumConfig = DEFAULT_DR
       for (const { i } of conf) normalised(obs[i]).forEach((v, m) => (mean[m] += v / conf.length));
       basis.W.push(normalised(mean));
       basis.group.push(cls);
+      basis.metal.push(false);
+      basis.inst.push(null);
       refitAdded.push(cls);
     });
+    columns = basis.W.length;
     if (refitAdded.length) onsets = decideNmf(det.onsets, acts(basis), c);
   }
+  let adapted: S3Class[] = [];
+  if (c.adapt) {
+    const kitCols = S3_CLASSES.map((cls) => basis.W.filter((_, k) => basis.inst[k] === cls));
+    const centres = melFrequencies(p.melBands + 2, p.fminHz, Math.min(p.fmaxHz, p.sr / 2)).slice(1, -1);
+    for (let it = 0; it < c.adaptIterations; it++) {
+      const { b: lb, acts: la } = last;
+      const parts = obs.map((x, i) => classParts(x, lb.W, lb.group, la[i].h, lb.metal.map((m) => m && !!merge[i])));
+      const cols = adaptColumns(parts, onsets, fast, centres, c, kitCols);
+      adapted = S3_CLASSES.filter((_, k) => cols[k]);
+      if (!adapted.length) break;
+      const b = adaptedBasis(basis, cols);
+      onsets = decideNmf(det.onsets, acts(b), c);
+      columns = b.W.length;
+    }
+  }
   const t2 = performance.now();
-  return { hits: hitsOf(onsets, c.candidatesMax), onsets, columns: basis.W.length, refitAdded, ms: { spec: t1 - t0, nmf: t2 - t1, total: t2 - t0 } };
+  return { hits: hitsOf(onsets, c.candidatesMax), onsets, columns, refitAdded, adapted, ms: { spec: t1 - t0, nmf: t2 - t1, total: t2 - t0 } };
 }

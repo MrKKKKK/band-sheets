@@ -3,7 +3,7 @@
  *
  * Run from spikes/analysis (devcontainer):
  *   npx tsx ts/drum/classify_eval.ts [--split tuning,dev] [--only GLOB] [--config '<json overrides>']
- *        [--sweep sweep.json] [--detail] [--json out/drum-results/classify/summary.json]
+ *        [--sweep sweep.json] [--detail] [--templates-program N] [--json out/drum-results/classify/summary.json]
  *   sweep.json = [{ "name": "...", "config": { classify: {...} } }, ...]: every entry is scored on the same onsets
  *   (onset values must not differ between entries; they come from --config).
  * Truth: render/drum truth hits mapped to S-3 (score.ts mapInst: HO -> HH, the rest dropped); estimates the same.
@@ -133,10 +133,12 @@ export function run(argv: string[]): void {
   const baseCfg = resolveDrumConfig(base);
   const cfgs: DrumConfig[] = sweep.map((s) => resolveDrumConfig(merge(base, s.config)));
   for (const c of cfgs) if (JSON.stringify(c.onset) !== JSON.stringify(baseCfg.onset) || JSON.stringify(c.audio) !== JSON.stringify(baseCfg.audio)) throw new Error('sweep entries may not change onset / audio');
-  const tables = new Map<string, TemplateTable>([[JSON.stringify(DRUM_TEMPLATES.params), DRUM_TEMPLATES]]);
+  // --templates-program N (T10 leave-one-preset-out): templates from another kit A preset, so the tuning takes act as an unknown kit.
+  const program = Number(argOf(argv, '--templates-program') ?? 0);
+  const tables = new Map<string, TemplateTable>(program === 0 ? [[JSON.stringify(DRUM_TEMPLATES.params), DRUM_TEMPLATES]] : []);
   const tableOf = (c: DrumConfig) => {
     const k = JSON.stringify(specParams(c));
-    if (!tables.has(k)) tables.set(k, buildTemplates(specParams(c)));
+    if (!tables.has(k)) tables.set(k, buildTemplates(specParams(c), program));
     return tables.get(k)!;
   };
   const ceiling = argv.includes('--ceiling');
@@ -160,7 +162,7 @@ export function run(argv: string[]): void {
         states[i].ms.audioSec += v.audioSec;
         return;
       }
-      const tb = c.classify.nmf ? tableOf(c) : DRUM_TEMPLATES;
+      const tb = c.classify.nmf || program !== 0 ? tableOf(c) : DRUM_TEMPLATES;
       const t1 = performance.now();
       const r = classifyOnsets(det, c, tb);
       states[i].ms.classify += performance.now() - t1;

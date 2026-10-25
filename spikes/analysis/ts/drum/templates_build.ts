@@ -29,14 +29,15 @@ export const TEMPLATE_VELOCITIES = [50, 110];
 
 const round = (v: number) => Number(v.toPrecision(4));
 
-export function buildTemplates(p: SpecParams): TemplateTable {
+/** `program`: kit A preset (0 Standard = the shipped table; others only for T10's leave-one-preset-out evaluation). */
+export function buildTemplates(p: SpecParams, program = 0): TemplateTable {
   if (p.sr !== SAMPLE_RATE) throw new Error(`templates: kit A renders at ${SAMPLE_RATE}, config sr ${p.sr}`);
   const kit = getKit('A');
   const columns: TemplateColumn[] = [];
   const lead = SAMPLE_RATE;
   for (const [inst, group] of TEMPLATE_INSTS) {
     for (const velocity of TEMPLATE_VELOCITIES) {
-      const v = kit.voice({ inst, layer: layerOf(velocity, A_VELOCITY_STEPS), rr: 0, mics: { dry: 1 }, cents: 0, program: 0 });
+      const v = kit.voice({ inst, layer: layerOf(velocity, A_VELOCITY_STEPS), rr: 0, mics: { dry: 1 }, cents: 0, program });
       const y = new Float32Array(lead + v.x.length + SAMPLE_RATE / 2);
       y.set(v.x, lead);
       const x = observation(melSpectrogram(y, p), (lead + v.onset) / SAMPLE_RATE, p);
@@ -45,5 +46,5 @@ export function buildTemplates(p: SpecParams): TemplateTable {
       columns.push({ inst, group, velocity, w: Array.from(x, (e) => round(e / s)) });
     }
   }
-  return { source: 'kit A (MuseScore_General, program 0), render/drum/kits.ts', params: { ...p }, columns };
+  return { source: `kit A (MuseScore_General, program ${program}), render/drum/kits.ts`, params: { ...p }, columns };
 }
