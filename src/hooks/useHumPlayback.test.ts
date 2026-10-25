@@ -44,38 +44,32 @@ function logStarts(el: ReturnType<typeof fakeAudio>, tone: TonePlayer) {
 
 describe('useHumPlayback', () => {
   describe('the browser sends `seeked` before `playing` (Chromium)', () => {
-    it.fails(
-      '▶ from a second starts the tones once, at `playing`',
-      async () => {
-        const { el, tone, hook } = setup();
-        const starts = logStarts(el, tone);
-        act(() => hook.result.current.play(2));
-        await flush();
-        expect(el.log).toContain('seeked');
-        expect(starts()).toBe(1);
-        expect(el.log.indexOf('tone.start')).toBeGreaterThan(
-          el.log.indexOf('playing'),
-        );
-      },
-    );
+    it('▶ from a second starts the tones once, at `playing`', async () => {
+      const { el, tone, hook } = setup();
+      const starts = logStarts(el, tone);
+      act(() => hook.result.current.play(2));
+      await flush();
+      expect(el.log).toContain('seeked');
+      expect(starts()).toBe(1);
+      expect(el.log.indexOf('tone.start')).toBeGreaterThan(
+        el.log.indexOf('playing'),
+      );
+    });
 
-    it.fails(
-      '▶ before the metadata is read starts the tones once, at `playing`',
-      async () => {
-        const { el, tone, hook } = setup({ loaded: false });
-        const starts = logStarts(el, tone);
-        act(() => hook.result.current.play(2));
-        await flush();
-        act(() => el.loadMetadata());
-        await flush();
-        expect(starts()).toBe(1);
-        expect(el.log.indexOf('tone.start')).toBeGreaterThan(
-          el.log.indexOf('playing'),
-        );
-      },
-    );
+    it('▶ before the metadata is read starts the tones once, at `playing`', async () => {
+      const { el, tone, hook } = setup({ loaded: false });
+      const starts = logStarts(el, tone);
+      act(() => hook.result.current.play(2));
+      await flush();
+      act(() => el.loadMetadata());
+      await flush();
+      expect(starts()).toBe(1);
+      expect(el.log.indexOf('tone.start')).toBeGreaterThan(
+        el.log.indexOf('playing'),
+      );
+    });
 
-    it.fails('a seek while playing restarts the tones once', async () => {
+    it('a seek while playing restarts the tones once', async () => {
       const { el, tone, hook } = setup();
       const starts = logStarts(el, tone);
       act(() => hook.result.current.play(0));
@@ -117,7 +111,7 @@ describe('useHumPlayback', () => {
     act(() => hook.result.current.play(0));
     await flush();
     expect(el.muted).toBe(true);
-    expect(tone.start).toHaveBeenCalled();
+    expect(tone.start).toHaveBeenCalledTimes(1);
     el.advance(3);
     act(() => hook.result.current.setMode('recording'));
     expect(el.muted).toBe(false);

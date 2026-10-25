@@ -23,8 +23,9 @@ export interface AudioPlayer {
   /** Silences the recording while it keeps playing (S4 「下書き」: the recording is then only the clock). */
   setMuted(muted: boolean): void;
   /**
-   * Called with the element's exact second when the sound really starts (`playing`) or moves while playing
-   * (`seeked`): S4 aligns the draft tones to it (null = none).
+   * Called with the element's exact second when the sound really starts (`playing`) or moves while it sounds
+   * (`seeked` without a `waiting` before it): S4 aligns the draft tones to it (null = none). Once per start or
+   * seek, never before the sound.
    */
   setSyncListener(fn: ((sec: number) => void) | null): void;
   /** Tells the player which bar a time is in, so it updates at once when the bar changes (null = none). */
@@ -97,18 +98,30 @@ export function useAudioPlayer(
       stopTicking();
       frame = requestAnimationFrame(tick);
     };
+    // Sounding = `playing` arrived and nothing has stopped the sound since. A seek while playing sends
+    // `waiting` → `seeked` → `playing` (Chromium), and so does ▶ from a second: syncing at `seeked` too would start
+    // the draft tones twice, and before the sound. A browser without `waiting` keeps the `seeked` sync.
+    let sounding = false;
     el.onpause = () => {
+      sounding = false;
       setPlaying(false);
       stopTicking();
       show();
     };
     el.onended = el.onpause;
-    el.onplaying = () => syncRef.current?.(el.currentTime);
+    el.onwaiting = () => {
+      sounding = false;
+    };
+    el.onplaying = () => {
+      sounding = true;
+      syncRef.current?.(el.currentTime);
+    };
     el.onseeked = () => {
       show();
-      if (!el.paused) syncRef.current?.(el.currentTime);
+      if (sounding && !el.paused) syncRef.current?.(el.currentTime);
     };
     el.onerror = () => {
+      sounding = false;
       setFailed(true);
       setPlaying(false);
       stopTicking();
@@ -123,6 +136,7 @@ export function useAudioPlayer(
       el.onended = null;
       el.onseeked = null;
       el.onplaying = null;
+      el.onwaiting = null;
       el.onerror = null;
       el.pause();
       el.removeAttribute('src');
