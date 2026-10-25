@@ -3,16 +3,19 @@ import { parseSong } from './parseSong';
 import type { ChartSection } from './song';
 import {
   DEFAULT_TEMPO,
+  approach,
   barAt,
   barSeconds,
+  buildScrollPlan,
   buildTimeline,
   countInBeats,
   estimateChartBars,
   lineBarCount,
+  planScrollTopAt,
+  planStepAt,
+  planTimeAtScrollTop,
   rescaleTime,
-  scrollTopAt,
   sectionAt,
-  timeAtScrollTop,
   type TimedUnit,
 } from './autoScroll';
 
@@ -109,124 +112,28 @@ describe('buildTimeline', () => {
   });
 });
 
-describe('scrollTopAt', () => {
-  const tl = buildTimeline(
-    [
-      { top: 100, height: 200, bars: bars(4) }, // t 0..8, y 100..400 (to the next top)
-      { top: 400, height: 100, bars: bars(2) }, // t 8..12, y 400..500
-    ],
-    120,
-    100,
-  );
-
-  it('interpolates linearly and subtracts the anchor', () => {
-    expect(scrollTopAt(tl, 0, 50)).toBe(50);
-    expect(scrollTopAt(tl, 4, 50)).toBeCloseTo(200);
-    // keys are unit tops: the chart lines in the gap (300..400) are passed
-    // through during the first unit (y 100 → 400 over t 0 → 8)
-    expect(scrollTopAt(tl, 10, 0)).toBeCloseTo(450);
-  });
-  it('clamps time to the timeline and scrollTop to ≥ 0', () => {
-    expect(scrollTopAt(tl, -3, 0)).toBe(100);
-    expect(scrollTopAt(tl, 99, 0)).toBe(500);
-    expect(scrollTopAt(tl, 0, 250)).toBe(0);
-  });
-  it('is 0 for an empty timeline', () => {
-    expect(scrollTopAt({ keys: [], duration: 0 }, 5, 100)).toBe(0);
-  });
-  it('takes the later position at a zero-length jump', () => {
-    const jump = buildTimeline(
-      [
-        { top: 0, height: 100, bars: bars(1) },
-        { top: 100, height: 50, bars: [] },
-        { top: 150, height: 100, bars: bars(1) },
-      ],
-      120,
-      100,
-    );
-    expect(scrollTopAt(jump, 2, 0)).toBe(150);
-    expect(scrollTopAt(jump, 1, 0)).toBeCloseTo(50);
-  });
-});
-
-describe('timeAtScrollTop', () => {
-  const tl = buildTimeline(
-    [
-      { top: 100, height: 200, bars: bars(4) },
-      { top: 400, height: 100, bars: bars(2) },
-    ],
-    120,
-    100,
-  );
-
-  it('inverts scrollTopAt', () => {
-    for (const t of [0.5, 3, 7.9, 9, 11.5]) {
-      expect(timeAtScrollTop(tl, scrollTopAt(tl, t, 80), 80)).toBeCloseTo(t);
-    }
-  });
-  it('starts from 0 when the first unit is not yet past the anchor line', () => {
-    expect(timeAtScrollTop(tl, 0, 0)).toBe(0);
-    expect(timeAtScrollTop(tl, 0, 250)).toBe(0);
-    expect(timeAtScrollTop(tl, 20, 50)).toBe(0);
-  });
-  it('returns duration beyond the end', () => {
-    expect(timeAtScrollTop(tl, 10_000, 0)).toBe(12);
-  });
-  it('is 0 for an empty timeline', () => {
-    expect(timeAtScrollTop({ keys: [], duration: 0 }, 300, 100)).toBe(0);
-  });
-  it('maps a y inside a zero-length jump to the jump time', () => {
-    const jump = buildTimeline(
-      [
-        { top: 0, height: 100, bars: bars(1) },
-        { top: 100, height: 50, bars: [] },
-        { top: 150, height: 100, bars: bars(1) },
-      ],
-      120,
-      100,
-    );
-    expect(timeAtScrollTop(jump, 120, 0)).toBe(2);
-    expect(timeAtScrollTop(jump, 200, 0)).toBeCloseTo(3);
-  });
-  it('maps a flat stretch (zero-height unit) to its start', () => {
-    const flat = buildTimeline(
-      [
-        { top: 0, height: 100, bars: bars(1) },
-        { top: 100, height: 0, bars: bars(2) }, // t 2..6 at y 100
-        { top: 100, height: 100, bars: bars(1) },
-      ],
-      120,
-      100,
-    );
-    expect(timeAtScrollTop(flat, 100, 0)).toBe(2);
-    expect(scrollTopAt(flat, 4, 0)).toBe(100);
-  });
-});
-
 describe('rescaleTime (speed change mid-play keeps the position)', () => {
   const units: TimedUnit[] = [
     { top: 0, height: 300, bars: [b44, b34, b68] },
     { top: 350, height: 300, bars: bars(3) },
   ];
-  it('maps a time on the old timeline to the same y on the new one', () => {
-    const before = buildTimeline(units, 90, 100);
-    const after = buildTimeline(units, 90, 135);
+  const view = {
+    height: 500,
+    bottomReserve: 60,
+    topGap: 16,
+    maxScrollTop: 9999,
+  };
+  it('maps a time on the old plan to the same scrollTop on the new one', () => {
+    const before = buildScrollPlan(units, 90, 100, view);
+    const after = buildScrollPlan(units, 90, 135, view);
     for (const t of [0, 1.3, 5, 9.9, before.duration]) {
-      expect(scrollTopAt(after, rescaleTime(t, 100, 135), 120)).toBeCloseTo(
-        scrollTopAt(before, t, 120),
+      expect(planScrollTopAt(after, rescaleTime(t, 100, 135))).toBeCloseTo(
+        planScrollTopAt(before, t),
       );
     }
   });
   it('is the same time when the speed is unchanged', () => {
     expect(rescaleTime(4.2, 105, 105)).toBe(4.2);
-  });
-  it('agrees with timeAtScrollTop on the new timeline', () => {
-    const before = buildTimeline(units, 90, 100);
-    const after = buildTimeline(units, 90, 60);
-    const st = scrollTopAt(before, 7, 100);
-    expect(timeAtScrollTop(after, st, 100)).toBeCloseTo(
-      rescaleTime(7, 100, 60),
-    );
   });
 });
 
@@ -337,5 +244,182 @@ describe('lineBarCount of dash lines', () => {
   it('keeps the old rule for non-dash lines', () => {
     expect(lineBarCount(dash('[C]--------[G]--------'))).toBe(2);
     expect(lineBarCount(dash('きらきら | ひかる'))).toBe(1);
+  });
+});
+
+describe('buildScrollPlan / planScrollTopAt (issue #62: system by system)', () => {
+  // ♩=120 4/4: a bar is 2s, a beat 0.5s → the ease is 0.5s (the last beat).
+  const view = {
+    height: 800,
+    bottomReserve: 100,
+    topGap: 16,
+    maxScrollTop: 5000,
+  };
+  const sys = (top: number, height = 200, n = 4): TimedUnit => ({
+    top,
+    height,
+    bars: bars(n),
+  });
+  const three = [sys(100), sys(320), sys(540)];
+  const plan = buildScrollPlan(three, 120, 100, view);
+  const at = (t: number) => planScrollTopAt(plan, t);
+
+  it('lasts as long as the timeline', () => {
+    expect(plan.duration).toBeCloseTo(buildTimeline(three, 120, 100).duration);
+  });
+
+  it('keeps the playing system still (first one fits → scrollTop 0)', () => {
+    for (const t of [0, 1, 4, 7, 7.5]) expect(at(t)).toBe(0);
+  });
+
+  it('eases to the next system during the last beat, ending at the bar line', () => {
+    expect(at(7.75)).toBeCloseTo(152); // halfway (smoothstep)
+    expect(at(7.6)).toBeGreaterThan(0);
+    expect(at(7.6)).toBeLessThan(152);
+    expect(at(8)).toBeCloseTo(304);
+  });
+
+  it('puts the next system topGap below the top, the one after still visible', () => {
+    const top = at(9);
+    expect(top).toBe(320 - 16);
+    // u2 bottom stays above the bar (visible = 800 − 100).
+    expect(540 + 200 - top).toBeLessThanOrEqual(700);
+    for (const t of [8, 10, 15.5]) expect(at(t)).toBe(304);
+  });
+
+  it('the last system rests at the top and stays there at and after the end', () => {
+    expect(at(17)).toBe(524);
+    expect(at(24)).toBe(524);
+    expect(at(99)).toBe(524);
+  });
+
+  it('never scrolls past maxScrollTop', () => {
+    const p = buildScrollPlan(three, 120, 100, { ...view, maxScrollTop: 400 });
+    expect(planScrollTopAt(p, 9)).toBe(304);
+    expect(planScrollTopAt(p, 17)).toBe(400);
+  });
+
+  it('a first system that does not fit from the top rests at its own top', () => {
+    const p = buildScrollPlan([sys(600), sys(820)], 120, 100, view);
+    expect(planScrollTopAt(p, 0)).toBe(584);
+  });
+
+  it('is tempo-aware: one beat, clamped to 0.3–0.5s', () => {
+    // ♩=240: a bar is 1s, a beat 0.25s → 0.3s ease before t=4.
+    const fast = buildScrollPlan(three, 240, 100, view);
+    expect(planScrollTopAt(fast, 3.69)).toBe(0);
+    expect(planScrollTopAt(fast, 3.85)).toBeCloseTo(152);
+    // ♩=60: a beat is 1s → 0.5s ease before t=16.
+    const slow = buildScrollPlan(three, 60, 100, view);
+    expect(planScrollTopAt(slow, 15.4)).toBe(0);
+    expect(planScrollTopAt(slow, 15.75)).toBeCloseTo(152);
+    // ♩=200: a beat is 0.3s.
+    const p200 = buildScrollPlan(three, 200, 100, view);
+    const end = 4 * barSeconds(b44, 200, 100);
+    expect(planScrollTopAt(p200, end - 0.31)).toBe(0);
+    expect(planScrollTopAt(p200, end - 0.15)).toBeCloseTo(152);
+  });
+
+  it('follows the speed (50% doubles every time)', () => {
+    const half = buildScrollPlan(three, 120, 50, view);
+    expect(half.duration).toBeCloseTo(48);
+    expect(planScrollTopAt(half, 15)).toBe(0);
+    expect(planScrollTopAt(half, 16)).toBeCloseTo(304);
+  });
+
+  it('a very short system eases over at most half of it', () => {
+    // 1 bar of 2/4 at ♩=240 = 0.5s → 0.25s ease.
+    const short = { top: 100, height: 200, bars: [{ num: 2, den: 4 }] };
+    const p = buildScrollPlan([short, sys(320)], 240, 100, view);
+    expect(planScrollTopAt(p, 0.2)).toBe(0);
+    expect(planScrollTopAt(p, 0.375)).toBeCloseTo(152);
+  });
+
+  it('skips units without bars', () => {
+    const p = buildScrollPlan(
+      [sys(100), sys(320, 200, 0), sys(540)],
+      120,
+      100,
+      view,
+    );
+    expect(p.steps).toHaveLength(2);
+    expect(planScrollTopAt(p, 9)).toBe(524);
+  });
+
+  it('a system taller than the view scrolls continuously inside it', () => {
+    // visible below the gap: 700 − 16; the tall one is 1000px.
+    const p = buildScrollPlan(
+      [sys(100), sys(320, 1000), sys(1340)],
+      120,
+      100,
+      view,
+    );
+    expect(planScrollTopAt(p, 8)).toBeCloseTo(304);
+    // Its bottom reaches the bar's top when the ease begins (t = 15.5).
+    expect(planScrollTopAt(p, 15.5)).toBeCloseTo(320 + 1000 - 700);
+    const mid = planScrollTopAt(p, 11.75);
+    expect(mid).toBeCloseTo((304 + 620) / 2);
+    expect(planScrollTopAt(p, 16)).toBeCloseTo(1324);
+  });
+
+  it('a tall last system scrolls until its bottom is above the bar', () => {
+    const p = buildScrollPlan([sys(100), sys(320, 1000)], 120, 100, view);
+    expect(planScrollTopAt(p, 16)).toBeCloseTo(620);
+    expect(planScrollTopAt(p, 30)).toBeCloseTo(620);
+  });
+
+  it('keeps time-less lines above a system (leadTop) when they fit', () => {
+    const p = buildScrollPlan(
+      [sys(100), { ...sys(400), leadTop: 330 }, sys(620)],
+      120,
+      100,
+      view,
+    );
+    expect(planScrollTopAt(p, 9)).toBe(314);
+    const tooTall = buildScrollPlan(
+      [sys(100), { ...sys(400, 600), leadTop: 200 }],
+      120,
+      100,
+      view,
+    );
+    expect(planScrollTopAt(tooTall, 9)).toBe(384);
+  });
+
+  it('an empty plan stays at 0', () => {
+    const p = buildScrollPlan([], 120, 100, view);
+    expect(p.duration).toBe(0);
+    expect(planScrollTopAt(p, 3)).toBe(0);
+    expect(planStepAt(p, 3)).toBe(-1);
+    expect(planTimeAtScrollTop(p, 300)).toBe(0);
+  });
+
+  it('planStepAt: the system playing at t (clamped)', () => {
+    expect(planStepAt(plan, -1)).toBe(0);
+    expect(planStepAt(plan, 7.9)).toBe(0);
+    expect(planStepAt(plan, 8)).toBe(1);
+    expect(planStepAt(plan, 99)).toBe(2);
+  });
+
+  it('planTimeAtScrollTop: the start of the system resting nearest', () => {
+    expect(planTimeAtScrollTop(plan, 0)).toBe(0);
+    expect(planTimeAtScrollTop(plan, 140)).toBe(0);
+    expect(planTimeAtScrollTop(plan, 160)).toBe(8);
+    expect(planTimeAtScrollTop(plan, 304)).toBe(8);
+    expect(planTimeAtScrollTop(plan, 3000)).toBe(16);
+  });
+});
+
+describe('approach (settling after a finger scroll)', () => {
+  it('moves part of the way, more with more time', () => {
+    const a = approach(0, 100, 0.016, 0.12);
+    expect(a).toBeGreaterThan(0);
+    expect(a).toBeLessThan(100);
+    expect(approach(0, 100, 0.5, 0.12)).toBeGreaterThan(95);
+  });
+  it('snaps when within half a pixel', () => {
+    expect(approach(99.6, 100, 0.001, 0.12)).toBe(100);
+  });
+  it('dt 0 stays', () => {
+    expect(approach(10, 100, 0, 0.12)).toBe(10);
   });
 });

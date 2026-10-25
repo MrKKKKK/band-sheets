@@ -1,14 +1,12 @@
 /**
- * Auto-scroll math for the viewer (M6, docs/m6-plan.md 設計判断 8).
+ * Auto-scroll math for the viewer (M6, docs/m6-plan.md 設計判断 8; issue #62).
  *
- * A timeline maps time → the y of the "now playing" position inside the
- * content column: one key at the top of every timed unit (an alphaTab
- * system, or a chart-only block) at the time its first bar starts, plus an
- * end key at the bottom of the last unit; y is linearly interpolated between
- * keys. Time-less units (chart lines between systems) are not in the input,
- * so the position simply passes through them. The viewer keeps that position
- * on a line `anchorPx` below the top of the viewport (30% of its height):
- * `scrollTop = y(t) − anchorPx`.
+ * A timeline maps time → the timed units (an alphaTab system, or a chart-only
+ * block): one key at the top of every unit at the time its first bar starts,
+ * plus an end key at the bottom of the last unit (`sectionAt` reads it).
+ * Time-less units (chart lines between systems) are not in the input.
+ * The view moves system by system (`buildScrollPlan`): the playing unit
+ * stays still and the next one eases to the top during the last beat.
  */
 import { dashBarCount, isDashLine } from './dashChart';
 import type { ChartLine, ChartSection } from './song';
@@ -26,6 +24,11 @@ export interface TimedUnit {
   top: number;
   height: number;
   bars: BarInfo[];
+  /**
+   * Top of time-less content to keep in view with this unit (the section's
+   * chart lines above its first system); only `buildScrollPlan` reads it.
+   */
+  leadTop?: number;
 }
 
 export interface Timeline {
@@ -85,51 +88,146 @@ function keyIndexAt(keys: Timeline['keys'], t: number): number {
   return i;
 }
 
-/** The content y playing at time t (clamped to the timeline). */
-function yAt(tl: Timeline, t: number): number {
-  const { keys } = tl;
-  if (keys.length === 0) return 0;
-  if (!(t > keys[0].t)) return keys[0].y;
-  const i = keyIndexAt(keys, t);
-  if (i >= keys.length - 1) return keys[keys.length - 1].y;
-  const a = keys[i];
-  const b = keys[i + 1];
-  // keyIndexAt picks the last key at t, so b.t > t ≥ a.t here.
-  return a.y + ((t - a.t) / (b.t - a.t)) * (b.y - a.y);
+/** The viewport as the system-by-system auto-scroll sees it (issue #62). */
+export interface ScrollView {
+  /** Viewport height (px). */
+  height: number;
+  /** Bottom strip covered by the auto-scroll bar (px). */
+  bottomReserve: number;
+  /** Gap kept above a system resting at the top (px). */
+  topGap: number;
+  /** scrollHeight − clientHeight. */
+  maxScrollTop: number;
 }
 
-/**
- * scrollTop that puts the position at time t on the anchor line. At a
- * zero-length jump the later position wins. Never negative.
- */
-export function scrollTopAt(tl: Timeline, t: number, anchorPx: number): number {
-  if (tl.keys.length === 0) return 0;
-  return Math.max(0, yAt(tl, t) - anchorPx);
+interface ScrollStep {
+  /** Song time (s) the unit starts / ends. */
+  start: number;
+  end: number;
+  /** scrollTop while the unit plays. */
+  rest: number;
+  /** Tall unit: scrollTop reached (continuously) when the ease begins. */
+  tallEnd: number | null;
+  /** Length (s) of the move to the next unit, ending at `end`. */
+  ease: number;
 }
 
+export interface ScrollPlan {
+  steps: ScrollStep[];
+  duration: number;
+}
+
+/** The move to the next system takes one beat, within these bounds (s). */
+export const EASE_MIN_SEC = 0.3;
+export const EASE_MAX_SEC = 0.5;
+
+const clamp = (n: number, lo: number, hi: number) =>
+  Math.min(hi, Math.max(lo, n));
+
 /**
- * Inverse of `scrollTopAt`: the earliest time whose scrollTop is ≥ the given
- * one (so a flat stretch maps to its start, a jump to its time). scrollTop ≤ 0
- * → 0 (the top of the content is where playback starts); past the end →
- * duration.
+ * System-by-system auto-scroll (issue #62): while a unit plays it stays
+ * still; during its last beat (0.3–0.5s, at most half the unit) the view
+ * eases so the next unit rests `topGap` below the top. The first unit rests
+ * at scrollTop 0 when it fits there. A unit taller than the visible height
+ * (viewport minus the bar) scrolls continuously until its bottom is above the
+ * bar, then eases on. Units without bars are skipped. The time axis is the
+ * same as `buildTimeline`'s.
  */
-export function timeAtScrollTop(
-  tl: Timeline,
-  scrollTop: number,
-  anchorPx: number,
-): number {
-  const { keys } = tl;
-  if (keys.length === 0 || !(scrollTop > 0)) return 0;
-  const target = scrollTop + anchorPx;
-  if (target <= keys[0].y) return keys[0].t;
-  for (let i = 0; i < keys.length - 1; i++) {
-    const a = keys[i];
-    const b = keys[i + 1];
-    if (b.y < target) continue;
-    if (target <= a.y || b.y === a.y) return a.t;
-    return a.t + ((target - a.y) / (b.y - a.y)) * (b.t - a.t);
+export function buildScrollPlan(
+  units: readonly TimedUnit[],
+  tempo: number,
+  speedPct: number,
+  view: ScrollView,
+): ScrollPlan {
+  const visible = view.height - view.bottomReserve;
+  const max = Math.max(0, view.maxScrollTop);
+  const steps: ScrollStep[] = [];
+  let t = 0;
+  for (const u of units) {
+    const start = t;
+    for (const bar of u.bars) t += barSeconds(bar, tempo, speedPct);
+    if (!(t > start)) continue;
+    const bottom = u.top + u.height;
+    let rest: number;
+    if (steps.length === 0 && bottom <= visible) rest = 0;
+    else {
+      const lead = u.leadTop ?? u.top;
+      const fits = bottom - lead + view.topGap <= visible;
+      rest = (fits ? Math.min(lead, u.top) : u.top) - view.topGap;
+    }
+    rest = clamp(rest, 0, max);
+    const tall = u.height + view.topGap > visible;
+    const last = u.bars[u.bars.length - 1];
+    const beat = barSeconds(last, tempo, speedPct) / last.num;
+    steps.push({
+      start,
+      end: t,
+      rest,
+      tallEnd: tall ? clamp(Math.max(rest, bottom - visible), 0, max) : null,
+      ease: Math.min(clamp(beat, EASE_MIN_SEC, EASE_MAX_SEC), (t - start) / 2),
+    });
   }
-  return tl.duration;
+  return { steps, duration: t };
+}
+
+/** Index of the step playing at t (clamped); -1 for an empty plan. */
+export function planStepAt(plan: ScrollPlan, t: number): number {
+  const { steps } = plan;
+  if (steps.length === 0) return -1;
+  let i = 0;
+  while (i < steps.length - 1 && t >= steps[i].end) i++;
+  return i;
+}
+
+const smoothstep = (p: number) => p * p * (3 - 2 * p);
+
+/** scrollTop at time t (see `buildScrollPlan`). */
+export function planScrollTopAt(plan: ScrollPlan, t: number): number {
+  const i = planStepAt(plan, t);
+  if (i < 0) return 0;
+  const s = plan.steps[i];
+  const next = plan.steps[i + 1];
+  const easeFrom = next ? s.end - s.ease : s.end;
+  let pos = s.rest;
+  if (s.tallEnd !== null && t > s.start) {
+    const p = Math.min(1, (t - s.start) / (easeFrom - s.start));
+    pos = s.rest + p * (s.tallEnd - s.rest);
+  }
+  if (next && t > easeFrom) {
+    const p = Math.min(1, (t - easeFrom) / s.ease);
+    pos += smoothstep(p) * (next.rest - pos);
+  }
+  return pos;
+}
+
+/**
+ * Where playback resumes from a scrolled view: the start of the step whose
+ * rest position is nearest to scrollTop (ties → the earlier one).
+ */
+export function planTimeAtScrollTop(
+  plan: ScrollPlan,
+  scrollTop: number,
+): number {
+  let best: ScrollStep | null = null;
+  for (const s of plan.steps) {
+    if (!best || Math.abs(s.rest - scrollTop) < Math.abs(best.rest - scrollTop))
+      best = s;
+  }
+  return best ? best.start : 0;
+}
+
+/**
+ * One frame of an exponential approach from `current` to `target` (time
+ * constant `tauSec`); within half a pixel it snaps to the target.
+ */
+export function approach(
+  current: number,
+  target: number,
+  dtSec: number,
+  tauSec: number,
+): number {
+  const next = current + (target - current) * (1 - Math.exp(-dtSec / tauSec));
+  return Math.abs(target - next) < 0.5 ? target : next;
 }
 
 /**

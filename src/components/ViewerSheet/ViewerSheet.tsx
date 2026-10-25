@@ -112,6 +112,11 @@ function measure(
         bars: b.chartBars,
       });
     }
+    // The chart lines above a score have no time of their own: auto-scroll
+    // keeps them in view with the section's first system (issue #62).
+    const leadTop =
+      !b.chartBars && lines.length > 0 ? rect(lines[0], origin).top : undefined;
+    const lead = leadTop === undefined ? {} : { leadTop };
     if (b.score) {
       const slot = el.querySelector('[data-score-slot]');
       const rep = reported.get(b.key);
@@ -131,6 +136,7 @@ function measure(
           section: b.key,
           ...r,
           bars: [...b.score.bars, ...b.score.extraBars],
+          ...lead,
         });
       } else if (slot && rep) {
         const top = rect(slot, origin).top;
@@ -154,6 +160,7 @@ function measure(
             top: top + s.top,
             height: s.height,
             bars,
+            ...(i === 0 ? lead : {}),
           });
         });
       }
@@ -164,7 +171,12 @@ function measure(
         // The whole row: its gutter mark is taller than the one-line text.
         const r = rect(rest.parentElement ?? rest, origin);
         units.push({ id: `rest:${b.key}`, section: b.key, ...r });
-        timedUnits.push({ section: b.key, ...r, bars: b.restBars });
+        timedUnits.push({
+          section: b.key,
+          ...r,
+          bars: b.restBars,
+          ...(b.score ? {} : lead),
+        });
       }
     }
   }
