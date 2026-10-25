@@ -375,6 +375,7 @@ export function Root({
         onBackToList={() => navigate({ screen: 'list' })}
         shortcutLabel={shortcutLabel}
         touchOnly={tablet}
+        analysisClient={analysisClient}
         now={now}
         newId={newId}
       />

@@ -136,8 +136,8 @@ export function HumImportScreen({
   }, [backRequest]);
 
   const startRun = () => {
-    if (phase.kind !== 'pick' || !phase.file || phase.probing) return;
-    void start(phase.file, phase.duration, {
+    if (phase.kind !== 'pick' || !phase.file) return;
+    void start({
       kind: 'hum',
       source: { file: phase.file },
       info: humRunInfo({ ...value, key: value.key || undefined, ts }),

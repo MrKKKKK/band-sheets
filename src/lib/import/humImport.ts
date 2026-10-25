@@ -16,7 +16,7 @@ import {
   eventStarts,
   positionLabel,
 } from '../melodyPosition';
-import type { ImportStep } from './chordReview';
+import type { ImportStep } from './importProgress';
 import { humBpmFromSongTempo, type HumNoteCandidates } from './humDraft';
 import type { SoundingNote } from './playback';
 

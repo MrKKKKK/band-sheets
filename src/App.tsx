@@ -28,6 +28,7 @@ import { lyricsText } from './lib/lyrics';
 import { clearStaleMetaLines, type MetaField } from './lib/meta';
 import { parseSong } from './lib/parseSong';
 import { newSongText, serializeSong, UNTITLED } from './lib/serializeSong';
+import type { AnalysisClient } from './analysis/types';
 import type { Song, SongMeta } from './lib/song';
 import {
   LOCAL_SONG_ID,
@@ -64,6 +65,8 @@ export type AppProps = {
   baseVersion?: string | null;
   /** Touch-only device (Root computes it once): no humming import entry (plan §4: PC only). */
   touchOnly?: boolean;
+  /** The humming import's analysis client. Default: the real one, made on the first run. */
+  analysisClient?: AnalysisClient;
   /** Header slots: left of the song info (e.g. 「‹ 曲の一覧」) / right (save UI). */
   headerStart?: ReactNode;
   headerEnd?: ReactNode;
@@ -118,6 +121,7 @@ function App({
   initialText,
   baseVersion,
   touchOnly = false,
+  analysisClient,
   headerStart,
   headerEnd,
   onTextChange,
@@ -373,6 +377,7 @@ function App({
             initialLabel={hum.label}
             ts={hum.ts}
             keySig={hum.keySig}
+            client={analysisClient}
             storage={store}
             onInsert={insertHum}
             onBack={leaveHum}

@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ANALYSIS_STAGES } from '../../analysis/types';
 import type { TsAnalysisResult } from '../analysis/chords/result';
 import { CHORDS_CONFIG_HASH } from '../analysis/origin';
 import { dashes, meterOf } from '../dashChart';
@@ -12,11 +11,6 @@ import { draftMeter, draftTempo } from './chordDraft';
 import {
   barAtTime,
   draftSongText,
-  formatClock,
-  formatDurationJa,
-  formatFileSize,
-  IMPORT_STEPS,
-  importProgressView,
   initialReviewState,
   keyCandidates,
   lowConfidenceCount,
@@ -52,67 +46,7 @@ function sectionsOf(result: TsAnalysisResult, s: ReviewState) {
   return reviewSections(reviewDraft(result, s), draftMeter(result));
 }
 
-describe('importProgressView', () => {
-  it('covers exactly the chords stages, in order', () => {
-    expect(IMPORT_STEPS.flatMap((s) => s.stages)).toEqual([
-      ...ANALYSIS_STAGES.chords,
-    ]);
-  });
-
-  it('starts with the first step running', () => {
-    const v = importProgressView(null);
-    expect(v.current).toBe(1);
-    expect(v.fraction).toBe(0);
-    expect(v.steps.map((s) => s.state)).toEqual([
-      'now',
-      'wait',
-      'wait',
-      'wait',
-      'wait',
-      'wait',
-    ]);
-  });
-
-  it('marks finished steps and the running one', () => {
-    // decode, resample, load, beats, chroma done -> step 4 (chords) running
-    const v = importProgressView({ done: 5, total: 13 });
-    expect(v.steps.map((s) => s.state)).toEqual([
-      'done',
-      'done',
-      'done',
-      'now',
-      'wait',
-      'wait',
-    ]);
-    expect(v.current).toBe(4);
-    expect(v.fraction).toBeCloseTo(5 / 13);
-  });
-
-  it('is all done at the end', () => {
-    const v = importProgressView({ done: 13, total: 13 });
-    expect(v.steps.every((s) => s.state === 'done')).toBe(true);
-    expect(v.current).toBe(6);
-    expect(v.fraction).toBe(1);
-  });
-});
-
 describe('formatting', () => {
-  it('formats clock times', () => {
-    expect(formatClock(222.4)).toBe('3:42');
-    expect(formatClock(5)).toBe('0:05');
-    expect(formatClock(NaN)).toBe('0:00');
-    expect(formatClock(-3)).toBe('0:00');
-  });
-  it('formats durations in Japanese', () => {
-    expect(formatDurationJa(222.4)).toBe('3 分 42 秒');
-    expect(formatDurationJa(42)).toBe('42 秒');
-    expect(formatDurationJa(750)).toBe('12 分 30 秒');
-  });
-  it('formats file sizes', () => {
-    expect(formatFileSize(38_200_000)).toBe('38.2 MB');
-    expect(formatFileSize(512_000)).toBe('512 KB');
-    expect(formatFileSize(10)).toBe('1 KB');
-  });
   it('writes dashes like the dash writer', () => {
     expect(dashes(16)).toBe('--------');
     expect(dashes(8)).toBe('----');

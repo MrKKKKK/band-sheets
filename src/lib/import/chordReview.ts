@@ -1,4 +1,3 @@
-import type { AnalysisProgress } from '../../analysis/types';
 import type { TsAnalysisResult } from '../analysis/chords/result';
 import { dashes, parseDashLine, type DashMeter } from '../dashChart';
 import { parseKey } from '../keys';
@@ -18,80 +17,10 @@ import {
 import { markChordDraft, type DraftMarkInfo } from './draftMarks';
 
 /**
- * Pure helpers for the import screens S1 / S3 (docs/audio-integration-plan.md §4, §3.4).
+ * Pure helpers for the import screen S3 (docs/audio-integration-plan.md §4, §3.4).
  * Everything here is display / review state only: nothing is stored, the song text is
  * built once by `draftSongText` when the user presses 「この内容で曲を作る」.
  */
-
-// ---------------------------------------------------------------- S1 progress
-
-/** The six steps shown to the user, each covering consecutive analyzer stages (in order). */
-export const IMPORT_STEPS: readonly ImportStep[] = [
-  { label: '音声を読み込む', stages: ['decode'] },
-  { label: '音を変換する', stages: ['resample', 'load'] },
-  { label: '拍と小節の頭を探す', stages: ['beats'] },
-  {
-    label: 'コードを調べる',
-    stages: ['chroma', 'chords', 'downbeat', 'merge'],
-  },
-  { label: 'セクションに分ける', stages: ['sections'] },
-  { label: 'キーを調べる', stages: ['key', 'keytrack', 'chords2', 'merge2'] },
-];
-
-export type StepState = 'done' | 'now' | 'wait';
-
-export interface ImportProgressView {
-  steps: { label: string; state: StepState }[];
-  /** 1-based number of the running step (= steps.length when all are done). */
-  current: number;
-  /** 0..1 over the analyzer's stages. */
-  fraction: number;
-}
-
-export type ImportStep = { label: string; stages: readonly string[] };
-
-/**
- * Step states for the last progress event (null = nothing finished yet). `steps` cover the kind's analyzer
- * stages in order (default: the chord import's six steps).
- */
-export function importProgressView(
-  p: Pick<AnalysisProgress, 'done' | 'total'> | null,
-  steps: readonly ImportStep[] = IMPORT_STEPS,
-): ImportProgressView {
-  const total = p?.total ?? steps.reduce((n, s) => n + s.stages.length, 0);
-  const done = Math.max(0, Math.min(p?.done ?? 0, total));
-  let end = 0;
-  let current = steps.length;
-  const view = steps.map((s, i) => {
-    end += s.stages.length;
-    const state: StepState =
-      done >= end ? 'done' : done >= end - s.stages.length ? 'now' : 'wait';
-    if (state === 'now' && current === steps.length) current = i + 1;
-    return { label: s.label, state };
-  });
-  return { steps: view, current, fraction: total > 0 ? done / total : 0 };
-}
-
-// ---------------------------------------------------------------- formatting
-
-/** 222.4 → "3:42"; NaN / negative → "0:00". */
-export function formatClock(sec: number): string {
-  const s = Number.isFinite(sec) && sec > 0 ? Math.floor(sec) : 0;
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-}
-
-/** 222.4 → "3 分 42 秒", 42 → "42 秒". */
-export function formatDurationJa(sec: number): string {
-  const s = Number.isFinite(sec) && sec > 0 ? Math.round(sec) : 0;
-  const m = Math.floor(s / 60);
-  return m > 0 ? `${m} 分 ${s % 60} 秒` : `${s} 秒`;
-}
-
-/** Bytes → "38.2 MB" / "512 KB" (decimal units, like the OS file dialogs). */
-export function formatFileSize(bytes: number): string {
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
-  return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
-}
 
 // ---------------------------------------------------------------- S3 candidates
 

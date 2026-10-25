@@ -8,7 +8,7 @@ import {
   type Ref,
 } from 'react';
 import type { HumAnalysisResult } from '../../lib/analysis/hum/types';
-import { formatClock } from '../../lib/import/chordReview';
+import { formatClock } from '../../lib/import/format';
 import {
   humCandidates,
   humDraftEvents,

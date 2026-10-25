@@ -20,7 +20,6 @@ import {
 import {
   barAtTime,
   clampTempo,
-  formatClock,
   initialReviewState,
   keyCandidates,
   lowConfidenceCount,
@@ -33,6 +32,7 @@ import {
   type ReviewSection,
   type ReviewState,
 } from '../../lib/import/chordReview';
+import { formatClock } from '../../lib/import/format';
 import { DRAFT_TITLE_SUFFIX } from '../../lib/import/draftMarks';
 import { PLAYBACK_FAILED_MESSAGE } from '../../lib/import/importErrors';
 import { NO_CHORD } from '../../lib/dashChart';

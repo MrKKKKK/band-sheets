@@ -5,12 +5,15 @@
  * `src/analysis/`) must never pull analyzer code into a main-thread chunk; the analyzers run only inside the
  * Workers (`*.worker.ts`). `scripts/check-bundle.mjs` checks the built entry chunk for analyzer markers.
  */
-import type { InputErrorCode } from '../lib/analysis/chords/analyze';
 import type { TsAnalysisResult } from '../lib/analysis/chords/result';
 import type { HumAnalysisResult, HumInput } from '../lib/analysis/hum/types';
+import type {
+  AnalysisErrorCode,
+  AnalysisKind,
+  AnalysisProgress,
+} from '../lib/import/analysisTypes';
 
-/** One entry per analysis kind (section 3.5: drums is added later as one more kind). */
-export type AnalysisKind = 'chords' | 'hum';
+export type { AnalysisKind };
 
 /** Mono samples at the file's own rate (decodeFile's output). */
 export interface DecodedAudio {
@@ -76,41 +79,7 @@ export const ANALYSIS_STAGES = {
   hum: ['decode', 'validate', 'resample', 'f0', 'level', 'notes', 'quantize'],
 } as const satisfies Record<AnalysisKind, readonly string[]>;
 
-export type AnalysisStage<K extends AnalysisKind = AnalysisKind> =
-  (typeof ANALYSIS_STAGES)[K][number];
-
-/** Sent after each stage has FINISHED. `next` is the stage now running (null after the last one). */
-export interface AnalysisProgress {
-  kind: AnalysisKind;
-  stage: string;
-  next: string | null;
-  done: number;
-  total: number;
-}
-
-/**
- * Why a run failed. The UI (task T4/T7) maps each code to a Japanese message (plan section 6.2); only the analyzer's
- * own input codes come with a ready Japanese `message`.
- *   decode-failed  the browser could not decode the file (not audio, broken, unsupported format)
- *   too-long       longer than MAX_DURATION_SEC (10 min); for WAV checked from the header before decoding
- *   empty | too-short | non-finite | silent | no-beats   the analyzer's AnalysisInputError codes (message included)
- *   invalid-info   hum: the bpm / time signature / start the user gave is not usable (message included)
- *   out-of-memory  an allocation failed in the Worker
- *   worker-crashed the Worker died or reported an uncaught error
- *   unsupported    no Worker / Web Audio in this browser
- *   cancelled      cancel() was called (or a new run started)
- *   internal       any other error (a bug); no details are passed on (they could hold song content)
- */
-export type AnalysisErrorCode =
-  | 'decode-failed'
-  | 'too-long'
-  | InputErrorCode
-  | 'invalid-info'
-  | 'out-of-memory'
-  | 'worker-crashed'
-  | 'unsupported'
-  | 'cancelled'
-  | 'internal';
+export type { AnalysisProgress, AnalysisErrorCode };
 
 export class AnalysisError extends Error {
   readonly code: AnalysisErrorCode;

@@ -22,10 +22,11 @@ import {
   type AnalysisRequest,
   type AnalysisResultMap,
 } from '../analysis/types';
+import { formatDurationJa } from '../lib/import/format';
 import {
-  formatDurationJa,
   importProgressView,
-} from '../lib/import/chordReview';
+  type ImportStep,
+} from '../lib/import/importProgress';
 import { noticeFor, type ImportNotice } from '../lib/import/importErrors';
 
 export type RunPhase<Result> =
@@ -50,8 +51,8 @@ export interface AnalysisRunOptions<R extends AnalysisRequest> {
   client?: AnalysisClient;
   /** File length reader (probeDuration or a test double). */
   probe: (file: Blob) => Promise<number | null>;
-  /** The progress steps table; default: the chords one. */
-  steps?: Parameters<typeof importProgressView>[1];
+  /** The progress steps table. */
+  steps: readonly ImportStep[];
   /** Announced when the analysis ends in the review. */
   doneMessage: string;
   /** A result that cannot become a draft: the notice to show instead of the review. */
@@ -72,7 +73,8 @@ export interface AnalysisRun<R extends AnalysisRequest> {
   noticeRef: RefObject<HTMLDivElement | null>;
   reviewRef: RefObject<HTMLHeadingElement | null>;
   pick: (file: File) => Promise<void>;
-  start: (file: File, duration: number | null, request: R) => Promise<void>;
+  /** Analyse the file picked so far (its length known); does nothing without one, or while its length is read. */
+  start: (request: R) => Promise<void>;
   cancel: () => void;
 }
 
@@ -177,7 +179,9 @@ export function useAnalysisRun<R extends AnalysisRequest>({
     );
   };
 
-  const start = async (file: File, duration: number | null, request: R) => {
+  const start = async (request: R) => {
+    if (phase.kind !== 'pick' || !phase.file || phase.probing) return;
+    const { file, duration } = phase;
     const run = ++runRef.current;
     focusNext.current = 'progress';
     setPhase({ kind: 'analyzing', file, duration, progress: null });
