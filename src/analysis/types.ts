@@ -135,7 +135,8 @@ export interface AnalysisClient {
   /**
    * Decode (when given a file) and analyse in a NEW Worker, which is terminated when the run ends. Starting a run
    * while another is active cancels the earlier one (its promise rejects with `cancelled`).
-   * Rejects with an AnalysisError.
+   * Rejects with an AnalysisError. `onProgress` may be called synchronously inside run() (the first `decode`
+   * stage of an already-decoded `{audio}` source), so a caller must be ready for it before calling.
    */
   run<R extends AnalysisRequest>(
     request: R,

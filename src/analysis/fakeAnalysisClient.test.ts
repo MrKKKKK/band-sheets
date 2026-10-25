@@ -27,6 +27,21 @@ describe('createFakeAnalysisClient', () => {
     expect(c.requests).toHaveLength(1);
   });
 
+  it('transfers decoded samples away like the real client (a second run with them fails)', async () => {
+    const c = createFakeAnalysisClient({ results: { chords: chordsResult } });
+    const audio = {
+      samples: new Float32Array(8),
+      sampleRate: 8000,
+      channels: 1,
+      durationSec: 0.001,
+    };
+    await c.run({ kind: 'chords', source: { audio } });
+    expect(audio.samples.length).toBe(0);
+    expect(await codeOf(c.run({ kind: 'chords', source: { audio } }))).toBe(
+      'internal',
+    );
+  });
+
   it('fails with the given code after N stages', async () => {
     const c = createFakeAnalysisClient({
       error: 'no-beats',
