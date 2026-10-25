@@ -12,7 +12,6 @@ import { formatClock } from '../../lib/import/format';
 import {
   humCandidates,
   humDraftEvents,
-  proposeOctave,
   type HumChoice,
   type HumDraftOk,
   type HumDraftOptions,
@@ -31,10 +30,16 @@ import {
 } from '../../lib/import/humImport';
 import {
   HUM_DRAFT_FAILED_MESSAGE,
-  HUM_TUPLET_SHIFT_MESSAGE,
-  IMPORT_ERROR_MESSAGES,
   PLAYBACK_FAILED_MESSAGE,
 } from '../../lib/import/importErrors';
+import {
+  applyFixes,
+  fixesChanged,
+  fixSummary,
+  initialFixes,
+  mergeChoice,
+  type HumFixes,
+} from '../../lib/import/humReview';
 import { playbackNotes, soundingAt } from '../../lib/playback';
 import {
   NOTE_NAME_MODES,
@@ -96,13 +101,6 @@ export type HumReviewProps = {
   playbackDeps?: { audio?: AudioPlayerDeps; createTone?: () => TonePlayer };
 };
 
-interface Fixes {
-  octave: number;
-  transpose: number;
-  shiftTicks: number;
-  chosen: Readonly<Record<number, HumChoice>>;
-}
-
 const LISTEN: { value: ListenMode; label: string }[] = [
   { value: 'recording', label: '録音' },
   { value: 'draft', label: '下書き' },
@@ -145,19 +143,14 @@ export function HumReview({
   playbackDeps,
 }: HumReviewProps) {
   const ids = { fix: useId(), score: useId(), side: useId(), panel: useId() };
-  const [proposed] = useState(() => proposeOctave(result));
-  const [fixes, setFixes] = useState<Fixes>({
-    octave: proposed,
-    transpose: 0,
-    shiftTicks: 0,
-    chosen: {},
-  });
+  const [initial] = useState(() => initialFixes(result));
+  const proposed = initial.octave;
+  const [fixes, setFixes] = useState<HumFixes>(initial);
   const [names, setNames] = useState<NoteNameMode>(initialNoteNames);
   /** The note whose candidates are open (its id, stable across fixes). */
   const [openId, setOpenId] = useState<number | null>(null);
   const [confirm, setConfirm] = useState(false);
 
-  const optsOf = (f: Fixes): HumDraftOptions => ({ ...f, key: keySig });
   const opts = useMemo<HumDraftOptions>(
     () => ({ ...fixes, key: keySig }),
     [fixes, keySig],
@@ -217,35 +210,22 @@ export function HumReview({
   const step = SHIFT_STEP_TICKS;
   const tickSec = ok ? 60 / (ok.tempo * (WHOLE_TICKS / 4)) : 0;
 
-  const fixSummary = [
-    fixes.octave !== proposed ? octaveLabel(fixes.octave - proposed) : '',
-    fixes.transpose !== 0
-      ? `${fixes.transpose > 0 ? '+' : '−'}${Math.abs(fixes.transpose)} 半音`
-      : '',
-    fixes.shiftTicks !== 0 ? shiftLabel(fixes.shiftTicks, ts) : '',
-    Object.keys(fixes.chosen).length > 0
-      ? `候補 ${Object.keys(fixes.chosen).length} 音`
-      : '',
-  ].filter(Boolean);
+  const summary = fixSummary(fixes, proposed, ts);
 
   /** Applies a fix if the draft still works out; returns the new draft (null = refused). */
   const update = (
-    patch: Partial<Fixes>,
+    patch: Partial<HumFixes>,
     message?: string,
   ): HumDraftOk | null => {
     const next = { ...fixes, ...patch };
-    const d = humDraftEvents(result, optsOf(next));
-    if (!d.ok) {
-      say(
-        d.reason === 'tupletCrossesBar'
-          ? HUM_TUPLET_SHIFT_MESSAGE
-          : IMPORT_ERROR_MESSAGES.internal,
-      );
+    const r = applyFixes(result, next, keySig);
+    if (!r.ok) {
+      say(r.message);
       return null;
     }
     setFixes(next);
     if (message) say(message);
-    return d;
+    return r.draft;
   };
 
   const nameOf = (pitch: string) =>
@@ -264,24 +244,8 @@ export function HumReview({
   const choose = (choice: HumChoice, message: string) => {
     if (!open) return;
     const id = open.id;
-    // Picking the analyzer's own reading again is no choice at all.
-    const merged: HumChoice = { ...fixes.chosen[id], ...choice };
-    const orig = open.position[0];
-    if (merged.midi === open.pitch[0].midi) delete merged.midi;
-    if (
-      merged.position &&
-      merged.position.startTick === orig.startTick &&
-      merged.position.ticks === orig.ticks
-    )
-      delete merged.position;
-    const { [id]: _old, ...others } = fixes.chosen;
     const d = update(
-      {
-        chosen:
-          merged.midi === undefined && merged.position === undefined
-            ? others
-            : { ...others, [id]: merged },
-      },
+      { chosen: mergeChoice(fixes.chosen, open, choice) },
       message,
     );
     if (!d) return;
@@ -313,7 +277,7 @@ export function HumReview({
   const [confirmBack, setConfirmBack] = useState<'button' | 'browser' | null>(
     null,
   );
-  const changed = fixSummary.length > 0;
+  const changed = fixesChanged(fixes, proposed);
   const back = (from: 'button' | 'browser' = 'button') => {
     pb.pause();
     if (changed) setConfirmBack(from);
@@ -644,7 +608,7 @@ export function HumReview({
               <div>
                 <dt>全体の直し</dt>
                 <dd data-testid="hum-fixes">
-                  {fixSummary.length > 0 ? fixSummary.join('・') : 'なし'}
+                  {summary.length > 0 ? summary.join('・') : 'なし'}
                 </dd>
               </div>
             </dl>
