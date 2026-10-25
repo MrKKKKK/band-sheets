@@ -84,6 +84,16 @@ const viewport = (page: Page) => page.getByTestId('viewer-viewport');
 const scrollTop = (page: Page) =>
   viewport(page).evaluate((el) => (el as HTMLElement).scrollTop);
 
+/** Runs the (installed) clock in 100ms steps until auto-scroll moves. */
+async function msUntilMove(page: Page): Promise<number> {
+  const from = await scrollTop(page);
+  for (let ms = 100; ms <= 30000; ms += 100) {
+    await page.clock.runFor(100);
+    if ((await scrollTop(page)) !== from) return ms;
+  }
+  throw new Error('auto-scroll never moved');
+}
+
 /** Settings drawer (the toolbar hides some controls below 1600px). */
 async function openDrawer(page: Page) {
   await page.getByRole('button', { name: '設定', exact: true }).click();
@@ -248,7 +258,9 @@ test('viewer: auto scroll start / pause / speed', async ({ page }) => {
 
   await bar.getByRole('button', { name: '再生' }).tap();
   await expect(bar).toHaveAttribute('data-playing', 'true');
-  await page.clock.runFor(4000);
+  // System by system (#62): still while the first system plays, then a move.
+  const slow = await msUntilMove(page);
+  await page.clock.runFor(600);
   const s1 = await scrollTop(page);
   expect(s1).toBeGreaterThan(0);
   await page.screenshot({ path: 'docs/m6-app-auto.png' });
@@ -260,21 +272,82 @@ test('viewer: auto scroll start / pause / speed', async ({ page }) => {
   await page.clock.runFor(3000);
   expect(await scrollTop(page)).toBe(paused);
 
-  // Faster speed covers more ground in the same time.
-  const t0 = await scrollTop(page);
-  await bar.getByRole('button', { name: '再生' }).tap();
-  await page.clock.runFor(1500);
-  const slow = (await scrollTop(page)) - t0;
-  await bar.getByRole('button', { name: '一時停止' }).tap();
+  // Faster speed reaches the end of the first system sooner.
   await bar.getByRole('button', { name: '速度を上げる' }).tap();
   await bar.getByRole('button', { name: '速度を上げる' }).tap();
-  await expect(page.getByTestId('auto-scroll-speed')).not.toHaveText('100%');
-  const t1 = await scrollTop(page);
+  await expect(page.getByTestId('auto-scroll-speed')).toHaveText('110%');
+  await viewport(page).evaluate((el) => {
+    el.scrollTop = 0;
+  });
   await bar.getByRole('button', { name: '再生' }).tap();
-  await page.clock.runFor(1500);
-  const fast = (await scrollTop(page)) - t1;
-  expect(slow).toBeGreaterThan(0);
-  expect(fast).toBeGreaterThan(slow);
+  const fast = await msUntilMove(page);
+  expect(fast).toBeLessThan(slow);
+});
+
+test('viewer: play mode auto scroll goes system by system and clears the bar (#62)', async ({
+  page,
+}) => {
+  await page.clock.install();
+  await seed(page);
+  // Score layout (Vocal / Bass / Drums: the last staff is the drums), auto
+  // mode, no count-in — set before the viewer opens.
+  await page.evaluate(
+    ([k, v]) => localStorage.setItem(k, v),
+    [
+      viewerKey(SONG_ID),
+      JSON.stringify({ layout: 'score', nav: 'auto', countIn: false }),
+    ],
+  );
+  await openViewer(page);
+  const bar = page.getByTestId('auto-scroll-bar');
+  await page.getByRole('button', { name: '演奏モード' }).tap();
+  const viewer = page.getByTestId('viewer');
+  await expect(viewer).toHaveAttribute('data-play-mode', 'true');
+
+  // The sheet has the bar's height of space below it.
+  const pad = await page
+    .getByTestId('viewer-content')
+    .evaluate((el) => parseFloat(getComputedStyle(el).paddingBottom));
+  const barBox = (await bar.boundingBox())!;
+  expect(pad).toBeGreaterThanOrEqual(barBox.height);
+
+  await bar.getByRole('button', { name: '再生' }).tap();
+  const samples: number[] = [];
+  for (let i = 0; i < 400; i++) {
+    await page.clock.runFor(100);
+    samples.push(await scrollTop(page));
+    if (i === 100)
+      await page.screenshot({ path: 'out/issue62-after-playing.png' });
+    if ((await viewer.getAttribute('data-play-state')) === 'ended') break;
+  }
+  await page.screenshot({ path: 'out/issue62-after-end.png' });
+  await expect(viewer).toHaveAttribute('data-play-state', 'ended');
+
+  // Moves are short (≤ 0.6s); between them a whole system plays (one bar
+  // or more: 2s minus the 0.5s ease).
+  const runs: { moving: boolean; n: number }[] = [];
+  for (let i = 1; i < samples.length; i++) {
+    const moving = Math.abs(samples[i] - samples[i - 1]) > 0.5;
+    const last = runs.at(-1);
+    if (last && last.moving === moving) last.n++;
+    else runs.push({ moving, n: 1 });
+  }
+  const moves = runs.filter((r) => r.moving);
+  expect(moves.length).toBeGreaterThanOrEqual(2);
+  for (const m of moves) expect(m.n).toBeLessThanOrEqual(6);
+  for (const r of runs.slice(1, -1).filter((x) => !x.moving)) {
+    expect(r.n).toBeGreaterThanOrEqual(10);
+  }
+
+  // The last system (Drums' bass drum included) is above the bar.
+  const lastScore = (await page
+    .getByTestId('section-score')
+    .last()
+    .boundingBox())!;
+  expect(lastScore.y + lastScore.height).toBeLessThanOrEqual(barBox.y);
+  // The bar is still clickable.
+  await bar.getByRole('button', { name: '最初から' }).tap();
+  await expect(viewer).toHaveAttribute('data-play-state', 'playing');
 });
 
 test('viewer: count-in holds the scroll', async ({ page }) => {
