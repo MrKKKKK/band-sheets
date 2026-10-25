@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { MelodyEvent } from '../melody';
-import { parseMelody } from '../melodyParse';
-import { serializeMelody } from '../melodyTex';
-import { midiToHz, playbackNotes } from './playback';
+import type { MelodyEvent } from './melody';
+import { parseMelody } from './melodyParse';
+import { serializeMelody } from './melodyTex';
+import { midiToHz, playbackNotes, soundingAt } from './playback';
 
 const n = (pitch: string, ticks: number, slot?: number): MelodyEvent => ({
   kind: 'note',
@@ -87,5 +87,19 @@ describe('playbackNotes', () => {
   it('rejects a tempo that is not a positive number', () => {
     expect(() => playbackNotes([n('C4', 16)], 0, 0)).toThrow(RangeError);
     expect(() => playbackNotes([n('C4', 16)], NaN, 0)).toThrow(RangeError);
+  });
+});
+
+describe('soundingAt', () => {
+  const notes = [
+    { index: 1, start: 1, duration: 0.5, midi: 60, hz: 261 },
+    { index: 3, start: 2, duration: 1, midi: 62, hz: 293 },
+  ];
+  it('finds the note sounding at a second', () => {
+    expect(soundingAt(notes, 0.5)).toBeNull();
+    expect(soundingAt(notes, 1.2)).toBe(1);
+    expect(soundingAt(notes, 1.7)).toBeNull();
+    expect(soundingAt(notes, 2.9)).toBe(3);
+    expect(soundingAt(notes, 3.1)).toBeNull();
   });
 });

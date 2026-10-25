@@ -65,7 +65,7 @@ import {
   STOPPED_MESSAGE,
   type PlaybackStart,
 } from '../../lib/melodyPlayback';
-import type { TonePlayer } from '../../hooks/tonePlayer';
+import type { TonePlayer } from '../../hooks/tonePlayer.types';
 import { useMelodyPlayback } from '../../hooks/useMelodyPlayback';
 import { diatonicChords } from '../../lib/keys';
 import { paletteGroups } from '../../lib/palette';

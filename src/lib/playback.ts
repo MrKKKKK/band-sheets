@@ -1,6 +1,6 @@
-import { WHOLE_TICKS, type MelodyEvent } from '../melody';
-import { parsePitch, pitchToMidi } from '../pitch';
-import { atoms } from '../tuplet';
+import { WHOLE_TICKS, type MelodyEvent } from './melody';
+import { parsePitch, pitchToMidi } from './pitch';
+import { atoms } from './tuplet';
 
 /**
  * Melody events -> the notes to sound, for the recording-vs-draft listening
@@ -62,4 +62,16 @@ export function playbackNotes(
         sound(i, a.group.span / a.group.n);
   }
   return out;
+}
+
+/** The event sounding at second `t` (for the moving cursor), or null between / outside notes. */
+export function soundingAt(
+  notes: readonly SoundingNote[],
+  t: number,
+): number | null {
+  for (const n of notes) {
+    if (t < n.start) return null;
+    if (t < n.start + n.duration) return n.index;
+  }
+  return null;
 }

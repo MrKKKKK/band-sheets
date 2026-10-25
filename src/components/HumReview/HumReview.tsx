@@ -22,18 +22,12 @@ import {
   beatsLabel,
   firstNoteAt,
   labelledEvents,
-  NOTE_NAME_MODES,
-  noteName,
   notePlaceLabel,
   octaveLabel,
-  positionLabel,
   semitoneLabel,
   shiftLabel,
   SHIFT_STEP_TICKS,
-  soundingAt,
-  totalTicks,
   TRANSPOSE_LIMIT,
-  type NoteNameMode,
 } from '../../lib/import/humImport';
 import {
   HUM_DRAFT_FAILED_MESSAGE,
@@ -41,15 +35,22 @@ import {
   IMPORT_ERROR_MESSAGES,
   PLAYBACK_FAILED_MESSAGE,
 } from '../../lib/import/importErrors';
-import { playbackNotes } from '../../lib/import/playback';
+import { playbackNotes, soundingAt } from '../../lib/playback';
+import {
+  NOTE_NAME_MODES,
+  noteName,
+  type NoteNameMode,
+} from '../../lib/noteNames';
+import { positionLabel } from '../../lib/melodyPosition';
 import {
   barTicks,
+  totalTicks,
   WHOLE_TICKS,
   type MelodyEvent,
   type TimeSig,
 } from '../../lib/melody';
 import { parsePitch, pitchToMidi } from '../../lib/pitch';
-import type { TonePlayer } from '../../hooks/tonePlayer';
+import type { TonePlayer } from '../../hooks/tonePlayer.types';
 import type { AudioPlayerDeps } from '../../hooks/useAudioPlayer';
 import {
   useHumPlayback,

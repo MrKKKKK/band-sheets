@@ -10,7 +10,7 @@ import {
 } from 'storybook/test';
 import { wavBytes } from '../../analysis/testing/wavBytes';
 import { humSampleResult } from '../../lib/import/fixtures/humResults';
-import type { NoteNameMode } from '../../lib/import/humImport';
+import type { NoteNameMode } from '../../lib/noteNames';
 import { HumReview, type HumReviewProps } from './HumReview';
 
 /** S4 with a hand-made result; the recording is 12 s of silence, the draft tone is a spy (no sound). */

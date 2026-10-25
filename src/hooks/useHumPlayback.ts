@@ -4,8 +4,9 @@
  * muted, so the cursor, the seek bar and the tones stay on one time line.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { midiToHz, type SoundingNote } from '../lib/import/playback';
-import { createTonePlayer, type TonePlayer } from './tonePlayer';
+import { midiToHz, type SoundingNote } from '../lib/playback';
+import { createTonePlayer } from './tonePlayer';
+import type { TonePlayer } from './tonePlayer.types';
 import {
   useAudioPlayer,
   type AudioPlayer,

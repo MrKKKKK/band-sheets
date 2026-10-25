@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlaybackPlan } from '../lib/melodyPlayback';
-import type { TonePlayer } from './tonePlayer';
+import type { TonePlayer } from './tonePlayer.types';
 import { useMelodyPlayback } from './useMelodyPlayback';
 
 /** A tone player whose context clock is `clock.t`. */

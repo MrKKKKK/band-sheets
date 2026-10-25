@@ -5,9 +5,10 @@
  * unmount.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { midiToHz } from '../lib/import/playback';
+import { midiToHz } from '../lib/playback';
 import { stepAt, type PlaybackPlan } from '../lib/melodyPlayback';
-import { createTonePlayer, type TonePlayer } from './tonePlayer';
+import { createTonePlayer } from './tonePlayer';
+import type { TonePlayer } from './tonePlayer.types';
 
 export interface MelodyPlayback {
   /** The event under the playhead (a rest too) while playing, else null. */

@@ -5,7 +5,7 @@
  * saved file (Drive saving is M7).
  */
 
-import type { NoteNameMode } from './import/humImport';
+import { NOTE_NAME_MODES, type NoteNameMode } from './noteNames';
 import type { BaseRecord, DraftRecord, SongIndex } from './syncTypes';
 import type { ViewerSettings } from './viewerSettings';
 
@@ -321,7 +321,7 @@ export function loadNoteNameMode(
   storage: KeyValueStorage | null,
 ): NoteNameMode {
   const v = read(storage, NOTE_NAMES_KEY);
-  return v === 'letter' || v === 'none' ? v : 'doremi';
+  return NOTE_NAME_MODES.find((m) => m.value === v)?.value ?? 'doremi';
 }
 
 export function saveNoteNameMode(

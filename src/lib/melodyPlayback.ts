@@ -6,7 +6,7 @@
  * to start, what sounds when, and the player bar / live-region texts.
  */
 import { DEFAULT_TEMPO } from './autoScroll';
-import { playbackNotes, type SoundingNote } from './import/playback';
+import { playbackNotes, type SoundingNote } from './playback';
 import {
   barTicks,
   totalTicks,
