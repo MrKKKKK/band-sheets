@@ -6,7 +6,7 @@ import { useHumPlayback } from './useHumPlayback';
 
 const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
 
-function setup() {
+function setup({ loaded = true } = {}) {
   const el = fakeAudio();
   const tone: TonePlayer = {
     start: vi.fn(),
@@ -29,11 +29,66 @@ function setup() {
       }),
     { initialProps: { n: notes } },
   );
-  act(() => el.loadMetadata());
+  if (loaded) act(() => el.loadMetadata());
   return { el, tone, notes, hook };
 }
 
+/** Records `tone.start` in the element's event log, so a test can see what it came after. */
+function logStarts(el: ReturnType<typeof fakeAudio>, tone: TonePlayer) {
+  vi.mocked(tone.start).mockImplementation(() => {
+    el.log.push('tone.start');
+    return 0;
+  });
+  return () => el.log.filter((e) => e === 'tone.start').length;
+}
+
 describe('useHumPlayback', () => {
+  describe('the browser sends `seeked` before `playing` (Chromium)', () => {
+    it.fails(
+      '▶ from a second starts the tones once, at `playing`',
+      async () => {
+        const { el, tone, hook } = setup();
+        const starts = logStarts(el, tone);
+        act(() => hook.result.current.play(2));
+        await flush();
+        expect(el.log).toContain('seeked');
+        expect(starts()).toBe(1);
+        expect(el.log.indexOf('tone.start')).toBeGreaterThan(
+          el.log.indexOf('playing'),
+        );
+      },
+    );
+
+    it.fails(
+      '▶ before the metadata is read starts the tones once, at `playing`',
+      async () => {
+        const { el, tone, hook } = setup({ loaded: false });
+        const starts = logStarts(el, tone);
+        act(() => hook.result.current.play(2));
+        await flush();
+        act(() => el.loadMetadata());
+        await flush();
+        expect(starts()).toBe(1);
+        expect(el.log.indexOf('tone.start')).toBeGreaterThan(
+          el.log.indexOf('playing'),
+        );
+      },
+    );
+
+    it.fails('a seek while playing restarts the tones once', async () => {
+      const { el, tone, hook } = setup();
+      const starts = logStarts(el, tone);
+      act(() => hook.result.current.play(0));
+      await flush();
+      el.log.length = 0;
+      act(() => hook.result.current.seek(5));
+      await flush();
+      expect(el.log).toContain('seeked');
+      expect(starts()).toBe(1);
+      expect(tone.start).toHaveBeenLastCalledWith(expect.anything(), 5);
+    });
+  });
+
   it('「両方」 (default): the tones start when the recording really plays, from its own second', async () => {
     const { el, tone, notes, hook } = setup();
     expect(hook.result.current.mode).toBe('both');
