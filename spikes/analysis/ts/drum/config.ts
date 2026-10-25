@@ -239,10 +239,11 @@ export const DEFAULT_DRUM_CONFIG: DrumConfig = deepFreeze({
     hhMinDecayDbPerSec: 100, // tuning: 30 .913, 60 .938, 100 .940, 150 .941
     // T10: the take test keeps the known kit (tuning all .940 -> .950 at .5) but adds ~0 on leave-one-preset-out; metalDecay stays off
     metalTakeFastMin: 0,
-    // T10 (tuning; leave-one-preset-out = templates of kit A program 16 / 24 / 25 on the tuning takes): 1 round: known kit
-    // all .951 -> .954 (D3 HH .736 -> .805), LOPO 16 .903 -> .912, 24 .762 -> .775, 25 .763 -> .743; with adapt: known .955,
-    // LOPO .905 / .831 / .809. 2 rounds: known .952. eqMaxDb 10 = 20 (+-.001).
-    eqRounds: 1,
+    // T10 (tuning; leave-one-preset-out LOPO = templates of kit A program 16 / 24 / 25 on the tuning takes): classify-only
+    // 1 round: known kit all .951 -> .954, LOPO 16 .903 -> .912, 24 .762 -> .775, 25 .763 -> .743; with adapt LOPO mean
+    // .848 (adapt alone .850). OFF: end to end it lowers the known kit's D2 HH F .938 -> .900 (target .90; D3 all .805 -> .828).
+    // eqMaxDb 10 = 20 (+-.001).
+    eqRounds: 0,
     eqMaxDb: 20,
     decayFminHz: 5000,
     decayMinMs: 35,
@@ -255,7 +256,8 @@ export const DEFAULT_DRUM_CONFIG: DrumConfig = deepFreeze({
     refitMinHits: 4,
     hpssTimeFrames: 17,
     hpssFreqBins: 9,
-    // T10 adapt (tables in docs/audio-spike5-t10.md): LOPO mean (16 / 24 / 25) .809 -> .850, known kit .951 -> .952.
+    // T10 adapt (tables in docs/audio-spike5-t10.md): classify-only LOPO mean (16 / 24 / 25) .809 -> .850, known kit
+    // .951 -> .952; end to end known kit unchanged (+-.003), edits/keyboard D2 .189 -> .156.
     // Without the band gates LOPO 24 .834 -> .674; without the centroid order known .952 -> .947; without the fast-decay
     // HH seeds LOPO 16 .910 -> .897; adding instead of replacing LOPO 24 .842 -> .780; 3-4 iterations +-.01.
     adapt: true,
