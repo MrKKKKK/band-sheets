@@ -104,6 +104,8 @@ export interface DrumStageInfo {
 export interface DrumMeta {
   configHash: string;
   configName: string;
+  /** Git commit of the analyzer, when the caller knows it. */
+  commit?: string;
   level: DrumLevel;
   timings: { stagesMs: Record<string, number>; totalMs: number; audioSec: number };
   warnings: string[];
