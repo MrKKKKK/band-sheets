@@ -1,10 +1,10 @@
 import { useId, type Ref } from 'react';
 import type { AnalysisProgress } from '../../analysis/types';
+import { formatClock } from '../../lib/import/format';
 import {
-  formatClock,
   importProgressView,
   type ImportStep,
-} from '../../lib/import/chordReview';
+} from '../../lib/import/importProgress';
 import { Button } from '../Button/Button';
 import styles from './ImportProgress.module.css';
 
@@ -17,8 +17,8 @@ export type ImportProgressProps = {
   onCancel: () => void;
   /** The heading (the screen moves focus here when the analysis starts). */
   headingRef?: Ref<HTMLHeadingElement>;
-  /** The steps shown (default: the chord import's six steps). */
-  steps?: readonly ImportStep[];
+  /** The steps shown. */
+  steps: readonly ImportStep[];
   /** Muted text next to 「中止」. */
   footnote?: string;
 };

@@ -125,9 +125,10 @@ describe('createAnalysisClient', () => {
       kind: 'hum',
       info,
       f0Track: true,
-      firstNoteAuto: false,
       sampleRate: 22050,
     });
+    // the defaults (f0Track / firstNoteAuto false) are applied by the hum Worker (runHum), not here
+    expect(msg).not.toHaveProperty('firstNoteAuto');
     expect(msg.samples).toBe(a.samples);
     expect(transfer).toEqual([a.samples.buffer]);
     workers[0].send({ type: 'result', result: 1 });

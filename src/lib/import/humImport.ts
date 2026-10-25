@@ -1,30 +1,24 @@
 import type { HumInput } from '../analysis/hum/types';
 import {
   barTicks,
+  totalTicks,
   WHOLE_TICKS,
   type MelodyEvent,
   type TimeSig,
 } from '../melody';
 import { readSection, writeMelodySection } from '../melodyPart';
-import { parsePitch } from '../pitch';
 import { sectionLabels } from '../sections';
 import type { Song } from '../song';
-import { atoms } from '../tuplet';
-import {
-  barBeatAt,
-  beatTicksOf,
-  eventStarts,
-  positionLabel,
-} from '../melodyPosition';
-import type { ImportStep } from './chordReview';
+import { beatTicksOf, eventStarts } from '../melodyPosition';
+import type { ImportStep } from './importProgress';
+import { noteName, type NoteNameMode } from '../noteNames';
 import { humBpmFromSongTempo, type HumNoteCandidates } from './humDraft';
-import type { SoundingNote } from './playback';
 
 /**
  * Pure helpers for the humming import screens S2 / S4 (docs/audio-integration-plan.md §4, §3.4). Display and
  * screen state only: the song text is written once, by `insertHumDraft`, when the user presses
  * 「このセクションに下書きを入れる」. Nothing here is stored (plan §5), except the note-name display mode
- * (storage.ts, per device).
+ * (storage.ts, per device; noteNames.ts).
  */
 
 // ---------------------------------------------------------------- S2
@@ -121,17 +115,6 @@ export function insertHumDraft(
 
 // ---------------------------------------------------------------- positions
 
-// Moved to melodyPosition.ts (shared with the melody editor's playback); re-exported for the S2 / S4 callers.
-export { barBeatAt, eventStarts, positionLabel };
-
-/** The real length of the events in ticks (tuplets at their real span). */
-export function totalTicks(events: readonly MelodyEvent[]): number {
-  return atoms(events).reduce(
-    (t, a) => t + (a.kind === 'single' ? a.ticks : a.group.span),
-    0,
-  );
-}
-
 /** Tick of the draft's first note, or null without notes. */
 export function firstNoteAt(events: readonly MelodyEvent[]): number | null {
   const starts = eventStarts(events);
@@ -155,37 +138,6 @@ export function notePlaceLabel(
 }
 
 // ---------------------------------------------------------------- labels
-
-export type NoteNameMode = 'doremi' | 'letter' | 'none';
-
-export const NOTE_NAME_MODES: readonly {
-  value: NoteNameMode;
-  label: string;
-}[] = [
-  { value: 'doremi', label: 'ドレミ' },
-  { value: 'letter', label: 'C D E' },
-  { value: 'none', label: '表示しない' },
-];
-
-const DOREMI: Record<string, string> = {
-  C: 'ド',
-  D: 'レ',
-  E: 'ミ',
-  F: 'ファ',
-  G: 'ソ',
-  A: 'ラ',
-  B: 'シ',
-};
-
-const ACCIDENTAL: Record<string, string> = { '': '', '#': '♯', b: '♭' };
-
-/** 'F#4' → 「ファ♯」 / 「F♯」 / '' (no octave: the staff shows it). '' for 'none' or an unreadable pitch. */
-export function noteName(pitch: string, mode: NoteNameMode): string {
-  const p = parsePitch(pitch);
-  if (!p || mode === 'none') return '';
-  const letter = mode === 'doremi' ? DOREMI[p.letter] : p.letter;
-  return `${letter}${ACCIDENTAL[p.accidental]}`;
-}
 
 /** A pitch candidate named without note names: 「元の高さ」, 「半音上」, 「3 半音下」. */
 export function semitoneLabel(semitones: number): string {
@@ -246,16 +198,4 @@ export function labelledEvents(
     const text = `${noteName(e.pitch, mode)}${candidates[i]?.low ? '?' : ''}`;
     return text ? { ...e, lyric: text } : e;
   });
-}
-
-/** The event sounding at second `t` (for the moving cursor), or null between / outside notes. */
-export function soundingAt(
-  notes: readonly SoundingNote[],
-  t: number,
-): number | null {
-  for (const n of notes) {
-    if (t < n.start) return null;
-    if (t < n.start + n.duration) return n.index;
-  }
-  return null;
 }

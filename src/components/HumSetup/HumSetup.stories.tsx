@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { useRef } from 'react';
 import { expect, fn, userEvent, within } from 'storybook/test';
 import {
   HUM_NO_VOICE_MESSAGE,
@@ -7,17 +6,11 @@ import {
 } from '../../lib/import/importErrors';
 import { ImportProgress } from '../ImportProgress/ImportProgress';
 import { HUM_STEPS } from '../../lib/import/humImport';
-import { HumSetup, type HumSetupProps } from './HumSetup';
-
-/** The ref is made here (a ref in args would be serialized by Storybook). */
-function Setup(props: Omit<HumSetupProps, 'fileInputRef'>) {
-  const ref = useRef<HTMLInputElement>(null);
-  return <HumSetup {...props} fileInputRef={ref} />;
-}
+import { HumSetup } from './HumSetup';
 
 const meta = {
   title: 'Import/HumSetup',
-  component: Setup,
+  component: HumSetup,
   parameters: { a11y: { test: 'error' }, layout: 'fullscreen' },
   args: {
     songTitle: '聖者の行進',
@@ -35,7 +28,7 @@ const meta = {
     onStart: fn(),
     onBack: fn(),
   },
-} satisfies Meta<typeof Setup>;
+} satisfies Meta<typeof HumSetup>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;

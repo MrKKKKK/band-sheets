@@ -27,7 +27,7 @@ export function draftComment(date: string, configHash: string): string {
   return `{comment: ${COMMENT_PREFIX} ${date} コード ${configHash}}`;
 }
 
-export function isDraftComment(raw: string): boolean {
+function isDraftComment(raw: string): boolean {
   return raw.startsWith(`{comment: ${COMMENT_PREFIX} `);
 }
 

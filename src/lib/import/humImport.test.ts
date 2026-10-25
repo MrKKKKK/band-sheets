@@ -3,14 +3,13 @@ import { ANALYSIS_STAGES } from '../../analysis/types';
 import { sampleSong } from '../fixtures/sampleSong';
 import type { MelodyEvent, TimeSig } from '../melody';
 import { readSection } from '../melodyPart';
+import { barBeatAt, eventStarts, positionLabel } from '../melodyPosition';
 import { parseSong } from '../parseSong';
 import { serializeSong } from '../serializeSong';
 import type { HumNoteCandidates } from './humDraft';
 import {
-  barBeatAt,
   beatsLabel,
   shiftLabel,
-  eventStarts,
   firstNoteAt,
   firstNoteTick,
   HUM_STEPS,
@@ -18,12 +17,9 @@ import {
   humTargets,
   insertHumDraft,
   labelledEvents,
-  noteName,
   notePlaceLabel,
   octaveLabel,
-  positionLabel,
   semitoneLabel,
-  soundingAt,
 } from './humImport';
 
 const T44: TimeSig = { num: 4, den: 4 };
@@ -198,14 +194,6 @@ describe('positions', () => {
 });
 
 describe('labels', () => {
-  it('noteName per mode', () => {
-    expect(noteName('C4', 'doremi')).toBe('ド');
-    expect(noteName('F#4', 'doremi')).toBe('ファ♯');
-    expect(noteName('Bb3', 'letter')).toBe('B♭');
-    expect(noteName('C4', 'none')).toBe('');
-    expect(noteName('X', 'letter')).toBe('');
-  });
-
   it('semitoneLabel', () => {
     expect(semitoneLabel(0)).toBe('元の高さ');
     expect(semitoneLabel(1)).toBe('半音上');
@@ -257,19 +245,5 @@ describe('labels', () => {
       { ...evs[2], lyric: '?' },
     ]);
     expect(evs[0].lyric).toBeUndefined();
-  });
-});
-
-describe('soundingAt', () => {
-  const notes = [
-    { index: 1, start: 1, duration: 0.5, midi: 60, hz: 261 },
-    { index: 3, start: 2, duration: 1, midi: 62, hz: 293 },
-  ];
-  it('finds the note sounding at a second', () => {
-    expect(soundingAt(notes, 0.5)).toBeNull();
-    expect(soundingAt(notes, 1.2)).toBe(1);
-    expect(soundingAt(notes, 1.7)).toBeNull();
-    expect(soundingAt(notes, 2.9)).toBe(3);
-    expect(soundingAt(notes, 3.1)).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, userEvent, within } from 'storybook/test';
+import { CHORD_STEPS } from '../../lib/import/importProgress';
 import { ImportProgress } from './ImportProgress';
 
 const meta = {
@@ -18,6 +19,7 @@ const meta = {
     duration: 222,
     progress: null,
     onCancel: fn(),
+    steps: CHORD_STEPS,
   },
 } satisfies Meta<typeof ImportProgress>;
 

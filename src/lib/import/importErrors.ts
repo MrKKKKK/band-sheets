@@ -1,4 +1,4 @@
-import type { AnalysisErrorCode } from '../../analysis/types';
+import type { AnalysisErrorCode } from './analysisTypes';
 
 /**
  * Japanese texts for the import screens, one per `AnalysisErrorCode`

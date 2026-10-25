@@ -1,6 +1,7 @@
 /**
  * The one table of analysis kinds (plan section 3.5). Adding drums later = a `drums.worker.ts` + a runner + one row
- * here (and its types in types.ts / protocol.ts).
+ * here, and its request / result / stage names in types.ts (`AnalysisKind` lives in lib/import/analysisTypes.ts).
+ * protocol.ts and analysisClient.ts follow from the request type and need no per-kind code.
  *
  * Each kind is its own Worker chunk, so a run loads only its analyzer. Vite needs the literal
  * `new Worker(new URL('./x.worker.ts', import.meta.url), …)` form to bundle the Worker, hence one function per kind.

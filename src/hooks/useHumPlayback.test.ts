@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { fakeAudio } from './testing/fakeAudio';
-import type { TonePlayer } from './tonePlayer';
+import type { TonePlayer } from './tonePlayer.types';
 import { useHumPlayback } from './useHumPlayback';
 
 const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));

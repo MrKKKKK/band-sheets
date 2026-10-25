@@ -20,6 +20,7 @@ import { useAudioPlayer } from '../hooks/useAudioPlayer';
 import { usePageDropGuard } from '../hooks/usePageDropGuard';
 import { CHORDS_CONFIG_HASH } from '../lib/analysis/origin';
 import { draftSongText, type ReviewState } from '../lib/import/chordReview';
+import { CHORD_STEPS } from '../lib/import/importProgress';
 import { formatDraftDate } from '../lib/import/draftMarks';
 import styles from './ImportScreen.module.css';
 
@@ -55,6 +56,7 @@ export function ImportScreen({
   } = useAnalysisRun<ChordsRequest>({
     client: injected,
     probe,
+    steps: CHORD_STEPS,
     doneMessage: '解析が終わりました。コード譜の下書きを確かめてください',
   });
 
@@ -121,6 +123,7 @@ export function ImportScreen({
               progress={phase.progress}
               onCancel={cancel}
               headingRef={progressRef}
+              steps={CHORD_STEPS}
             />
           ) : (
             <ImportPicker
@@ -138,8 +141,8 @@ export function ImportScreen({
               noticeRef={noticeRef}
               onPick={(f) => void pick(f)}
               onStart={() => {
-                if (phase.file && !phase.probing)
-                  void start(phase.file, phase.duration, {
+                if (phase.file)
+                  void start({
                     kind: 'chords',
                     source: { file: phase.file },
                   });

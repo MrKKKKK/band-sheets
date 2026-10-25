@@ -22,7 +22,7 @@ import type { ChartSection, Song } from '../song';
  */
 
 /** Meter used when the analyzer's time signature is unusable. */
-export const FALLBACK_METER: DashMeter = { num: 4, den: 4 };
+const FALLBACK_METER: DashMeter = { num: 4, den: 4 };
 
 /**
  * The draft's meter: the analyzer's `timeSignature` (from downbeat tracking;
@@ -45,11 +45,11 @@ export function draftMeter(result: TsAnalysisResult): DashMeter {
 }
 
 /** Beats (quarter notes) per bar of the draft. */
-export function draftBeatsPerBar(result: TsAnalysisResult): number {
+function draftBeatsPerBar(result: TsAnalysisResult): number {
   return draftMeter(result).num;
 }
 export const DEFAULT_TEMPO = 120;
-export const DEFAULT_BARS_PER_LINE = 4;
+const DEFAULT_BARS_PER_LINE = 4;
 
 /** chord id (index in `result.chords`) -> chosen candidate name. */
 export type ChosenChords = Readonly<Record<number, string>>;
@@ -134,7 +134,7 @@ function tempoBeats(
   return { t, phase };
 }
 
-export function medianBeatInterval(
+function medianBeatInterval(
   result: TsAnalysisResult,
   tempoFactor: TempoFactor = 1,
 ): number {

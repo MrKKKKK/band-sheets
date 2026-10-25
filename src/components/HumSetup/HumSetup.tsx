@@ -1,10 +1,4 @@
-import {
-  useId,
-  useState,
-  type ReactNode,
-  type Ref,
-  type RefObject,
-} from 'react';
+import { useId, useRef, useState, type ReactNode, type Ref } from 'react';
 import type { HumTarget } from '../../lib/import/humImport';
 import type { ImportNotice } from '../../lib/import/importErrors';
 import type { TimeSig } from '../../lib/melody';
@@ -37,7 +31,6 @@ export type HumSetupProps = {
   onChange: (value: HumSetupValue) => void;
   file: PickedFile | null;
   onPick: (file: File) => void;
-  fileInputRef: RefObject<HTMLInputElement | null>;
   /** Error / 「中止しました」 above the form (texts from importErrors.ts). */
   notice: ImportNotice | null;
   noticeRef?: Ref<HTMLDivElement>;
@@ -102,7 +95,6 @@ export function HumSetup({
   onChange,
   file,
   onPick,
-  fileInputRef,
   notice,
   noticeRef,
   progress,
@@ -111,6 +103,7 @@ export function HumSetup({
   headingRef,
 }: HumSetupProps) {
   const id = useId();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const busy = progress !== undefined && progress !== null;
   const set = (patch: Partial<HumSetupValue>) =>
     onChange({ ...value, ...patch });

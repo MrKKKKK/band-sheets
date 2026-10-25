@@ -5,7 +5,7 @@ import {
   type DragEvent,
   type RefObject,
 } from 'react';
-import { formatClock, formatFileSize } from '../../lib/import/chordReview';
+import { formatClock, formatFileSize } from '../../lib/import/format';
 import { Button } from '../Button/Button';
 import styles from './AudioFileField.module.css';
 

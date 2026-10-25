@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AnalysisErrorCode } from '../../analysis/types';
+import type { AnalysisErrorCode } from './analysisTypes';
 import { IMPORT_ERROR_MESSAGES, importErrorInfo } from './importErrors';
 
 const CODES: AnalysisErrorCode[] = [
