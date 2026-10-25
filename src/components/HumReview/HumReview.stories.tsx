@@ -26,6 +26,7 @@ const tone = {
   stop: fn(),
   playOne: fn(),
   close: fn(),
+  now: () => 0,
 };
 
 /** The screen owns the live region text; keep it here like HumImportScreen does. */

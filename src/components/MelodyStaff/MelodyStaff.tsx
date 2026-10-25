@@ -89,7 +89,11 @@ export interface MelodyStaffProps {
    * placed, no hover preview, and the cursor line is drawn only at `playhead`. Keys still go to `onKeyDown`.
    */
   selectOnly?: boolean;
-  /** `selectOnly`: the cursor line (before event i, e.g. the note sounding now); null/absent = none. */
+  /**
+   * The event sounding now (before event i); null/absent = none. `selectOnly`: drawn as the cursor line. Input
+   * staff (the melody editor's playback): a separate playhead line plus the sounding note highlighted, the input
+   * cursor stays where it is (drawn dashed meanwhile), and the playhead's system is scrolled into view.
+   */
   playhead?: number | null;
   /** Events drawn in --warning (S4: low-confidence notes), lyric row included. */
   markedNotes?: ReadonlySet<number>;
@@ -428,8 +432,11 @@ export function MelodyStaff({
       }
       return;
     }
-    if (e.key === 'Escape' && selected !== null) onSelect(null);
     onKeyDown(e);
+    // The parent may take Escape for itself (the editor: stop playback) by preventing the default.
+    if (e.key === 'Escape' && selected !== null && !e.defaultPrevented) {
+      onSelect(null);
+    }
   };
 
   // No place preview while something is selected: a click there only
@@ -452,11 +459,27 @@ export function MelodyStaff({
   const s = layout.staffSpace;
   const t = layout.thickness;
   const cursorAt = selectOnly ? playhead : cursor;
-  const cur =
-    layout.cursors[
-      Math.max(0, Math.min(cursorAt ?? 0, layout.cursors.length - 1))
-    ];
-  const curSys = layout.systems[cur.system];
+  const cursorBox = (i: number) => {
+    const c =
+      layout.cursors[Math.max(0, Math.min(i, layout.cursors.length - 1))];
+    return { x: c.x, system: c.system, sys: layout.systems[c.system] };
+  };
+  const cur = cursorBox(cursorAt ?? 0);
+  const curSys = cur.sys;
+  const sounding = !selectOnly && playhead !== null ? playhead : null;
+  const play = sounding !== null ? cursorBox(sounding) : null;
+  const soundingPieces =
+    sounding === null
+      ? []
+      : layout.pieces.filter((p) => p.eventIndex === sounding);
+
+  // Playback: keep the system that is sounding in view (once per system, not per note).
+  const playheadRef = useRef<SVGLineElement>(null);
+  const playSystem = play?.system ?? null;
+  useEffect(() => {
+    if (playSystem !== null)
+      playheadRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [playSystem]);
   const selectedPieces =
     selected === null
       ? []
@@ -523,6 +546,19 @@ export function MelodyStaff({
           onPointerCancel={cancelDrag}
           onPointerLeave={() => setHover(null)}
         >
+          {/* sounding note (playback), behind everything */}
+          {soundingPieces.map((p) => (
+            <rect
+              key={`play-${p.pieceIndex}`}
+              x={p.box.x1}
+              y={p.box.y1}
+              width={p.box.x2 - p.box.x1}
+              height={p.box.y2 - p.box.y1}
+              rx={s * 0.3}
+              className={styles.soundingBg}
+            />
+          ))}
+
           {/* selection highlight, behind everything */}
           {selectedPieces.map((p) => (
             <rect
@@ -627,10 +663,12 @@ export function MelodyStaff({
               <g
                 key={`${p.eventIndex}-${p.pieceIndex}`}
                 data-testid={`${p.kind}-${p.eventIndex}-${p.pieceIndex}`}
+                data-sounding={p.eventIndex === sounding || undefined}
                 className={[
                   styles.music,
                   markedNotes?.has(p.eventIndex) && styles.marked,
                   isSel && styles.selectedNote,
+                  p.eventIndex === sounding && styles.sounding,
                 ]
                   .filter(Boolean)
                   .join(' ')}
@@ -723,8 +761,25 @@ export function MelodyStaff({
               x2={cur.x}
               y1={curSys.lineYs[0] - s}
               y2={curSys.lineYs[4] + s}
-              className={styles.cursor}
+              className={
+                play ? `${styles.cursor} ${styles.cursorAside}` : styles.cursor
+              }
             />
+          )}
+
+          {play && (
+            <g data-testid="playhead" className={styles.playhead}>
+              <line
+                ref={playheadRef}
+                x1={play.x}
+                x2={play.x}
+                y1={play.sys.lineYs[0] - 1.6 * s}
+                y2={play.sys.lineYs[4] + 1.6 * s}
+              />
+              <path
+                d={`M${play.x - 0.6 * s} ${play.sys.lineYs[0] - 2.4 * s}h${1.2 * s}l${-0.6 * s} ${0.8 * s}z`}
+              />
+            </g>
           )}
 
           {drag?.moved && selectedPieces[0] && (

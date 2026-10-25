@@ -6,8 +6,14 @@
 import type { SoundingNote } from '../lib/import/playback';
 
 export interface TonePlayer {
-  /** Sounds `notes` from second `fromSec` of the recording's clock, at once; replaces what was scheduled. */
-  start(notes: readonly SoundingNote[], fromSec: number): void;
+  /**
+   * Sounds `notes` from second `fromSec` of the recording's clock, at once; replaces what was scheduled. Returns
+   * the context time (`now()`) at which `fromSec` sounds, for a caller whose clock is the context itself (the
+   * melody editor's playback).
+   */
+  start(notes: readonly SoundingNote[], fromSec: number): number;
+  /** The audio context's clock in seconds (0 before the first sound). */
+  now(): number;
   stop(): void;
   /**
    * One tone now (a candidate that was clicked). Kept apart from the scheduled notes: `start` / `stop` never
@@ -97,7 +103,9 @@ export function createTonePlayer(
         const from = Math.max(n.start, fromSec);
         live.push(tone(c, n.hz, t0 + (from - fromSec), end - from));
       }
+      return t0;
     },
+    now: () => ctx?.currentTime ?? 0,
     stop,
     playOne(hz, durationSec) {
       if (single) halt(single);

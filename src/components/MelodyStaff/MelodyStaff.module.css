@@ -84,6 +84,30 @@
   stroke: var(--selection);
 }
 
+.sounding {
+  fill: var(--accent);
+}
+
+.sounding .stem,
+.sounding .ledger {
+  stroke: var(--accent);
+}
+
+.soundingBg {
+  fill: var(--accent-bg);
+}
+
+.playhead line {
+  stroke: var(--accent);
+  stroke-width: 2.5px;
+  /* the sticky player bar covers the top of the page */
+  scroll-margin: 96px 0 24px;
+}
+
+.playhead path {
+  fill: var(--accent);
+}
+
 .selection {
   fill: var(--selection-bg);
   stroke: var(--selection);
@@ -164,6 +188,14 @@
 .wrapper:focus .cursor {
   opacity: 1;
   animation: blink 1.06s step-end infinite;
+}
+
+.cursor.cursorAside,
+.wrapper:focus .cursor.cursorAside {
+  stroke: var(--text-muted);
+  stroke-dasharray: 5 4;
+  opacity: 0.6;
+  animation: none;
 }
 
 @keyframes blink {

@@ -436,6 +436,7 @@ function App({
                     onHumImport={humEntry ? openHum : undefined}
                     focusHumEntry={entryFocus}
                     showSection={shownSection}
+                    active={instrument === 'melody' && !viewing && hum === null}
                   />
                 </EditorErrorBoundary>
               ),

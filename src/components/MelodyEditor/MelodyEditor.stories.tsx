@@ -24,7 +24,20 @@ type HarnessProps = {
   setTimeTo?: string;
   onHumImport?: MelodyEditorProps['onHumImport'];
   showSection?: MelodyEditorProps['showSection'];
+  /** Shows a button that toggles `active` (like App leaving the メロディ tab). */
+  activeToggle?: boolean;
 };
+
+/** Silent tones on the wall clock (stories never make a sound); spies for the playback stories. */
+const wallClock = () => performance.now() / 1000;
+const tone = {
+  start: fn(() => wallClock()),
+  stop: fn(),
+  playOne: fn(),
+  close: fn(),
+  now: wallClock,
+};
+const playbackDeps = { createTone: () => tone };
 
 /** Holds a Song like App does (song → serializeSong → text → parseSong). */
 function Harness({
@@ -33,8 +46,10 @@ function Harness({
   setTimeTo,
   onHumImport,
   showSection,
+  activeToggle,
 }: HarnessProps) {
   const [text, setText] = useState(initialText);
+  const [active, setActive] = useState(true);
   const song = parseSong(text);
   return (
     <div>
@@ -48,6 +63,11 @@ function Harness({
           拍子を {setTimeTo} にする
         </button>
       )}
+      {activeToggle && (
+        <button type="button" onClick={() => setActive((a) => !a)}>
+          {active ? 'タブを離れる' : 'タブに戻る'}
+        </button>
+      )}
       <MelodyEditor
         song={song}
         onChange={(next) => {
@@ -56,6 +76,8 @@ function Harness({
         }}
         onHumImport={onHumImport}
         showSection={showSection}
+        playbackDeps={playbackDeps}
+        active={active}
       />
       <pre data-testid="song-text">{text}</pre>
     </div>
@@ -305,6 +327,10 @@ export const ReadOnlySection: Story = {
     ).toBeInTheDocument();
     expect(canvas.getByRole('button', { name: 'ド4' })).toBeDisabled();
     expect(canvas.getByRole('button', { name: '休符' })).toBeDisabled();
+    expect(canvas.getByRole('button', { name: '再生' })).toBeDisabled();
+    expect(
+      canvas.getByText('読み取り専用のセクションは再生できません'),
+    ).toBeVisible();
     const before = textOf(canvasElement);
     await userEvent.click(canvas.getByRole('img', { name: /読み取り専用/ }));
     await userEvent.keyboard('asd{Backspace}');
@@ -950,5 +976,205 @@ export const ShowsInsertedSection: Story = {
     expect(c.getByTestId('staff-live')).toHaveTextContent(
       'セクション B に鼻歌の下書きを入れました',
     );
+  },
+};
+
+const playerOf = (el: HTMLElement) =>
+  within(el).getByRole('group', { name: '再生' });
+
+/**
+ * Playback: Space plays / stops the current
+ * section; Esc while playing only stops (the selection stays); any other action stops it first.
+ */
+export const Playback: Story = {
+  args: { initialText: FOUR_NOTES },
+  play: async ({ canvasElement, args }) => {
+    tone.playOne.mockClear();
+    const canvas = within(canvasElement);
+    staffOf(canvasElement).focus();
+    // cursor at the end → from the section head
+    await expect(
+      canvas.getByText('セクションの最初から鳴らします'),
+    ).toBeVisible();
+    await expect(canvas.getByText('（未設定）')).toBeVisible();
+    await userEvent.keyboard(' ');
+    await expect(playerOf(canvasElement)).toHaveAttribute(
+      'data-state',
+      'playing',
+    );
+    expect(liveOf(canvasElement).trim()).toBe('1 小節目から再生します');
+    await expect(canvas.getByTestId('playhead')).toBeInTheDocument();
+    await userEvent.keyboard(' ');
+    await expect(playerOf(canvasElement)).toHaveAttribute(
+      'data-state',
+      'stopped',
+    );
+    expect(liveOf(canvasElement).trim()).toBe('止めました');
+    expect(canvas.queryByTestId('playhead')).toBeNull();
+
+    // Enter selects F4: playback starts there; Esc stops but keeps the selection
+    await userEvent.keyboard('{Enter}');
+    await expect(
+      canvas.getByText('選んだ音（1 小節目の 4 拍目）から鳴らします'),
+    ).toBeVisible();
+    await userEvent.keyboard(' ');
+    await expect(playerOf(canvasElement)).toHaveAttribute(
+      'data-state',
+      'playing',
+    );
+    await userEvent.keyboard('{Escape}');
+    await expect(playerOf(canvasElement)).toHaveAttribute(
+      'data-state',
+      'stopped',
+    );
+    expect(canvas.getByTestId('selection')).toBeInTheDocument();
+    // stopped: Esc deselects as before; Enter selects F4 again
+    await userEvent.keyboard('{Escape}');
+    expect(canvas.queryByTestId('selection')).toBeNull();
+    await userEvent.keyboard('{Enter}');
+
+    // editing while playing: stops first, then the edit applies (no note tone)
+    await userEvent.keyboard(' ');
+    await userEvent.keyboard('a');
+    await expect(playerOf(canvasElement)).toHaveAttribute(
+      'data-state',
+      'stopped',
+    );
+    expect(textOf(canvasElement)).toContain(':4 C4 D4 E4 C4 |');
+    expect(args.onChange).toHaveBeenCalledOnce();
+    expect(tone.playOne).not.toHaveBeenCalled();
+    // stopped: a re-pitched note sounds once
+    await userEvent.keyboard('{ArrowUp}');
+    expect(tone.playOne).toHaveBeenCalledOnce();
+  },
+};
+
+/** Plays to the end by itself and says so (♩=240: four quarters = 1 s). */
+export const PlaybackFinishes: Story = {
+  args: {
+    initialText: FOUR_NOTES.replace('{time: 4/4}', '{time: 4/4}\n{tempo: 240}'),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText('（曲の設定）')).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: '再生' }));
+    await expect(playerOf(canvasElement)).toHaveAttribute(
+      'data-state',
+      'playing',
+    );
+    await waitFor(
+      () => expect(liveOf(canvasElement).trim()).toBe('最後まで再生しました'),
+      { timeout: 4000 },
+    );
+    await expect(playerOf(canvasElement)).toHaveAttribute(
+      'data-state',
+      'stopped',
+    );
+  },
+};
+
+const stateOf = (el: HTMLElement) => playerOf(el).getAttribute('data-state');
+
+/** 「最初から」 with the cursor mid-section; focus goes back to the staff so Space still works. */
+export const PlayFromHeadKeepsFocus: Story = {
+  args: { initialText: FOUR_NOTES },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const staff = staffOf(canvasElement);
+    staff.focus();
+    await userEvent.keyboard('{ArrowLeft}{ArrowLeft}');
+    await expect(
+      canvas.getByText('カーソルの位置（1 小節目の 3 拍目）から鳴らします'),
+    ).toBeVisible();
+    await userEvent.click(
+      canvas.getByRole('button', { name: 'セクションの最初から再生' }),
+    );
+    expect(stateOf(canvasElement)).toBe('playing');
+    expect(liveOf(canvasElement).trim()).toBe('1 小節目から再生します');
+    expect(staff).toHaveFocus();
+    await userEvent.keyboard(' ');
+    expect(stateOf(canvasElement)).toBe('stopped');
+    await userEvent.click(canvas.getByRole('button', { name: '再生' }));
+    expect(liveOf(canvasElement).trim()).toBe('1 小節目から再生します');
+    expect(staff).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    expect(stateOf(canvasElement)).toBe('stopped');
+  },
+};
+
+/** Bars that no longer fit (3/4): read-only staff, but the buttons play; focus stays on 再生 / 停止. */
+export const BarMismatchPlaysFromButton: Story = {
+  args: { initialText: FOUR_NOTES.replace('{time: 4/4}', '{time: 3/4}') },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.queryByRole('application')).toBeNull();
+    await userEvent.click(canvas.getByRole('button', { name: '再生' }));
+    expect(stateOf(canvasElement)).toBe('playing');
+    await expect(canvas.getByTestId('playhead')).toBeInTheDocument();
+    const stop = canvas.getByRole('button', { name: '停止' });
+    expect(stop).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    expect(stateOf(canvasElement)).toBe('stopped');
+    expect(canvas.getByRole('button', { name: '再生' })).toHaveFocus();
+    // 「小節を引き直す」 while playing stops it first
+    await userEvent.click(canvas.getByRole('button', { name: '再生' }));
+    expect(stateOf(canvasElement)).toBe('playing');
+    await userEvent.click(
+      canvas.getByRole('button', { name: '新しい拍子で小節を引き直す' }),
+    );
+    const dialog = await canvas.findByRole('dialog');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: '引き直す' }),
+    );
+    expect(stateOf(canvasElement)).toBe('stopped');
+  },
+};
+
+const TWO_PARTS = `${TWO_SECTIONS.replace('{end_of_part}\n', '{end_of_part}\n\n{start_of_part: Vocal 2}\n\\section "A"\n:4 E4 E4 E4 E4 |\n{end_of_part}\n')}`;
+
+/** A section / part switch, leaving the tab, or a time signature change from song info stops playback. */
+export const StopsWhenThingsChange: Story = {
+  args: { initialText: TWO_PARTS, activeToggle: true, setTimeTo: '3/4' },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const play = () =>
+      userEvent.click(canvas.getByRole('button', { name: '再生' }));
+    await play();
+    expect(stateOf(canvasElement)).toBe('playing');
+    await userEvent.click(canvas.getByRole('button', { name: 'B' }));
+    expect(stateOf(canvasElement)).toBe('stopped');
+
+    await play();
+    await userEvent.selectOptions(canvas.getByLabelText('パート'), '1');
+    expect(stateOf(canvasElement)).toBe('stopped');
+
+    await play();
+    await userEvent.click(canvas.getByRole('button', { name: 'タブを離れる' }));
+    expect(stateOf(canvasElement)).toBe('stopped');
+    await userEvent.click(canvas.getByRole('button', { name: 'タブに戻る' }));
+
+    await play();
+    await userEvent.click(
+      canvas.getByRole('button', { name: '拍子を 3/4 にする' }),
+    );
+    expect(stateOf(canvasElement)).toBe('stopped');
+  },
+};
+
+/** Space with Shift, during IME, or auto-repeated does nothing. */
+export const SpaceIgnoredWhenModified: Story = {
+  args: { initialText: FOUR_NOTES },
+  play: async ({ canvasElement }) => {
+    const staff = staffOf(canvasElement);
+    staff.focus();
+    const space = { code: 'Space', key: ' ' };
+    fireEvent.keyDown(staff, { ...space, shiftKey: true });
+    fireEvent.keyDown(staff, { ...space, isComposing: true });
+    fireEvent.keyDown(staff, { ...space, repeat: true });
+    expect(stateOf(canvasElement)).toBe('stopped');
+    fireEvent.keyDown(staff, space);
+    await waitFor(() => expect(stateOf(canvasElement)).toBe('playing'));
+    fireEvent.keyDown(staff, { ...space, repeat: true });
+    expect(stateOf(canvasElement)).toBe('playing');
   },
 };

@@ -55,7 +55,9 @@ describe('createTonePlayer', () => {
     const f = fakeContext();
     const create = vi.fn(() => f.ctx as unknown as AudioContext);
     const p = createTonePlayer(create);
-    p.start(notes, 2.5);
+    expect(p.now()).toBe(0);
+    expect(p.start(notes, 2.5)).toBeCloseTo(10.03);
+    expect(p.now()).toBe(10);
     expect(create).toHaveBeenCalledTimes(1);
     expect(f.oscs).toHaveLength(1);
     expect(f.oscs[0].frequency.value).toBe(523.25);
