@@ -327,7 +327,7 @@ band-sheets のメロディ（`MelodyEvent[]`）から、**声に似た音**を�
 - **R3 見る時点 ②**（ログ 62・63 行目、`5e8dc3f`）: hum-v3 で開発用 4 本。キャリブレーション（1 本で合わせて残り 3 本で見る）の試し: 効果は無く、採用しない。
 - **T11 見る時点 ③**（ログ 64 行目、`5a4b6a8`、ガードの直し `f351d66`）: ホールドアウトを凍結の hum-v3 で 1 回だけ。
 - **T12** `c6688f4`: 計測ページのタイマー、Playwright で 1・3・5 分の速さとメモリ。
-- **T13**: 行っていない（マイクの確かめ。決定 1 でファイルだけにしたため）。
+- **T13**: 計測ページを作った（`ts/browser/micCheck.html`・`micCheckPage.ts`、検出と集計は `micCheck.ts`）。クリックを鳴らしながら録り、クリックごとのずれ・平均とばらつき・`baseLatency`・`outputLatency` を出す。音は保存も送信もしない。動かし方: `spikes/analysis` で `npx vite --config ts/browser/micCheck.vite.config.ts` → `http://localhost:5182/micCheck.html`。実際の数字はユーザーの計測待ち。
 - **T14** `c421919`: 独立レビュー（`audio-spike4-review.md`）。判定は「条件つきで受け入れ」。
 - **T15** `c345f72`（M1）、`f0bd320`（S6）、`6c97c2e`・`19437a5`（S10）、`3587817`（S7）、`6b11b47`（S5）、`df71ac4`（S1）、`5eb73c4`（M1 の合成のホールドアウトの再採点、ログ 65 行目 `rescore-m1`）、`141a23a`（レビューの追記）。
 
