@@ -18,7 +18,7 @@ import { checkOnsets, ONSET_TOL_SEC, type OnsetCheck } from './check';
 import { KIT_DIRS, SAMPLE_RATE } from './kits';
 import { renderDrum } from './render';
 import { DRUM_SYNTH_VERSION } from './truth';
-import { allDrumVariants, DRUM_LEVELS, SPLITS, TAIL_SEC, type DrumSplit } from './variants';
+import { allDrumVariants, DRUM_LEVELS, DRUM_SETS, SPLITS, TAIL_SEC, type DrumSplit } from './variants';
 
 function argOf(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -104,8 +104,15 @@ writeFileSync(
       sampleRate: SAMPLE_RATE,
       tailSec: TAIL_SEC,
       splits: SPLITS,
+      sets: DRUM_SETS,
       heldOutRoom: 'fdn',
-      kits: { A: 'soundfonts/MuseScore_General.sf2 (from the pinned sf3)', B: `drumkits/${KIT_DIRS.B}`, C: `drumkits/${KIT_DIRS.C}` },
+      kits: {
+        A: 'soundfonts/MuseScore_General.sf2 (from the pinned sf3)',
+        B: `drumkits/${KIT_DIRS.B}`,
+        C: `drumkits/${KIT_DIRS.C}`,
+        D: `drumkits/${KIT_DIRS.D} (MuldjordKit, CC-BY 4.0, tuning only)`,
+        H: 'kit A drums + kit D HH/HO/RD/RD.bell/CR/CN (tuning only)',
+      },
       variants,
     },
     null,

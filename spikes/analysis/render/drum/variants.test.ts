@@ -6,13 +6,15 @@ describe('drum variants and splits', () => {
   const count = (f: (v: DrumVariant) => boolean) => all.filter(f).length;
 
   it('sizes: 38 variants per seed and kit (9 styles at D0 / D3, 10 with ext at D1 / D2)', () => {
-    expect(all.length).toBe(342);
-    expect(count((v) => v.split === 'tuning')).toBe(114);
+    expect(all.length).toBe(570);
+    expect(count((v) => v.split === 'tuning' && v.kit === 'A')).toBe(114);
+    expect(count((v) => v.split === 'tuning' && v.kit === 'D')).toBe(114);
+    expect(count((v) => v.split === 'tuning' && v.kit === 'H')).toBe(114);
     expect(count((v) => v.split === 'dev')).toBe(152);
     expect(count((v) => v.split === 'heldOut')).toBe(76);
-    for (const l of [0, 3]) expect(count((v) => v.level === l && v.split === 'tuning')).toBe(27);
-    for (const l of [1, 2]) expect(count((v) => v.level === l && v.split === 'tuning')).toBe(30);
-    expect(count((v) => v.ext)).toBe(2 * 9);
+    for (const l of [0, 3]) expect(count((v) => v.level === l && v.split === 'tuning' && v.kit === 'A')).toBe(27);
+    for (const l of [1, 2]) expect(count((v) => v.level === l && v.split === 'tuning' && v.kit === 'A')).toBe(30);
+    expect(count((v) => v.ext)).toBe(2 * 15);
     expect(new Set(all.map((v) => v.name)).size).toBe(all.length);
   });
 
@@ -20,7 +22,8 @@ describe('drum variants and splits', () => {
     for (const v of all) {
       expect(v.heldOut).toBe(v.split === 'heldOut');
       expect(v.kit === 'C').toBe(v.heldOut);
-      if (v.split === 'tuning') expect(v.kit).toBe('A');
+      if (v.split === 'tuning') expect(v.seed <= 3 ? v.kit === 'A' : ['D', 'H'].includes(v.kit)).toBe(true);
+      if (v.kit === 'D' || v.kit === 'H') expect([v.split, [11, 12, 13].includes(v.seed)]).toEqual(['tuning', true]);
     }
     expect([...new Set(all.filter((v) => v.split === 'dev').map((v) => v.kit))].sort()).toEqual(['A', 'B']);
   });
@@ -35,6 +38,17 @@ describe('drum variants and splits', () => {
     expect(() => synthParams({ ...dev, heldOut: true })).toThrow();
     const ho = all.find((v) => v.heldOut)!;
     expect(() => synthParams({ ...ho, kit: 'A' })).toThrow();
+  });
+
+  it('kits D and H (T10b) are tuning only, on their own seeds', () => {
+    const dev = all.find((v) => v.split === 'dev' && v.level === 2)!;
+    const ho = all.find((v) => v.heldOut)!;
+    const tun = all.find((v) => v.split === 'tuning' && v.kit === 'A')!;
+    for (const kit of ['D', 'H'] as const) {
+      expect(() => synthParams({ ...dev, kit })).toThrow(/tuning only/);
+      expect(() => synthParams({ ...ho, kit })).toThrow();
+      expect(() => synthParams({ ...tun, kit })).toThrow(/own tuning seeds/);
+    }
   });
 
   it('held-out streams are salted: same style / seed key gives different draws', () => {
@@ -54,9 +68,9 @@ describe('drum variants and splits', () => {
       if (v.level === 2) expect([p.mic, p.noiseSnrDb, p.fills]).toEqual(['oh', 30, true]);
       if (v.level === 3) {
         expect([p.mic, p.noiseSnrDb, p.denseCymbals]).toEqual(['phone', 20, true]);
-        expect(v.kit === 'A' ? p.program === 16 : Math.abs(p.cents) >= 100).toBe(true);
+        expect(v.kit === 'A' || v.kit === 'H' ? p.program === 16 : Math.abs(p.cents) >= 100).toBe(true);
       }
-      expect(p.room.kind === 'mic').toBe(v.kit === 'B' && v.level >= 2);
+      expect(p.room.kind === 'mic').toBe((v.kit === 'B' || v.kit === 'D') && v.level >= 2);
     }
   });
 

@@ -29,6 +29,8 @@ export const KIT_GAIN: Record<Kit['id'], Record<DrumSynthParams['mic'], number>>
   A: { close: 1, oh: 1, phone: 1 },
   B: { close: 0.5, oh: 0.8, phone: 0.8 },
   C: { close: 0.5, oh: 0.8, phone: 0.8 },
+  D: { close: 0.6, oh: 1, phone: 1 },
+  H: { close: 1, oh: 1, phone: 1 },
 };
 /** A hit's jitter is clipped at this many sigmas. */
 export const JITTER_CLIP = 2.5;
@@ -115,7 +117,7 @@ export function placeHits(v: DrumVariant, sr = SAMPLE_RATE) {
     const rr = params.roundRobin ? Math.floor(rrs() * 64) : 0;
     const voice = kit.voice({ inst: h.inst, layer, rr, mics, cents: params.cents, program: params.program });
     // Within a sampled layer the velocity scales the level a little (kit A renders the velocity itself).
-    const residual = v.kit === 'A' ? 1 : Math.max(0.8, Math.min(1.25, velocity / kit.layerVelocity(h.inst, layer)));
+    const residual = kit.exactVelocity(h.inst) ? 1 : Math.max(0.8, Math.min(1.25, velocity / kit.layerVelocity(h.inst, layer)));
     const at = Math.round(h.t * sr);
     placed.push({ ...h, velocity, layer, rr, at });
     mix.push({ inst: h.inst, at, onset: chainOnset(voice, params, onsets, sr), gain: gain * residual, voice });

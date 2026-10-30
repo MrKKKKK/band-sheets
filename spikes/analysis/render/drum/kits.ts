@@ -9,6 +9,13 @@
 //      room (perc: close / mid / oh / room); layers `vlN` (soft -> loud) and round robins `rrN`. Two toms.
 //   C  Big Rusty Drums (CC0), held-out only. 16-bit 44.1 kHz FLAC; mics close (cl / top / kick), btm, oh; no room
 //      (the held-out room is synthetic, room.ts). Four toms (14", 15", 18" used as T1 T2 FT).
+//   D  MuldjordKit v1.0 sfz (Lars Muldjord / DrumGizmo, sfz by kinwie; CC-BY 4.0, attribution in ts/THIRD_PARTY.md),
+//      TUNING ONLY (T10b: a tuning kit whose hi-hat / ride / crash differ from kit A's; variants.ts refuses it for
+//      dev / held-out). 24-bit 44.1 kHz mono FLAC, one file per mic (`N-<Piece>-<Mic>.flac`); layers and round robins
+//      from the sfz region files (`lovel=$vXXl`, soft -> loud). Mics: close (the piece's own), btm (snare bottom),
+//      ohl / ohr, ambl / ambr (its room). Four toms (Tom1, Tom2, Tom4 used as T1 T2 FT).
+//   H  hybrid, TUNING ONLY: kit A's drums with kit D's HH / HO / RD / RD.bell / CR / CN (close mix, level-matched to
+//      kit A's piece), to isolate the effect of the cymbal sound. No HH.foot / SP (kit A's metal).
 //
 // A one-shot is mono at SAMPLE_RATE, its mics already mixed with the caller's weights (mixer presets), trimmed to
 // MAX_SEC (cymbals longer) with a short fade, and carries its ONSET: the first sample whose |x| reaches ONSET_REL_DB
@@ -16,7 +23,7 @@
 // check.ts measures the rendered audio with the same function, so the truth is the audible onset of the mix used
 // (a room-only mix starts later than the close mics; that delay is in the truth).
 
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as alphaTab from '@coderline/alphatab';
@@ -25,15 +32,21 @@ import type { DrumInst } from '../../ts/drum/types';
 import { readAudioFile, resample, resampleStep, toMono } from './audioFile';
 
 export const SAMPLE_RATE = 44100;
-export type KitId = 'A' | 'B' | 'C';
+export type KitId = 'A' | 'B' | 'C' | 'D' | 'H';
+/** Kits that only the tuning split may use (variants.ts synthParams refuses them elsewhere). */
+export const TUNING_ONLY_KITS: ReadonlySet<KitId> = new Set<KitId>(['D', 'H']);
 
 export const DRUMKITS_DIR = fileURLToPath(new URL('../../drumkits/', import.meta.url));
 export const SF2_PATH = fileURLToPath(new URL('../../soundfonts/MuseScore_General.sf2', import.meta.url));
-export const KIT_DIRS: Record<'B' | 'C', string> = { B: 'virtuosity_drums', C: 'big_rusty_drums' };
+export const KIT_DIRS: Record<'B' | 'C' | 'D', string> = { B: 'virtuosity_drums', C: 'big_rusty_drums', D: 'muldjord_kit' };
+/** Kit D's sfz root inside its directory (the archive of commit fc16571 of sfzinstruments/DrumGizmo.MuldjordKit). */
+export const KIT_D_ROOT = 'DrumGizmo.MuldjordKit-fc165714974aa843125ce88597f341b31376e1d5/DrumGizmo/MuldjordKit';
 
 /** Kit files present locally (tests skip without them). */
 export function kitAvailable(kit: KitId): boolean {
-  return kit === 'A' ? existsSync(SF2_PATH) : existsSync(join(DRUMKITS_DIR, KIT_DIRS[kit], '.sha256'));
+  if (kit === 'A') return existsSync(SF2_PATH);
+  if (kit === 'H') return kitAvailable('A') && kitAvailable('D');
+  return existsSync(join(DRUMKITS_DIR, KIT_DIRS[kit], '.sha256'));
 }
 
 /** Onset definition (see top). */
@@ -85,6 +98,8 @@ export interface Kit {
   layers(inst: DrumInst): number;
   /** Nominal velocity of a layer (A: the rendered velocity). */
   layerVelocity(inst: DrumInst, layer: number): number;
+  /** The one-shot renders the exact velocity (kit A), so the mixer adds no residual level change. */
+  exactVelocity(inst: DrumInst): boolean;
   voice(req: VoiceRequest): OneShot;
 }
 
@@ -138,6 +153,7 @@ function kitA(): Kit {
     instruments,
     layers: () => A_VELOCITY_STEPS,
     layerVelocity,
+    exactVelocity: () => true,
     voice(req) {
       const key = GM_KEY[req.inst];
       if (key === undefined) throw new Error(`kit A has no ${req.inst}`);
@@ -254,18 +270,28 @@ interface Inventory {
   files: Record<string, Map<string, string>>;
 }
 
-function sampleKit(id: 'B' | 'C', table: Partial<Record<DrumInst, InstSource>>): Kit {
+/** Mic channel -> ("layer:rr" -> file) of one instrument; the first channel is the main one (defines the inventory). */
+type InstFiles = (inst: DrumInst) => Record<string, Map<string, string>>;
+
+function tableFiles(id: 'B' | 'C', table: Partial<Record<DrumInst, InstSource>>): InstFiles {
   const root = join(DRUMKITS_DIR, KIT_DIRS[id]);
-  const inv = new Map<DrumInst, Inventory>();
-  const inventory = (inst: DrumInst): Inventory => {
-    let v = inv.get(inst);
-    if (v) return v;
+  return (inst) => {
     const src = table[inst];
     if (!src) throw new Error(`kit ${id} has no ${inst}`);
     const files: Record<string, Map<string, string>> = {};
     for (const [mic, s] of Object.entries(src)) files[mic] = scanMic(root, s);
-    const main = files[Object.keys(src)[0]];
-    if (main.size === 0) throw new Error(`kit ${id}: no files for ${inst} (${Object.values(src)[0].dir}); run fetch-drum-samples.sh`);
+    return files;
+  };
+}
+
+function sampleKit(id: 'B' | 'C' | 'D', instruments: DrumInst[], instFiles: InstFiles): Kit {
+  const inv = new Map<DrumInst, Inventory>();
+  const inventory = (inst: DrumInst): Inventory => {
+    let v = inv.get(inst);
+    if (v) return v;
+    const files = instFiles(inst);
+    const main = Object.values(files)[0];
+    if (!main || main.size === 0) throw new Error(`kit ${id}: no files for ${inst}; run fetch-drum-samples.sh`);
     const rr = new Map<number, number[]>();
     for (const k of main.keys()) {
       const [l, r] = k.split(':').map(Number);
@@ -291,9 +317,10 @@ function sampleKit(id: 'B' | 'C', table: Partial<Record<DrumInst, InstSource>>):
   const cache = new Map<string, OneShot>();
   return {
     id,
-    instruments: Object.keys(table) as DrumInst[],
+    instruments,
     layers: (inst) => inventory(inst).layers.length,
     layerVelocity: (inst, layer) => Math.min(127, Math.round(((layer + 0.5) * 128) / inventory(inst).layers.length)),
+    exactVelocity: () => false,
     voice(req) {
       const iv = inventory(req.inst);
       const layer = iv.layers[Math.max(0, Math.min(iv.layers.length - 1, req.layer))];
@@ -320,12 +347,118 @@ function sampleKit(id: 'B' | 'C', table: Partial<Record<DrumInst, InstSource>>):
   };
 }
 
+/* ------------------------------------------------------------------ kit D (MuldjordKit, tuning only) */
+
+/** Kit D: our instrument ids -> sfz piece and its close mics (CrashL / China have no close mic: overheads only). */
+export const KIT_D: Partial<Record<DrumInst, { piece: string; close?: string; btm?: string }>> = {
+  BD: { piece: 'KdrumL', close: 'KdrumL' },
+  SD: { piece: 'Snare', close: 'Snare_top', btm: 'Snare_bottom' },
+  HH: { piece: 'HihatClosed', close: 'Hihat' },
+  HO: { piece: 'HihatOpen', close: 'Hihat' },
+  T1: { piece: 'Tom1', close: 'Tom1' },
+  T2: { piece: 'Tom2', close: 'Tom2' },
+  FT: { piece: 'Tom4', close: 'Tom4' },
+  CR: { piece: 'CrashL' },
+  RD: { piece: 'RideR', close: 'RideR' },
+  'RD.bell': { piece: 'RideRBell', close: 'RideR' },
+  CN: { piece: 'China' },
+};
+
+/** sfz region lines -> ("layer:rr" -> sample number N); layers ranked by their `$vXX` label (soft -> loud). */
+export function parseMuldjordRegions(text: string): Map<string, number> {
+  const rows = [...text.matchAll(/<region>[^\n]*?lovel=\$v(\d+)l[^\n]*?sample=\$instr\/(\d+)-/g)].map((m) => [Number(m[1]), Number(m[2])]);
+  const labels = [...new Set(rows.map((r) => r[0]))].sort((a, b) => a - b);
+  const out = new Map<string, number>();
+  const rr = new Map<number, number>();
+  for (const [label, n] of rows) {
+    const layer = labels.indexOf(label) + 1;
+    const k = (rr.get(layer) ?? 0) + 1;
+    rr.set(layer, k);
+    out.set(`${layer}:${k}`, n);
+  }
+  return out;
+}
+
+function kitDFiles(): InstFiles {
+  const root = join(DRUMKITS_DIR, KIT_DIRS.D, KIT_D_ROOT);
+  return (inst) => {
+    const src = KIT_D[inst];
+    if (!src) throw new Error(`kit D has no ${inst}`);
+    const regionPath = join(root, 'Data/region', `${src.piece}.txt`);
+    if (!existsSync(regionPath)) throw new Error(`kit D: ${regionPath} missing; run fetch-drum-samples.sh`);
+    const regions = parseMuldjordRegions(readFileSync(regionPath, 'utf8'));
+    const mics: Record<string, string> = { ohl: 'OHL', ohr: 'OHR', ambl: 'AmbL', ambr: 'AmbR' };
+    if (src.close) mics.close = src.close;
+    if (src.btm) mics.btm = src.btm;
+    const files: Record<string, Map<string, string>> = {};
+    for (const [ch, mic] of Object.entries(mics)) {
+      files[ch] = new Map([...regions].map(([k, n]) => [k, join(root, 'Samples', src.piece, `${n}-${src.piece}-${mic}.flac`)]));
+    }
+    return files;
+  };
+}
+
+/* ------------------------------------------------------------------ kit H (A drums + D cymbals, tuning only) */
+
+export const HYBRID_FROM_D: ReadonlySet<DrumInst> = new Set<DrumInst>(['HH', 'HO', 'RD', 'RD.bell', 'CR', 'CN']);
+const HYBRID_INSTRUMENTS: DrumInst[] = (Object.keys(GM_KEY) as DrumInst[]).filter((i) => i !== 'HH.foot' && i !== 'SP');
+/** Level match of a kit D piece to kit A's: RMS of the first 100 ms at this velocity (A dry vs D close mix). */
+const HYBRID_MATCH_VELOCITY = 100;
+
+function rms100(v: OneShot): number {
+  const n = Math.min(v.x.length, v.onset + Math.round(0.1 * SAMPLE_RATE));
+  let s = 0;
+  for (let i = v.onset; i < n; i++) s += v.x[i] * v.x[i];
+  return Math.sqrt(s / Math.max(1, n - v.onset));
+}
+
+function hybridKit(): Kit {
+  const a = getKit('A');
+  const d = getKit('D');
+  const dMics = micWeights('D', 'close', 0);
+  const ratio = new Map<DrumInst, number>();
+  const ratioOf = (inst: DrumInst) => {
+    let r = ratio.get(inst);
+    if (r === undefined) {
+      const va = a.voice({ inst, layer: layerOf(HYBRID_MATCH_VELOCITY, a.layers(inst)), rr: 0, mics: { dry: 1 }, cents: 0, program: 0 });
+      const vd = d.voice({ inst, layer: layerOf(HYBRID_MATCH_VELOCITY, d.layers(inst)), rr: 0, mics: dMics, cents: 0, program: 0 });
+      r = rms100(va) / rms100(vd);
+      ratio.set(inst, r);
+    }
+    return r;
+  };
+  const scaled = new WeakMap<OneShot, OneShot>();
+  const fromD = (inst: DrumInst) => HYBRID_FROM_D.has(inst);
+  return {
+    id: 'H',
+    instruments: HYBRID_INSTRUMENTS,
+    layers: (inst) => (fromD(inst) ? d : a).layers(inst),
+    layerVelocity: (inst, layer) => (fromD(inst) ? d : a).layerVelocity(inst, layer),
+    exactVelocity: (inst) => !fromD(inst),
+    voice(req) {
+      if (!HYBRID_INSTRUMENTS.includes(req.inst)) throw new Error(`kit H has no ${req.inst}`);
+      if (!fromD(req.inst)) return a.voice(req);
+      const v = d.voice({ ...req, mics: dMics, cents: 0 });
+      let s = scaled.get(v);
+      if (!s) {
+        const r = ratioOf(req.inst);
+        s = { x: v.x.map((e) => e * r), onset: v.onset };
+        scaled.set(v, s);
+      }
+      return s;
+    },
+  };
+}
+
 const kits = new Map<KitId, Kit>();
 /** The kit (memoized per process: one-shots are rendered / decoded once). */
 export function getKit(id: KitId): Kit {
   let k = kits.get(id);
   if (!k) {
-    k = id === 'A' ? kitA() : sampleKit(id, id === 'B' ? KIT_B : KIT_C);
+    if (id === 'A') k = kitA();
+    else if (id === 'H') k = hybridKit();
+    else if (id === 'D') k = sampleKit('D', Object.keys(KIT_D) as DrumInst[], kitDFiles());
+    else k = sampleKit(id, Object.keys(id === 'B' ? KIT_B : KIT_C) as DrumInst[], tableFiles(id, id === 'B' ? KIT_B : KIT_C));
     kits.set(id, k);
   }
   return k;
@@ -341,14 +474,23 @@ export const KIT_INSTRUMENTS: Record<KitId, readonly DrumInst[]> = {
   A: Object.keys(GM_KEY) as DrumInst[],
   B: Object.keys(KIT_B) as DrumInst[],
   C: Object.keys(KIT_C) as DrumInst[],
+  D: Object.keys(KIT_D) as DrumInst[],
+  H: HYBRID_INSTRUMENTS,
 };
 
 /**
  * Mic presets per kit (plan section 4 "マイクの近さ": close / overhead / phone). `room` is the variant's room-mic
- * level (kit B only; A and C get a synthetic room in room.ts instead).
+ * level (kits B and D; A, C and H get a synthetic room in room.ts instead). Kit H: kit A dry + kit D's close mix for
+ * its cymbals at every preset (the room / phone are the synthetic chain, as for kit A).
  */
 export function micWeights(kit: KitId, preset: 'close' | 'oh' | 'phone', room: number): Record<string, number> {
   if (kit === 'A') return { dry: 1 };
+  if (kit === 'H') return { dry: 1, ...micWeights('D', 'close', 0) };
+  if (kit === 'D') {
+    if (preset === 'close') return { close: 1, btm: 0.5, ohl: 0.5, ohr: 0.5 };
+    if (preset === 'oh') return { ohl: 0.7, ohr: 0.7, ambl: room, ambr: room };
+    return { ambl: 0.7, ambr: 0.7, ohl: 0.2, ohr: 0.2 };
+  }
   if (kit === 'B') {
     if (preset === 'close') return { kickmic: 1, snaremic: 1, oh: 1, close: 1 };
     if (preset === 'oh') return { oh: 1, room };

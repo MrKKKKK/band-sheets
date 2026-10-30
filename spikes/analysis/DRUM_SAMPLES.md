@@ -1,9 +1,9 @@
 # スパイク 5 の合成ドラムのサンプル（T1）
 
 想定読者: スパイク 5 の T2（合成のドラム・ミキサー）以降を受けるエージェントとユーザー。
-目的: 合成に使うキット A・B・C の出どころ・ライセンス（原文で確認）・入っている楽器・取得方法を決め、`ts/THIRD_PARTY.md` への追記の案を示す。
+目的: 合成に使うキット A・B・C・D の出どころ・ライセンス（原文で確認）・入っている楽器・取得方法を決め、`ts/THIRD_PARTY.md` への追記の案を示す。キット D は T10b（2026-10-25）で足した調整用だけのキット。
 
-2026-10-25 調査。ダウンロード 1.85 GB、展開後 2.1 GB（`--keep-zip` で zip も残すと `drumkits/` は 3.9 GB）。取得: `bash spikes/analysis/fetch-drum-samples.sh`（キット A は `fetch-soundfont.sh` を呼ぶ）。置き場所は gitignore の `soundfonts/`・`drumkits/`。サンプルは git・アプリに入れない。
+2026-10-25 調査。ダウンロード 1.85 GB、展開後 2.1 GB（T10b のキット D で +0.35 GB・+0.34 GB）（`--keep-zip` で zip も残すと `drumkits/` は 3.9 GB）。取得: `bash spikes/analysis/fetch-drum-samples.sh`（キット A は `fetch-soundfont.sh` を呼ぶ）。置き場所は gitignore の `soundfonts/`・`drumkits/`。サンプルは git・アプリに入れない。
 
 ## キットの表
 
@@ -14,6 +14,7 @@
 | **A** MuseScore_General（GM の Standard） | MIT（`MuseScore_General_License.md`、取得スクリプトが保存）                                                     | 0.2（2020-05-13）、sf3 39.9 MB（既存の pin）                                       | ○   | ○   | ○ / ○（46 は Half-Open） | 6 音（41–50、3 種の音） | ○ 2 | ○ 2 | ○ 55         | ○ 52     | ○ 56     | —（GM に無い） | ○ 37 Rim Tap     | ○ 53         | —                  | ○ 44      |
 | **B** Virtuosity Drums                   | CC0 1.0（zip 内 `LICENSE`、GitHub の repo の `LICENSE`）                                                        | v0.925（2026-04-21）、zip 1,227,151,376 B、展開 1.4 GB                           | ○   | ○   | ○ / ○（＋1/2・3/4）       | **2**（high・low）     | ○   | ○（＋フラットライド） | —            | —        | ○        | ○            | ○                | ○            | ○（hh splash）     | ○         |
 | **C** Big Rusty Drums                    | CC0 1.0（zip 内 `LICENSE`、GitHub の repo の `LICENSE`）                                                        | v1.100（2023-04-29）、zip 619,600,370 B、展開 708 MB                             | ○   | ○   | ○ / ○（tight・1/4 など）  | **4**（14・15・18・22″） | ○（＋sizzle） | ○（＋sizzle） | —            | ○        | —        | ○            | ○ sidestick      | ○            | ○                  | ○ chik    |
+| **D** MuldjordKit v1.0（sfz 版、**調整用だけ**） | **CC-BY 4.0**（zip 内 `LICENSE` = CC BY 4.0 の全文、README の License 節）。表示が要る（下の追記）                | commit `fc16571`（2021-08-15）の archive、zip 346,255,411 B、展開 340 MB           | ○ 2 | ○   | ○ / ○                    | **4**（3 つ吊り＋フロア） | ○ 2 | ○ 2 | —            | ○        | —        | —            | —（SnareRest は不明なので使わない） | ○            | —                  | —（チョークの鍵だけ） |
 
 強さの層とマイク（ミキサーの「近さ」に使える）:
 
@@ -22,6 +23,7 @@
 | A      | 1 つのサンプル（BD・SD だけ強さで低域通過の周波数が変わる 7 区間。中身は同じ音） | なし           | ステレオ 1 本（ドライ）                                       | sf3（Vorbis）   |
 | B      | 層ごとに 1 ファイル（SD 中心 36、ほか 9〜16）                                  | 層で代用       | kick・snare・mid・oh・room・lofi の 6 本、各ステレオ          | FLAC 24 bit・48 kHz・ステレオ（perc は WAV） |
 | C      | 4〜14（SD 中心 10、BD 14、CR 5）                                               | 3〜4           | 近い（kick・top/btm・cl）＋ oh。room は無い                   | FLAC 16 bit・44.1 kHz・モノ |
+| D      | 4〜5（sfz の `lovel=$vXXl` の順。ピークで弱→強を確認）                          | 1〜11          | 16 本のモノ（近い・OH L/R・Amb L/R ほか。どの打点も全マイク） | FLAC 24 bit・44.1 kHz・モノ |
 
 確かめたこと:
 
@@ -32,11 +34,21 @@
 - **B・C のライセンス**: どちらも Creative Commons の「CC0 1.0 Universal」の原文そのもの（Statement of Purpose から始まる全文）。取得スクリプトが展開後の `LICENSE` に「CC0 1.0 Universal」があるかを確かめる。B の README: 「Virtuosity Drums KVRDC'21 entry by Versilian Studios and Karoryfer Samples」。
 - **SHA-256**: 2026-10-25 に実際に取得して計算（取得スクリプトに固定）。B は GitHub の release の asset の digest（`sha256:c6c5d0fe…`）とも一致。
 
+## キット D（T10b、調整用だけ）
+
+- **なぜ**: T10 で、未知のキット（B）の閉じた HH がキット A の RD のテンプレートに吸われると分かったが、キット A のアコースティックのプリセットは HH・RD・CR が同じサンプルなので、調整用の中で再現できなかった。ユーザーの決定（2026-10-25）: CC-BY のキットを表示つきで調整用だけに足す。B・C は調整に使わない。
+- **選んだもの**: T1 で「C の代わりの第一候補」にしていた MuldjordKit（Tama Superstar、2010 年録音のメタル・ロックのキット）。HH 閉・開、RD（＋ベル）、CR、チャイナ、タム 4 つがそろい、シンバルは FluidR3 と別の録音。Naked Drums（CC-BY 4.0）も同じ条件を満たすが、1.25 GB と大きいので 1 つで止めた。CC0 のシンバル付きのキットは T1 の調べで B・C 以外に無い（The Hat With The Phat は CC0 だが HH だけで、C と同じ Karoryfer なので避けた）。
+- **ライセンス（原文で確認）**: zip の `LICENSE` は「Attribution 4.0 International」の全文、README の License 節は「This work is licensed under a Creative Commons Attribution 4.0 International License」。README に「This work is not to be used as in the original scope with the DrumGizmo software and then don't contact the original authors for any reason about it.」とある（DrumGizmo では使わない・作者に連絡しない）。表示の文は `ts/THIRD_PARTY.md`（作者・出どころ・ライセンスの URL・変更の内容）。
+- **取得**: release が無いので、固定した commit の archive（codeload）を SHA-256 で固定（2026-10-25 に 2 回取得して同じバイト）。取得スクリプトが展開後の `LICENSE` に「Attribution 4.0 International」があるかを確かめる。
+- **楽器の対応**（`render/drum/kits.ts` の `KIT_D`）: BD = KdrumL、SD = Snare（top＋bottom）、HH = HihatClosed、HO = HihatOpen、T1・T2・FT = Tom1・Tom2・Tom4、CR = CrashL（近いマイク無し、OH だけ）、RD = RideR、RD.bell = RideRBell、CN = China。無いもの: スプラッシュ、カウベル、リムショット、クロススティック（SnareRest は叩き方が分からないので対応させない）、ペダル HH、フットスプラッシュ。
+- **混ぜ合わせのキット H**: キット A の太鼓（＋カウベル・クロススティック）に、キット D の HH・HO・RD・RD.bell・CR・CN（近いマイクの混ぜ方、キット A の同じ楽器と最初の 100 ms の RMS をそろえる）。シンバルの音だけを変えた効き方を見るため。HH.foot・SP は A の金属なので外した。
+- **作った量と確認（2026-10-30）**: キット D・H とも種 11〜13 で 114 本（D0 27・D1 30・D2 30・D3 27、キット A の調整用と同じ数）。正解の時刻は全打点（各 14,014）が ±1 ms 以内（最大 0.023 ms）、クリップ無し。キット A のテンプレート（config drum-v0 a3e68494763b）での分類（`classify_eval.ts --split tuning --detail`）で HH の F50 は D: D0 .844・D1 .821・D2 .835・D3 .028（取りこぼし。P ≒ .98、R ≒ .73、D3 は R .01）、H: .990・.960・.964・.715（HH は取れるが SD の P が .41〜.68 に落ちる）。キット D で未知のキットの HH の問題が調整用の中で再現する。
+
 ## 分け方の案（§4 の 調整・開発・ホールドアウト）
 
 | 分け       | キット                                         | 理由                                                                                                                                                                                                                      |
 | ---------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 調整（A）   | MuseScore_General Standard（＋ Power を別チューニングに） | 計画どおり。S-拡張のうちスプラッシュ・チャイナ・カウベル・ベル・クロススティック・ペダルがそろう。強さの層が無いので、強さはフィルタと音量の変化だけ（D1 の「強さの揺れ」は音色が変わらない点に注意） |
+| 調整（A、D、H） | MuseScore_General Standard（＋ Power を別チューニングに）。T10b から種 11〜13 でキット D・H も | 計画どおり。S-拡張のうちスプラッシュ・チャイナ・カウベル・ベル・クロススティック・ペダルがそろう。強さの層が無いので、強さはフィルタと音量の変化だけ（D1 の「強さの揺れ」は音色が変わらない点に注意） |
 | 開発（B）   | Virtuosity Drums                               | 本物の強さの層が多く、room・oh のマイクがあるので「近さ」を試せる。S-拡張の叩き方（リム・クロス・ベル・フットスプラッシュ・ペダル）とカウベルがそろう。タムが 2 つ（§2 の「タムの数がキットで違う」を開発で見られる）          |
 | ホールドアウト（C） | Big Rusty Drums                                | 9 種類が全部そろう（タム 4 つ）。叩き方の S-拡張がそろい、チャイナもある。B と録音場所・奏者・マイクが違う                                                                                                                  |
 
@@ -51,7 +63,7 @@
 | Swirly Drums（Karoryfer）              | CC0 1.0（repo の `license`） | ブラシで叩いたキット。BD がカホン・マーチングのキック。スプラッシュ・チャイナ・カウベルはあるが、スティックの音ではない |
 | Unruly Drums（Karoryfer）              | CC0 1.0                    | 全部の太鼓にスナッピーが付いた特殊なキット                                                                       |
 | SM Drums（sfzinstruments）             | 「Public Domain」と一覧に書いてあるだけ | repo に LICENSE が無く、本家（smmdrums.wordpress.com）にも許諾の文が無い。あいまいなので使わない               |
-| MuldjordKit・DRSKit（DrumGizmo の sfz 版） | CC-BY 4.0                  | 表示が要る。古い版の移植で「元の作者に連絡しないこと」と README にある。B・C で足りる（Muldjord はタム 4・チャイナ・ベルがあり、C の代わりの第一候補） |
+| MuldjordKit・DRSKit（DrumGizmo の sfz 版） | CC-BY 4.0                  | 表示が要る。古い版の移植で「元の作者に連絡しないこと」と README にある。B・C で足りる（Muldjord はタム 4・チャイナ・ベルがあり、C の代わりの第一候補）。**T10b で Muldjord を調整用だけのキット D に採用** |
 | Naked Drums（Wilkinson Audio）         | CC-BY 4.0                  | 表示が要る。B・C で足りる                                                                                        |
 | Salamander Drumkit・Sam's Sonor        | CC-BY-SA                   | 継承の条件付き。計画のライセンスの規則（CC0・PD・MIT/BSD 系）の外                                                |
 

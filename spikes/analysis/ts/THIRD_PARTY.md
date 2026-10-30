@@ -75,6 +75,14 @@ audio; never committed, never bundled into the app. Details: `spikes/analysis/DR
   https://github.com/sfzinstruments/virtuosity_drums
 - Big Rusty Drums v1.100 by Karoryfer Samples (CC0 1.0 Universal).
   https://github.com/sfzinstruments/karoryfer.big-rusty-drums
+- MuldjordKit v1.0 (sfz version) by Lars Muldjord (http://www.muldjord.com/), from DrumGizmo
+  (https://www.drumgizmo.org/wiki/doku.php?id=kits:muldjordkit); SFZ mapping and FLAC conversion by kinwie.
+  https://github.com/sfzinstruments/DrumGizmo.MuldjordKit (commit fc16571). Licensed under Creative Commons
+  Attribution 4.0 International (CC BY 4.0), https://creativecommons.org/licenses/by/4.0/ ; provided as-is, no
+  warranties (license section 5). Changes we make (tuning-only synthetic audio, spike 5 T10b): single mic files
+  mixed to mono with fixed weights, trimmed and faded, drums pitch-shifted at level D3, level-matched, combined with
+  kit A's drums (hybrid kit H), placed in generated patterns with synthetic reverb, a phone-mic filter and noise.
+  The rendered audio stays local (gitignored `out/drum/`) and is not shared.
 
 `render/drum/flac.ts` (FLAC decoder) is our own code written from the format specification (RFC 9639); no
 third-party decoder code was read or copied.
