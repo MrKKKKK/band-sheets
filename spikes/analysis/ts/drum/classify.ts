@@ -33,6 +33,8 @@
  *  2b' take test (metalTakeFastMin, T10): the split only in a take whose metal-dominated onsets mostly decay fast.
  *  2d. channel EQ (eqRounds, T10): templates times the take's per-band gain (takeEq: observed / fitted), then refit.
  *  5. adapt (T10): per-take templates from the take's own confident hits (adaptColumns), for an unknown kit.
+ *  6. tom adapt (T11b, S-9 only, toms.adapt): per-take tom columns from tom-like onsets (tomAdaptedBasis), refit; the
+ *     S-3 decisions are those of step 5, only the S-9 evidence comes from this fit.
  * Confidence of class c: share-based, present -> 0.5 .. 1 (0.5 + 0.5 (share - shareMin) / (1 - shareMin)), absent ->
  * 0 .. 0.5 (0.5 share / shareMin, capped below 0.5); rules: the same with fluxRel / rule threshold.
  * `alts` of a hit: the absent S-3 classes by confidence, at most candidatesMax.
@@ -44,7 +46,7 @@ import { DEFAULT_DRUM_CONFIG, type DrumConfig } from './config';
 import type { DrumOnset, OnsetDetection } from './onset';
 import { cosToProfile, highDrops, metalLabel, type MetalVotes } from './cymbals';
 import { DRUM_TEMPLATES } from './templates';
-import { groupNames, groupPitches, tomPitch, TOMS } from './toms';
+import { groupNames, groupPitches, ratioVote, tomFeatures, tomSeeds, TOMS, type TomFeatures, type TomInst } from './toms';
 import type { AnalysisDrumHit, DrumInst, DrumLevel } from './types';
 
 export const S3_CLASSES = ['BD', 'SD', 'HH'] as const;
@@ -540,14 +542,18 @@ const TOM_INDEX: Partial<Record<DrumInst, number>> = { T1: 0, T2: 1, FT: 2 };
 const METAL_OF: Partial<Record<DrumInst, keyof MetalVotes>> = { HH: 'HH', HO: 'HO', RD: 'RD', 'RD.bell': 'RD', CR: 'CR', SP: 'CR', CN: 'CR' };
 
 /** Per-onset S-9 evidence from the final fit: tom activation and template vote, metal votes, total. */
-export function s9Evidence(fit: NonNullable<ClassifyResult['fit']>): { total: number; tom: number; tomVote: number; metal: MetalVotes }[] {
+export function s9Evidence(fit: NonNullable<ClassifyResult['fit']>): { total: number; bd: number; sd: number; tom: number; tomVote: number; metal: MetalVotes }[] {
   return fit.h.map((h) => {
     let total = 0;
+    let bd = 0;
+    let sd = 0;
     let tom = 0;
     let tomIdx = 0;
     const metal: MetalVotes = { HH: 0, HO: 0, RD: 0, CR: 0 };
     h.forEach((v, k) => {
       total += v;
+      if (fit.group[k] === 'BD') bd += v;
+      if (fit.group[k] === 'SD') sd += v;
       const inst = fit.inst[k];
       const ti = inst ? TOM_INDEX[inst] : undefined;
       if (ti !== undefined) {
@@ -557,8 +563,50 @@ export function s9Evidence(fit: NonNullable<ClassifyResult['fit']>): { total: nu
       const m = inst ? METAL_OF[inst] : fit.group[k] === 'HH' ? 'HH' : undefined;
       if (m) metal[m] += v;
     });
-    return { total, tom, tomVote: tom > 0 ? tomIdx / tom : NaN, metal };
+    return { total, bd, sd, tom, tomVote: tom > 0 ? tomIdx / tom : NaN, metal };
   });
+}
+
+/**
+ * Step 6 (T11b): the basis with the kit's tom columns replaced by per-take ones - seeds (toms.ts tomSeeds) grouped by
+ * pitch (groupPitches), one column per group = mean of the normalised seed observations, named by groupNames with
+ * votes from the group's pitch re the take's snare pitch (ratioVote: the kit's tom templates say nothing here). null (keep the basis) without seeds, or when any group mean is within cosine adaptKeepCos
+ * of one of the kit's tom columns (one of the take's toms is the kit's own: a known kit; tuning A / H >= .97, D and
+ * LOPO <= .92).
+ */
+export function tomAdaptedBasis<B extends Pick<Basis, 'W' | 'group' | 'metal' | 'inst'>>(
+  base: B,
+  obs: readonly ArrayLike<number>[],
+  feats: readonly TomFeatures[],
+  cls: readonly Pick<OnsetClass, 'present' | 'share'>[],
+  cfg: DrumConfig['toms'],
+): Basis | null {
+  const { seeds, sdPitch } = tomSeeds(feats, cls, cfg);
+  const idx = seeds.map((s, i) => (s ? i : -1)).filter((i) => i >= 0);
+  if (!idx.length) return null;
+  const g = groupPitches(
+    idx.map((i) => feats[i].pitch),
+    cfg.groups,
+    cfg.minGapOct,
+  );
+  const means = Array.from({ length: g.count }, () => new Float64Array(obs[0].length));
+  idx.forEach((i, j) => normalised(Float64Array.from(obs[i])).forEach((v, m) => (means[g.group[j]][m] += v)));
+  const cols = means.map((w) => normalised(w));
+  const isTom = (inst: DrumInst | null) => !!inst && (TOMS as readonly string[]).includes(inst);
+  const kit = base.W.filter((_, k) => isTom(base.inst[k]));
+  if (cols.some((w) => kit.some((k) => cosine(k, w) >= cfg.adaptKeepCos))) return null;
+  const keep = base.inst.map((inst) => !isTom(inst));
+  const votes = Array.from({ length: g.count }, (_, k) => {
+    const ps = idx.filter((_, j) => g.group[j] === k).map((i) => feats[i].pitch).filter(Number.isFinite);
+    return ratioVote(ps.length ? 2 ** (ps.reduce((a, p) => a + Math.log2(p), 0) / ps.length) : NaN, sdPitch, cfg.nameSdRatios);
+  });
+  const names = groupNames(g.count, votes);
+  return {
+    W: [...base.W.filter((_, k) => keep[k]), ...cols],
+    group: [...base.group.filter((_, k) => keep[k]), ...cols.map((): TemplateGroup => 'other')],
+    metal: [...base.metal.filter((_, k) => keep[k]), ...cols.map(() => false)],
+    inst: [...base.inst.filter((_, k) => keep[k]), ...names],
+  };
 }
 
 /** Take reference of an activation: refQuantile over the onsets it dominates (share >= .5), else over all totals. */
@@ -581,13 +629,19 @@ export function s9Hits(
   obs: readonly Float64Array[],
   p: SpecParams,
   cfg: DrumConfig,
+  feats: readonly TomFeatures[],
+  adaptedToms = false,
+  metalFit: NonNullable<ClassifyResult['fit']> = fit,
 ): AnalysisDrumHit[] {
   const c = cfg.classify;
   const ev = s9Evidence(fit);
+  // metal pieces from metalFit (the fit before step 6: the per-take tom columns only decide toms, BD and SD)
+  const evm = metalFit === fit ? ev : s9Evidence(metalFit);
   const total = ev.map((e) => e.total);
-  const cymA = ev.map((e) => e.metal.HO + e.metal.RD + e.metal.CR);
+  const cymA = evm.map((e) => e.metal.HO + e.metal.RD + e.metal.CR);
+  const totalM = evm.map((e) => e.total);
   const tomRef = takeRef(ev.map((e) => e.tom), total, c);
-  const cymRef = takeRef(cymA, total, c);
+  const cymRef = takeRef(cymA, totalM, c);
   const lvl = (v: number, ref: number, min: number) => ref > 0 && 20 * Math.log10(Math.max(v, 1e-30) / ref) >= min;
   const tomClaim = ev.map((e) => e.total > 0 && e.tom / e.total >= cfg.toms.shareMin && lvl(e.tom, tomRef, cfg.toms.levelMinDb));
   // toms play fills: when they would outnumber maxTakeShare of the take's SD-or-tom onsets, the kit's SD looks like the
@@ -595,7 +649,13 @@ export function s9Hits(
   const nClaim = tomClaim.filter(Boolean).length;
   const nSdOrTom = cls.filter((o, i) => o.present[1] || tomClaim[i]).length;
   const tomOn = nClaim > cfg.toms.maxTakeShare * nSdOrTom ? tomClaim.map(() => false) : tomClaim;
-  const metalOn = ev.map((e, i) => cls[i].present[2] || (e.total > 0 && cymA[i] / e.total >= cfg.cymbals.shareMin && lvl(cymA[i], cymRef, cfg.cymbals.levelMinDb)));
+  // on a tom onset the cymbal absorbers must also keep shareMin in the tom-adapted fit (they took the unknown tom's ring before)
+  const cymShare = (e: (typeof ev)[number]) => (e.total > 0 ? (e.metal.HO + e.metal.RD + e.metal.CR) / e.total : 0);
+  const metalOn = evm.map(
+    (e, i) =>
+      cls[i].present[2] ||
+      (e.total > 0 && cymA[i] / e.total >= cfg.cymbals.shareMin && lvl(cymA[i], cymRef, cfg.cymbals.levelMinDb) && (!tomOn[i] || cymShare(ev[i]) >= cfg.cymbals.shareMin)),
+  );
   const centres = melFrequencies(p.melBands + 2, p.fminHz, Math.min(p.fmaxHz, p.sr / 2)).slice(1, -1);
   const frames = det.onsets.map((o) => Math.round((o.t * p.sr) / p.hop));
   const cy = cfg.cymbals;
@@ -605,7 +665,7 @@ export function s9Hits(
   // toms: names by relative pitch within the take
   const tomIdx = tomOn.map((on, i) => (on ? i : -1)).filter((i) => i >= 0);
   const g = groupPitches(
-    tomIdx.map((i) => tomPitch(det.y, det.sr, det.onsets[i].t, cfg.toms)),
+    tomIdx.map((i) => feats[i].pitch),
     cfg.toms.groups,
     cfg.toms.minGapOct,
   );
@@ -614,12 +674,23 @@ export function s9Hits(
     return v.length ? v.reduce((a, b) => a + b, 0) / v.length : NaN;
   });
   const names = groupNames(g.count, votes);
-  const tomName = new Map(tomIdx.map((i, j) => [i, names[g.group[j]]]));
+  // per-take tom columns (step 6) that cover all `groups` toms stand for the take's toms: with nameByColumn an onset takes
+  // the name of its largest one (its own pitch can be an octave off). Fewer columns: some tom had no seeds, so pitch groups.
+  const nTomCols = fit.inst.filter((inst) => inst && TOM_INDEX[inst] !== undefined).length;
+  const byColumn = (i: number): TomInst | undefined => {
+    let best = -1;
+    fit.h[i].forEach((v, k) => {
+      const inst = fit.inst[k];
+      if (inst && TOM_INDEX[inst] !== undefined && (best < 0 || v > fit.h[i][best])) best = k;
+    });
+    return best >= 0 ? (fit.inst[best] as TomInst) : undefined;
+  };
+  const tomName = new Map(tomIdx.map((i, j) => [i, (adaptedToms && cfg.toms.nameByColumn && nTomCols >= cfg.toms.groups && byColumn(i)) || names[g.group[j]]]));
   const hits: AnalysisDrumHit[] = [];
   cls.forEach((o, i) => {
     const t = o.t;
-    if (o.present[0]) hits.push({ t, inst: 'BD', strength: o.strength[0], confidence: o.confidence[0] });
-    if (o.present[1] && !(tomOn[i] && o.share[1] < cfg.toms.sdKeepShare)) hits.push({ t, inst: 'SD', strength: o.strength[1], confidence: o.confidence[1] });
+    if (o.present[0] && !(tomOn[i] && ev[i].bd / ev[i].total < cfg.toms.bdKeepShare)) hits.push({ t, inst: 'BD', strength: o.strength[0], confidence: o.confidence[0] });
+    if (o.present[1] && !(tomOn[i] && ev[i].sd / ev[i].total < cfg.toms.sdKeepShare)) hits.push({ t, inst: 'SD', strength: o.strength[1], confidence: o.confidence[1] });
     const tn = tomName.get(i);
     if (tn) {
       const share = ev[i].tom / ev[i].total;
@@ -627,8 +698,8 @@ export function s9Hits(
       hits.push({ t, inst: tn, strength: ev[i].tom, confidence: presentConf(share, cfg.toms.shareMin), ...(c.candidatesMax > 0 ? { alts: [{ inst: alt, confidence: 0.25 }] } : {}) });
     }
     if (metalOn[i]) {
-      const m = metalLabel(ev[i].metal, drop[i], cosHh[i], cy);
-      const conf = o.present[2] ? o.confidence[2] : presentConf(cymA[i] / ev[i].total, cy.shareMin);
+      const m = metalLabel(evm[i].metal, drop[i], cosHh[i], cy);
+      const conf = o.present[2] ? o.confidence[2] : presentConf(cymA[i] / evm[i].total, cy.shareMin);
       const strength = o.present[2] ? o.strength[2] : cymA[i];
       hits.push({ t, inst: m.inst, strength, confidence: conf, ...(c.candidatesMax > 0 ? { alts: [{ inst: m.alt, confidence: Math.min(0.499, conf / 2) }] } : {}) });
     }
@@ -702,8 +773,16 @@ export function classifyOnsets(det: OnsetDetection, cfg: DrumConfig = DEFAULT_DR
     }
   }
   const t2 = performance.now();
-  const fit = { inst: last.b.inst, group: last.b.group, h: last.acts.map((x) => x.h) };
-  // S-ext is analyzed as S-9 until T12
-  const hits = level === 'S-3' ? hitsOf(onsets, c.candidatesMax) : s9Hits(det, onsets, fit, raw, obs, p, cfg);
+  const s3fit = { inst: last.b.inst, group: last.b.group, h: last.acts.map((x) => x.h) };
+  let fit = s3fit;
+  let hits: AnalysisDrumHit[];
+  if (level === 'S-3') hits = hitsOf(onsets, c.candidatesMax);
+  else {
+    // S-ext is analyzed as S-9 until T12
+    const feats = det.onsets.map((o) => tomFeatures(det.y, det.sr, o.t, cfg.toms));
+    const tb = cfg.toms.adapt ? tomAdaptedBasis(last.b, obs, feats, onsets, cfg.toms) : null;
+    if (tb) fit = { inst: tb.inst, group: tb.group, h: activations(tb, obs, c).map((x) => x.h) };
+    hits = s9Hits(det, onsets, fit, raw, obs, p, cfg, feats, !!tb, s3fit);
+  }
   return { hits, onsets, columns, refitAdded, adapted, fit, ms: { spec: t1 - t0, nmf: t2 - t1, total: t2 - t0 } };
 }

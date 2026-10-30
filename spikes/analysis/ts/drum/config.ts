@@ -144,6 +144,28 @@ export interface DrumConfig {
     /** A peak near half the largest one's frequency with >= subRatio of its magnitude is taken instead (octave error). */
     subRatio: number;
     minGapOct: number;
+    /**
+     * T11b per-take tom templates (classify.ts step 6, S-9 only): seeds by toms.ts tomSeeds (sub = power share below
+     * adaptSubHz of 20 Hz .. adaptLowTopHz, high = share at or above adaptLowTopHz up to 10 kHz, body = share in adaptSubHz .. pitchMaxHz >= adaptBodyMin; pitch below adaptPitchRatio
+     * x the take's SD pitch; not an S-3 BD with share >= adaptBdMax; >= adaptMinHits). Seed observations grouped by pitch
+     * (groups / minGapOct) -> one column per group replacing the kit's tom columns, unless any group mean is within
+     * cosine adaptKeepCos of a kit tom column (a known kit). On a tom onset BD is kept only with S-9 share >= bdKeepShare.
+     */
+    adapt: boolean;
+    adaptSubHz: number;
+    adaptLowTopHz: number;
+    adaptSubMax: number;
+    adaptHighMax: number;
+    adaptBodyMin: number;
+    adaptPitchRatio: number;
+    adaptBdMax: number;
+    adaptMinHits: number;
+    adaptKeepCos: number;
+    bdKeepShare: number;
+    /** Pitch re the take's snare pitch typical of T1 / T2 / FT (toms.ts ratioVote; names adapted columns when < 3 groups). */
+    nameSdRatios: number[];
+    /** With per-take tom columns for all `groups` toms, a tom onset is named by its largest tom column instead of its own pitch group. */
+    nameByColumn: boolean;
   };
   cymbals: {
     /**
@@ -313,7 +335,13 @@ export const DEFAULT_DRUM_CONFIG: DrumConfig = deepFreeze({
   // maxTakeShare .5: LOPO 25 SD D0 .00 -> .72 (.35: A T1 .93 -> .86); minGapOct .12 -> .07 + subRatio: A D2 T1 / T2 .79 / .87 -> .93 / .94.
   // cymbals (simulated on the per-onset features, then measured): shareMin .1 -> .05 (RD A .88 -> .91, H .51 -> .73); slowDb -3,
   // voteDom .7, hoCos .83: HO D / H ~0 -> .75 / .73 at D2, known A HO .98 -> .89.
-  toms: { groups: 3, shareMin: 0.4, levelMinDb: -25, maxTakeShare: 0.5, sdKeepShare: 0.4, delaySec: 0.01, winSec: 0.08, pitchMinHz: 60, pitchMaxHz: 400, subRatio: 0.3, minGapOct: 0.07 },
+  // T11b tom adapt (classify-only D2, tables in docs/audio-spike5-t11.md T11b): D T1 / T2 / FT .14 / .06 / .00 -> .71 / .72 / .71,
+  // LOPO 16 T1 / T2 .00 / .57 -> .49 / .85, LOPO 24 T1 / T2 .11 / .39 -> .41 / .57; known A unchanged. keep test "any group" (every
+  // group: H T1 .88 -> .84, a cowbell group); adaptBodyMin .4 (cowbell .01, toms >= .3); adaptMinHits 2: A T1 .93 -> .91;
+  // adaptBdMax off: D D3 BD .78 -> .70; nameSdRatios (tuning A / A Power / D: T1 .56-.65, T2 .47-.58, FT .31-.39): LOPO 16 T2 .72 -> .85;
+  // nameByColumn (only with 3 columns; always: LOPO 16 FT .70 -> .41): D T1 / T2 / FT .63 / .60 / .61 -> .71 / .72 / .71.
+  toms: { groups: 3, shareMin: 0.4, levelMinDb: -25, maxTakeShare: 0.5, sdKeepShare: 0.4, delaySec: 0.01, winSec: 0.08, pitchMinHz: 60, pitchMaxHz: 400, subRatio: 0.3, minGapOct: 0.07,
+    adapt: true, adaptSubHz: 70, adaptLowTopHz: 2500, adaptSubMax: 0.1, adaptHighMax: 0.1, adaptBodyMin: 0.4, adaptPitchRatio: 0.85, adaptBdMax: 0.5, adaptMinHits: 4, adaptKeepCos: 0.95, bdKeepShare: 0.4, nameSdRatios: [0.62, 0.52, 0.35], nameByColumn: true },
   cymbals: { shareMin: 0.05, levelMinDb: -25, fminHz: 5000, dropFrames: 6, dropMinFrames: 3, fastDb: -4.5, riseDb: 0.5, slowDb: -3, crOverHh: 0.5, voteDom: 0.7, hoCos: 0.83, profileFminHz: 1000, profileMinHits: 4 },
   strength: { refPercentile: 0.9, ghostDb: -10, normalPercentile: 0.25, accentDb: 5, minHits: 4 },
   grid: { subdivision: 16, triplet: false, onsetBias: true, maxBiasSec: 0.08 },

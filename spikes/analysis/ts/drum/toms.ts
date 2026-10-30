@@ -20,7 +20,10 @@ export type TomCfg = DrumConfig['toms'];
 
 const ffts = new Map<number, RealFft>();
 
-export function tomPitch(y: Float32Array, sr: number, t: number, cfg: Pick<TomCfg, 'delaySec' | 'winSec' | 'pitchMinHz' | 'pitchMaxHz' | 'subRatio'>): number {
+type PitchCfg = Pick<TomCfg, 'delaySec' | 'winSec' | 'pitchMinHz' | 'pitchMaxHz' | 'subRatio'>;
+
+/** |X| of the tom window (see the file comment) and its FFT size. */
+function windowMag(y: Float32Array, sr: number, t: number, cfg: Pick<TomCfg, 'delaySec' | 'winSec'>): { mag: Float64Array; size: number } {
   const n = Math.max(2, Math.round(cfg.winSec * sr));
   let size = 2;
   while (size < 2 * n) size *= 2;
@@ -35,23 +38,89 @@ export function tomPitch(y: Float32Array, sr: number, t: number, cfg: Pick<TomCf
   const re = new Float64Array(fft.bins);
   const im = new Float64Array(fft.bins);
   fft.rfft(x, re, im);
+  return { mag: Float64Array.from(re, (r, k) => Math.hypot(r, im[k])), size };
+}
+
+function pitchOf(mag: Float64Array, size: number, sr: number, cfg: PitchCfg): number {
   const k0 = Math.max(1, Math.ceil((cfg.pitchMinHz * size) / sr));
-  const k1 = Math.min(fft.bins - 2, Math.floor((cfg.pitchMaxHz * size) / sr));
-  const mag = (k: number) => Math.hypot(re[k], im[k]);
+  const k1 = Math.min(mag.length - 2, Math.floor((cfg.pitchMaxHz * size) / sr));
   let best = -1;
-  for (let k = k0; k <= k1; k++) if (best < 0 || mag(k) > mag(best)) best = k;
-  if (best < 0 || !(mag(best) > 0)) return NaN;
+  for (let k = k0; k <= k1; k++) if (best < 0 || mag[k] > mag[best]) best = k;
+  if (best < 0 || !(mag[best] > 0)) return NaN;
   // an overtone can be the largest peak: take the largest peak near half its frequency when it has >= subRatio of it
   const half = best / 2;
   let sub = -1;
-  for (let k = Math.max(k0, Math.floor(half * 0.94)); k <= Math.ceil(half * 1.06); k++) if (k < best && (sub < 0 || mag(k) > mag(sub))) sub = k;
-  if (sub > k0 && sub < k1 && mag(sub) >= cfg.subRatio * mag(best) && mag(sub) >= mag(sub - 1) && mag(sub) >= mag(sub + 1)) best = sub;
-  const a = Math.log(mag(best - 1) + 1e-30);
-  const b = Math.log(mag(best) + 1e-30);
-  const c = Math.log(mag(best + 1) + 1e-30);
+  for (let k = Math.max(k0, Math.floor(half * 0.94)); k <= Math.ceil(half * 1.06); k++) if (k < best && (sub < 0 || mag[k] > mag[sub])) sub = k;
+  if (sub > k0 && sub < k1 && mag[sub] >= cfg.subRatio * mag[best] && mag[sub] >= mag[sub - 1] && mag[sub] >= mag[sub + 1]) best = sub;
+  const a = Math.log(mag[best - 1] + 1e-30);
+  const b = Math.log(mag[best] + 1e-30);
+  const c = Math.log(mag[best + 1] + 1e-30);
   const den = a - 2 * b + c;
   const off = den < 0 ? Math.max(-0.5, Math.min(0.5, (0.5 * (a - c)) / den)) : 0;
   return ((best + off) * sr) / size;
+}
+
+export function tomPitch(y: Float32Array, sr: number, t: number, cfg: PitchCfg): number {
+  const { mag, size } = windowMag(y, sr, t, cfg);
+  return pitchOf(mag, size, sr, cfg);
+}
+
+/** Kit-independent tom evidence of one onset (T11b), from the tom window's power spectrum. */
+export interface TomFeatures {
+  /** tomPitch (Hz). */
+  pitch: number;
+  /** Share of the 20 Hz .. adaptLowTopHz power below adaptSubHz (a bass drum's sub). */
+  sub: number;
+  /** Share of the 20 Hz .. 10 kHz power at or above adaptLowTopHz (stick noise, snare wires, cymbals). */
+  high: number;
+  /** Share of the 20 Hz .. adaptLowTopHz power in adaptSubHz .. pitchMaxHz (a drum body; a cowbell has ~.01). */
+  body: number;
+}
+
+export function tomFeatures(y: Float32Array, sr: number, t: number, cfg: TomCfg): TomFeatures {
+  const { mag, size } = windowMag(y, sr, t, cfg);
+  const bin = (hz: number) => Math.min(mag.length, Math.round((hz * size) / sr));
+  const pw = (a: number, b: number) => {
+    let s = 0;
+    for (let k = bin(a); k < bin(b); k++) s += mag[k] * mag[k];
+    return s;
+  };
+  const low = pw(20, cfg.adaptLowTopHz);
+  const all = pw(20, 10000);
+  return {
+    pitch: pitchOf(mag, size, sr, cfg),
+    sub: low > 0 ? pw(20, cfg.adaptSubHz) / low : NaN,
+    high: all > 0 ? pw(cfg.adaptLowTopHz, 10000) / all : NaN,
+    body: low > 0 ? pw(cfg.adaptSubHz, cfg.pitchMaxHz) / low : NaN,
+  };
+}
+
+/** What tomSeeds reads of an onset's S-3 decision: BD / SD / HH present, BD share. */
+export interface SeedCls {
+  present: readonly boolean[];
+  share: readonly number[];
+}
+
+/**
+ * T11b seeds of the per-take tom templates: onsets that look like a tom whatever the kit - not an S-3 hi-hat alone,
+ * little sub (< adaptSubMax: not a bass drum), little high (< adaptHighMax: not a snare / cymbal), a body (>=
+ * adaptBodyMin: not a cowbell), pitched below
+ * adaptPitchRatio x the take's snare pitch (median tomPitch of the S-3 SD-only onsets; fewer than adaptMinHits of them:
+ * no seeds), and not a confident S-3 BD (present with share >= adaptBdMax). All false when fewer than adaptMinHits pass.
+ * Also returns the snare pitch (NaN without it).
+ */
+export function tomSeeds(f: readonly TomFeatures[], cls: readonly SeedCls[], cfg: TomCfg): { seeds: boolean[]; sdPitch: number } {
+  const none = f.map(() => false);
+  const sdPitch = f.filter((e, i) => cls[i].present[1] && !cls[i].present[0] && !cls[i].present[2] && Number.isFinite(e.pitch)).map((e) => e.pitch);
+  if (sdPitch.length < cfg.adaptMinHits) return { seeds: none, sdPitch: NaN };
+  sdPitch.sort((a, b) => a - b);
+  const ref = sdPitch[Math.floor(sdPitch.length / 2)];
+  const seeds = f.map((e, i) => {
+    const o = cls[i];
+    const hhOnly = o.present[2] && !o.present[0] && !o.present[1];
+    return !hhOnly && e.sub < cfg.adaptSubMax && e.high < cfg.adaptHighMax && e.body >= cfg.adaptBodyMin && e.pitch < cfg.adaptPitchRatio * ref && !(o.present[0] && o.share[0] >= cfg.adaptBdMax);
+  });
+  return { seeds: seeds.filter(Boolean).length >= cfg.adaptMinHits ? seeds : none, sdPitch: ref };
 }
 
 /** Group index per pitch (0 = highest group); NaN pitches join the group of the median pitch. */
@@ -71,6 +140,18 @@ export function groupPitches(pitches: readonly number[], groups: number, minGapO
   ok.forEach((e, rank) => (group[e.i] = gaps.filter((k) => k <= rank).length));
   const mid = group[ok[Math.floor(ok.length / 2)].i];
   return { group: group.map((g) => (g < 0 ? mid : g)), count: gaps.length + 1 };
+}
+
+/**
+ * T11b vote (tom index, for groupNames) of a pitch group from its pitch re the take's snare pitch: the nearest (log2)
+ * of nameSdRatios [T1, T2, FT]; NaN when either pitch is unknown.
+ */
+export function ratioVote(pitch: number, sdPitch: number, ratios: readonly number[]): number {
+  if (!(pitch > 0) || !(sdPitch > 0)) return NaN;
+  const l = Math.log2(pitch / sdPitch);
+  let best = 0;
+  ratios.forEach((r, k) => Math.abs(Math.log2(r) - l) < Math.abs(Math.log2(ratios[best]) - l) && (best = k));
+  return best;
 }
 
 /** Names of `count` pitch groups (0 = highest), from their mean template vote (0 = T1 .. 2 = FT; NaN = no vote). */
