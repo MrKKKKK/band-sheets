@@ -8,7 +8,7 @@
 - 生きた文書。作業が終わったら、その項目を最後の「済み」の表へ移す。日付と PR 番号を書く。
 - 詳しい計画・決定は、それぞれの文書に置く。ここには書き写さない（リンクだけ）。
 - 順番や条件が変わったら、その場で直す。変えた理由を 1 行添える。
-- 最終更新: 2026-10-25（#62 演奏モードの自動スクロールを段ごとに・下に余白）
+- 最終更新: 2026-10-30（3.1・3.2 Node 26 と TypeScript 7 を試した）
 
 マイルストーン M0〜M7 は [requirements.md](requirements.md) を見る（すべて完了）。
 
@@ -35,30 +35,26 @@
 
 ### 3.1 Node 24 から 26 へ
 
-- Node 26 は 2026-10-28 に LTS になる（公式の予定）。Node 24 は 2026-10-20 に maintenance へ入り、2028-04-30 に終わる。
-- きっかけ: **LTS になってから**やる（2026-10-28 以降）。
-
-やること:
-
-- devcontainer のベースイメージ: `mcr.microsoft.com/devcontainers/typescript-node:<def>-26-bookworm`（公開されてから）。
-- `.nvmrc`、`package.json` の `engines`。
-- CI とデプロイの setup-node は `.nvmrc` から読む設定にする。
-- `@types/node` を 26 にする（Dependabot の #35 は、この理由で閉じた）。
-- devcontainer を作り直し、Playwright のブラウザを入れ直す。
-- 研究ブランチ（`research/audio-analysis`）も確認する。
+- Node 26 は 2026-10-28 に LTS になった。Node 24 は 2028-04-30 に終わる。
+- 2026-10-30 に試した（ブランチ `chore/node26-ts7`、PR はまだ）。下の 3.2 と同じブランチ。
+  - ベースイメージ: `typescript-node:5-26-bookworm`（`4-` の 26 は無い。`5-` は全体に入る yarn と tsserver が無くなった。このリポジトリは使っていない）。
+  - `.nvmrc` を 26、`engines` を `>=26 <27`、`@types/node` を `^26.6.6`。CI とデプロイは前から `.nvmrc` を読む。
+- 残り: マージのあと、VS Code で「Rebuild Container」（Playwright のブラウザも入れ直しになる）。
+- 研究ブランチ（`research/audio-analysis`）: `.nvmrc`・`package.json`・`.devcontainer` が main と同じ 24 のまま。同じ直しが要る（次に main を取り込むとき）。`spikes/` の package.json は Node の版を決めていない。
 
 ### 3.2 TypeScript 6 から 7 へ
 
-- Dependabot の #36 は閉じた。
-- 理由: TS 7（ネイティブ版）の npm パッケージには、従来の JS API と tsserver がない。`.devcontainer/devcontainer.json` の `"typescript.tsdk": "node_modules/typescript/lib"` のままだと VS Code が壊れる。
-- 進め方: 先にエディタの設定を直す（`tsdk` を消す、または TS 7 の VS Code 拡張を使う）。研究ブランチも確認する。そのあとで上げる。
-- おすすめ: 3.1 の Node 26 と**同時に**やる（devcontainer の作り直しが 1 回で済む）。
+- 2026-10-30 に 3.1 と同じブランチで試した。`typescript` を `~7.0.2` にした。`tsc -b`・lint・単体テスト・Storybook・e2e・ビルドは全て通った。
+- TS 7 の npm パッケージには従来の JS API と tsserver がない。
+  - Storybook は `typescript` を読み込むが、`react-docgen-typescript` などを選んだときだけ。このリポジトリは既定の `react-docgen`（TS の API を使わない）なので影響なし。oxlint・Vite・Vitest は TS の API を使わない。
+  - 後でそれらを使うときは、Microsoft の勧める別名（`typescript` を `npm:@typescript/typescript6` に）を考える。ただし試したところ、その下の TS 6 本体も `tsc` を持つので、`npm install` の仕方で `npx tsc` が 6 になることがあった。
+- VS Code: `typescript.tsdk` をやめ、TS 7 の拡張（`TypeScriptTeam.native-preview`）と `"js/ts.experimental.useTsgo": true`・`"js/ts.tsdk.path": "node_modules/typescript"` にした。初めて開くとき、ワークスペースの TS を使うかを聞かれることがある（断ると拡張に入っている tsgo を使う）。
 
 ### 3.3 Dependabot の運用
 
 - 月 1 回、マイナー・パッチをまとめた PR が来る。
 - メジャー更新は別の PR で来る。1 つずつ確認する。
-- 初回の PR（#26、#29〜#34）は処理済み。@types/node 26（#35）と TypeScript 7（#36）は閉じて 3.1・3.2 に回した。
+- 初回の PR（#26、#29〜#34）は処理済み。@types/node 26（#35）と TypeScript 7（#36）は閉じて 3.1・3.2 で上げた。
 - ぶつかり（conflict）や古い土台のときは、PR に `@dependabot rebase` とコメントして作り直させる。
 
 ## 4. 設計の見直しとリファクタ
