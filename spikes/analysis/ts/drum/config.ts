@@ -121,16 +121,50 @@ export interface DrumConfig {
     adaptLowMin: number;
     adaptHighHz: number;
     adaptHighMin: number;
+    /** T11: an HH seed's part keeps (does not subtract) the BD / SD fit when that class's share is below this (0 = subtract all). */
+    adaptSubMin: number;
   };
   toms: {
-    /** S-9 (T11): tom hits are split by low-peak height into this many groups. */
+    /**
+     * S-9 (T11, toms.ts): a tom is present when the tom template columns (T1 T2 FT) hold >= shareMin of the onset's
+     * activations at >= levelMinDb re the take's tom reference; then SD is kept only with share >= sdKeepShare.
+     * Names: pitch of the [pitchMinHz, pitchMaxHz] peak of a winSec window delaySec after the onset, split into at most
+     * `groups` groups at log2 gaps >= minGapOct.
+     */
     groups: number;
+    shareMin: number;
+    levelMinDb: number;
+    /** No toms in a take where the tom onsets would exceed this share of its onsets with SD or a tom (classify.ts s9Hits). */
+    maxTakeShare: number;
+    sdKeepShare: number;
+    delaySec: number;
+    winSec: number;
+    pitchMinHz: number;
+    pitchMaxHz: number;
+    /** A peak near half the largest one's frequency with >= subRatio of its magnitude is taken instead (octave error). */
+    subRatio: number;
+    minGapOct: number;
   };
   cymbals: {
-    /** S-9 (T11): decay length (ms) above which a high-band hit is open / crash-like, and the HH / HO split. */
-    openDecayMs: number;
-    /** HH and HO are never hit together: a hit within this window (ms) of an open one is merged. */
-    openExclusiveMs: number;
+    /**
+     * S-9 (T11, cymbals.ts): a metal piece is present on S-3 HH or when the cymbal absorbers hold >= shareMin at >=
+     * levelMinDb. drop = dB of the >= fminHz energy dropFrames after its peak (dropMinFrames at least); fastDb / riseDb /
+     * slowDb / crOverHh / voteDom / hoCos are the rules of cymbals.ts metalLabel; the closed-HH profile uses bands >=
+     * profileFminHz and needs profileMinHits onsets.
+     */
+    shareMin: number;
+    levelMinDb: number;
+    fminHz: number;
+    dropFrames: number;
+    dropMinFrames: number;
+    fastDb: number;
+    riseDb: number;
+    slowDb: number;
+    crOverHh: number;
+    voteDom: number;
+    hoCos: number;
+    profileFminHz: number;
+    profileMinHits: number;
   };
   strength: {
     /**
@@ -269,9 +303,18 @@ export const DEFAULT_DRUM_CONFIG: DrumConfig = deepFreeze({
     adaptLowMin: 0.3, // kit A presets' one-shots: BD .38-.60 below 150 Hz, SD .04-.27; .2: LOPO 24 .842 -> .835
     adaptHighHz: 5000,
     adaptHighMin: 0.3, // HH .36-.84 at or above 5 kHz, SD .06-.18; .2: known .952 -> .944
+    // T11 (classify-only, tuning, HH part only): all F50 0 / .2: known A .952 / .951, D .814 / .812, H (kit A drums + kit D
+    // hi-hats) .889 / .914 (SD P: kit D hi-hat mids no longer read as SD), LOPO 16 / 24 / 25 .910 / .908, .842 / .844, .798 / .796.
+    // Subtracting from every part instead: H .907 but D HH .755 -> .702, LOPO 16 HH .881 -> .821. .3 / .5 within +-.003 of .2.
+    adaptSubMin: 0.2,
   },
-  toms: { groups: 3 },
-  cymbals: { openDecayMs: 250, openExclusiveMs: 50 },
+  // T11 (S-9, classify-only on tuning A / D / H + LOPO; tables in docs/audio-spike5-t11.md). S-3 output does not use these.
+  // toms: shareMin .3 -> .4: H T1 / T2 .85 / .81 -> .88 / .86, LOPO 16 T2 / FT .16 / .16 -> .57 / .65, D .58 / .31 / .15 -> .14 / .06 / 0;
+  // maxTakeShare .5: LOPO 25 SD D0 .00 -> .72 (.35: A T1 .93 -> .86); minGapOct .12 -> .07 + subRatio: A D2 T1 / T2 .79 / .87 -> .93 / .94.
+  // cymbals (simulated on the per-onset features, then measured): shareMin .1 -> .05 (RD A .88 -> .91, H .51 -> .73); slowDb -3,
+  // voteDom .7, hoCos .83: HO D / H ~0 -> .75 / .73 at D2, known A HO .98 -> .89.
+  toms: { groups: 3, shareMin: 0.4, levelMinDb: -25, maxTakeShare: 0.5, sdKeepShare: 0.4, delaySec: 0.01, winSec: 0.08, pitchMinHz: 60, pitchMaxHz: 400, subRatio: 0.3, minGapOct: 0.07 },
+  cymbals: { shareMin: 0.05, levelMinDb: -25, fminHz: 5000, dropFrames: 6, dropMinFrames: 3, fastDb: -4.5, riseDb: 0.5, slowDb: -3, crOverHh: 0.5, voteDom: 0.7, hoCos: 0.83, profileFminHz: 1000, profileMinHits: 4 },
   strength: { refPercentile: 0.9, ghostDb: -10, normalPercentile: 0.25, accentDb: 5, minHits: 4 },
   grid: { subdivision: 16, triplet: false, onsetBias: true, maxBiasSec: 0.08 },
   swing: { ratioMin: 0.58, minPairs: 3, innerMin: 0.25, innerMax: 0.8, clusterFrac: 0.1 },

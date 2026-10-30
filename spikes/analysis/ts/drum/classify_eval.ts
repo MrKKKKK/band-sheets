@@ -3,10 +3,11 @@
  *
  * Run from spikes/analysis (devcontainer):
  *   npx tsx ts/drum/classify_eval.ts [--split tuning,dev] [--only GLOB] [--config '<json overrides>']
- *        [--sweep sweep.json] [--detail] [--templates-program N] [--json out/drum-results/classify/summary.json]
+ *        [--sweep sweep.json] [--detail] [--templates-program N] [--level S-3|S-9] [--json out/drum-results/classify/summary.json]
  *   sweep.json = [{ "name": "...", "config": { classify: {...} } }, ...]: every entry is scored on the same onsets
  *   (onset values must not differ between entries; they come from --config).
- * Truth: render/drum truth hits mapped to S-3 (score.ts mapInst: HO -> HH, the rest dropped); estimates the same.
+ * Truth: render/drum truth hits mapped to the level (score.ts mapInst; S-3: HO -> HH, the rest dropped; S-9 (T11): the
+ * app's 9 pieces, extensions dropped); estimates the same.
  * Scores: score.ts instrumentOnsets (per instrument 1:1 matching, mir_eval) at 50 and 25 ms, micro-summed per group
  * (split x level x kit x instrument), confusion (truth x est, 'none' = missed / extra) per split x level.
  * --ceiling adds a row where every onset is labelled BD + SD + HH: its recall is what the onsets allow.
@@ -22,9 +23,9 @@ import { detectOnsets } from './onset';
 import { assertNoHeldOut, selectVariants, type EvalVariant } from './onset_eval';
 import { instrumentOnsets, mapInst, type TimedHit } from './score';
 import { DRUM_TEMPLATES } from './templates';
+import { LEVEL_INSTRUMENTS, type DrumLevel } from './types';
 import { buildTemplates } from './templates_build';
 
-const INSTS = ['BD', 'SD', 'HH'] as const;
 
 interface Count {
   m50: number;
@@ -41,15 +42,18 @@ export interface SweepEntry {
 }
 
 export interface EvalState {
+  /** Scored level and its instruments (S-3: BD SD HH; S-9: the app's 9). */
+  level: DrumLevel;
+  insts: readonly string[];
   counts: Map<string, Count>;
   confusion: Map<string, Record<string, Record<string, number>>>;
   ms: { onset: number; classify: number; audioSec: number };
 }
 
-function toS3(hs: readonly TimedHit[]): TimedHit[] {
+function toLevel(hs: readonly TimedHit[], level: DrumLevel): TimedHit[] {
   const out: TimedHit[] = [];
   for (const h of hs) {
-    const i = mapInst(h.inst, 'S-3');
+    const i = mapInst(h.inst, level);
     if (i) out.push({ t: h.t, inst: i });
   }
   return out;
@@ -58,7 +62,7 @@ function toS3(hs: readonly TimedHit[]): TimedHit[] {
 export function addTake(st: EvalState, v: Pick<EvalVariant, 'split' | 'level' | 'kit'>, ref: TimedHit[], est: TimedHit[]): void {
   const s50 = instrumentOnsets(ref, est, 0.05);
   const s25 = instrumentOnsets(ref, est, 0.025);
-  for (const inst of [...INSTS, 'all']) {
+  for (const inst of [...st.insts, 'all']) {
     const a = inst === 'all' ? s50.all : s50.perInst[inst];
     const b = inst === 'all' ? s25.all : s25.perInst[inst];
     for (const key of [`${v.split}|${v.level}|k${v.kit}|${inst}`, `${v.split}|${v.level}|all|${inst}`, `${v.split}|ALL|all|${inst}`]) {
@@ -78,7 +82,7 @@ export function addTake(st: EvalState, v: Pick<EvalVariant, 'split' | 'level' | 
 }
 
 export function summaryLine(st: EvalState, split: string): string {
-  return [...INSTS, 'all']
+  return [...st.insts, 'all']
     .map((i) => {
       const c = st.counts.get(`${split}|ALL|all|${i}`) ?? zero();
       return `${i} ${f(c.m50, c.nRef, c.nEst).toFixed(3)}`;
@@ -90,6 +94,7 @@ export function levelTable(st: EvalState, split: string): string {
   const keys = [...new Set([...st.counts.keys()].filter((k) => k.startsWith(`${split}|`)).map((k) => k.split('|').slice(1, 3).join('|')))].sort((a, b) =>
     a.replace('ALL', 'Z').localeCompare(b.replace('ALL', 'Z')),
   );
+  const INSTS = st.insts;
   const lines = [`| ${split} level | kit | ${INSTS.map((i) => `${i} F50 | ${i} F25 | ${i} P/R`).join(' | ')} | all F50 | all F25 |`, `|${'---|'.repeat(4 + INSTS.length * 3)}`];
   for (const k of keys) {
     const [level, kit] = k.split('|');
@@ -105,8 +110,8 @@ export function levelTable(st: EvalState, split: string): string {
 
 export function confusionTable(st: EvalState, key: string): string {
   const cm = st.confusion.get(key) ?? {};
-  const cols = [...INSTS, 'none'];
-  const rows = [...INSTS, 'none'];
+  const cols = [...st.insts, 'none'];
+  const rows = [...st.insts, 'none'];
   const lines = [`| ${key} truth \\ est | ${cols.join(' | ')} |`, `|${'---|'.repeat(cols.length + 1)}`];
   for (const r of rows) lines.push(`| ${r} | ${cols.map((c) => (r === 'none' && c === 'none' ? '-' : String(cm[r]?.[c] ?? 0))).join(' | ')} |`);
   return lines.join('\n');
@@ -147,28 +152,31 @@ export function run(argv: string[]): void {
     sweep.push({ name: 'ceiling (every onset = BD+SD+HH; read R only)', config: {} });
     cfgs.push(baseCfg);
   }
-  const states: EvalState[] = cfgs.map(() => ({ counts: new Map(), confusion: new Map(), ms: { onset: 0, classify: 0, audioSec: 0 } }));
+  const level = (argOf(argv, '--level') ?? 'S-3') as DrumLevel;
+  if (level !== 'S-3' && level !== 'S-9') throw new Error('--level must be S-3 or S-9');
+  const insts = LEVEL_INSTRUMENTS[level];
+  const states: EvalState[] = cfgs.map(() => ({ level, insts, counts: new Map(), confusion: new Map(), ms: { onset: 0, classify: 0, audioSec: 0 } }));
   for (const v of vs) {
     const truth = JSON.parse(readFileSync(join(root, v.truth), 'utf8')) as { drum: { truth: { hits: TimedHit[] }; variant: { heldOut: boolean; split: string } } };
     assertNoHeldOut([{ name: v.name, ...truth.drum.variant }]);
-    const ref = toS3(truth.drum.truth.hits);
+    const ref = toLevel(truth.drum.truth.hits, level);
     const a = readAudioFile(join(root, v.wav));
     const t0 = performance.now();
     const det = detectOnsets(toMono(a), a.sampleRate, baseCfg);
     const onsetMs = performance.now() - t0;
     cfgs.forEach((c, i) => {
       if (ceiling && i === cfgs.length - 1) {
-        addTake(states[i], v, ref, det.onsets.flatMap((o) => INSTS.map((inst) => ({ t: o.t, inst }))));
+        addTake(states[i], v, ref, det.onsets.flatMap((o) => insts.map((inst) => ({ t: o.t, inst }))));
         states[i].ms.audioSec += v.audioSec;
         return;
       }
       const tb = c.classify.nmf || program !== 0 ? tableOf(c) : DRUM_TEMPLATES;
       const t1 = performance.now();
-      const r = classifyOnsets(det, c, tb);
+      const r = classifyOnsets(det, c, tb, level);
       states[i].ms.classify += performance.now() - t1;
       states[i].ms.onset += onsetMs;
       states[i].ms.audioSec += v.audioSec;
-      addTake(states[i], v, ref, toS3(r.hits));
+      addTake(states[i], v, ref, toLevel(r.hits, level));
     });
   }
   const out: unknown[] = [];

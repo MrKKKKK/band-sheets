@@ -17,11 +17,14 @@ describe('parseArgs', () => {
     const a = parseArgs(['x.wav', '--bpm', '100', '--ts', '3/4', '--start', '-0.2', '--look-point', '3', '--take', 'drm-01-a', '--take', 'drm-02-b']);
     expect(a).toMatchObject({ input: 'x.wav', bpm: 100, ts: [3, 4], start: -0.2, lookPoint: 3, takes: ['drm-01-a', 'drm-02-b'] });
     expect(parseArgs(['--all']).splits).toEqual(['tuning', 'dev']);
+    expect(parseArgs(['--all']).level).toBe('S-3');
+    expect(parseArgs(['--all', '--level', 'S-9']).level).toBe('S-9');
   });
   it('rejects unknown options and a bad look point', () => {
     expect(() => parseArgs(['--nope'])).toThrow(UsageError);
     expect(() => parseArgs(['--look-point', '4'])).toThrow(UsageError);
     expect(() => parseArgs(['--ts', '44'])).toThrow(UsageError);
+    expect(() => parseArgs(['--level', 'S-ext'])).toThrow(UsageError);
   });
 });
 
@@ -73,7 +76,7 @@ describe.skipIf(!have)('end to end on tuning + dev synthetic (needs out/drum)', 
     const files = readdirSync(dir);
     for (const f of ['summary.md', 'run.json', 'syn-d0-rock8-kA-s1.json', 'syn-d0-rock8-kA-s1.tex', 'syn-d0-rock8-kA-s1.score.json']) expect(files).toContain(f);
     const md = readFileSync(join(dir, 'summary.md'), 'utf8');
-    expect(md).toContain('a3e68494763b');
+    expect(md).toContain('610eb4f00c26');
     expect(md).toMatch(/tuning D0 kA/);
     const r = JSON.parse(readFileSync(join(dir, 'syn-d0-rock8-kA-s1.json'), 'utf8'));
     expect(r.drum.meta.commit).toBe('abc1234');

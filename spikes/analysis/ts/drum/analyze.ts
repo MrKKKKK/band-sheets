@@ -3,14 +3,14 @@
  *
  *   DrumInput (mono samples at any rate + what the user knows: bpm, time signature, bar-1 head `startSec`)
  *   -> validate -> detectOnsets (onset.ts: resample to cfg.audio.sr, band flux, peaks, refinement)
- *   -> classifyOnsets (classify.ts: fixed-template NMF, S-3) -> quantizeDrums (quantize.ts: grid, marks, shuffle)
+ *   -> classifyOnsets (classify.ts: fixed-template NMF, S-3; S-9 adds toms.ts / cymbals.ts) -> quantizeDrums (quantize.ts: grid, marks, shuffle)
  *   -> DrumAnalysisResult { drums (seconds, with bar / tick / mark filled from the grid), swing, swingBars, drum.meta, drum.quantized }.
  *   drumScore() then turns the result into the app's DrumEvent[] + alphaTex section text (toDrums.ts) and checks the
  *   serializeDrums -> parseDrums round trip.
  *
  * No ground truth is read here (plan design decision 4): the only inputs are the audio and DrumInfo. No network, no DOM,
  * no Node APIs: runs in Node, tests and the Worker. Only templates.ts is imported (templates_build.ts needs alphaTab: Node only).
- * Level: only S-3 exists until T11; another level is analyzed as S-3 and says so in `warnings`.
+ * Level: S-3 (BD SD HH) or S-9 (T11: the app's 9 pieces); S-ext is analyzed as S-9 until T12 and says so in `warnings`.
  */
 import type { DrumEvent, Shuffle } from '../../../../src/lib/drum';
 import { serializeDrums } from '../../../../src/lib/drumTex';
@@ -92,13 +92,13 @@ export function analyzeDrums(input: DrumInput, cfg: DrumConfig = DEFAULT_DRUM_CO
   const audioSec = samples.length / sampleRate;
   const det = detectOnsets(samples, sampleRate, cfg);
   mark('onset', det.onsets.length);
-  const cls = classifyOnsets(det, cfg);
+  const cls = classifyOnsets(det, cfg, undefined, level);
   mark('classify', cls.hits.length, `${cls.columns} template columns`);
   const q = quantizeDrums(cls.hits, info, { cfg });
   mark('quantize', q.quantized.hits.length);
 
   const warnings: string[] = [];
-  if (level !== 'S-3') warnings.push(`level ${level} is not implemented yet: analyzed as S-3`);
+  if (level === 'S-ext') warnings.push('level S-ext is not implemented yet: analyzed as S-9');
   if (cls.hits.length === 0) warnings.push('no drum hits found');
   if (q.dropped.length) warnings.push(`${q.dropped.length} hits dropped by the quantizer`);
 

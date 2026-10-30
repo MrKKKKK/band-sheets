@@ -42,8 +42,10 @@ import { medianFilter1d } from '../dsp/core/median';
 import { StftFramer } from '../dsp/core/stft';
 import { DEFAULT_DRUM_CONFIG, type DrumConfig } from './config';
 import type { DrumOnset, OnsetDetection } from './onset';
+import { cosToProfile, highDrops, metalLabel, type MetalVotes } from './cymbals';
 import { DRUM_TEMPLATES } from './templates';
-import type { AnalysisDrumHit, DrumInst } from './types';
+import { groupNames, groupPitches, tomPitch, TOMS } from './toms';
+import type { AnalysisDrumHit, DrumInst, DrumLevel } from './types';
 
 export const S3_CLASSES = ['BD', 'SD', 'HH'] as const;
 export type S3Class = (typeof S3_CLASSES)[number];
@@ -204,6 +206,8 @@ export interface ClassifyResult {
   refitAdded: S3Class[];
   /** Classes whose templates the last adapt round replaced / extended (step 5). */
   adapted: S3Class[];
+  /** The last NMF fit (nmf only): instrument / group of each column (null inst = adapted column) and h per onset. */
+  fit?: { inst: (DrumInst | null)[]; group: TemplateGroup[]; h: Float64Array[] };
   ms: { spec: number; nmf: number; total: number };
 }
 
@@ -416,12 +420,22 @@ export function bandCentroid(x: ArrayLike<number>): number {
 /**
  * Per class c, the part of observation x that c's columns explain: max(0, x - sum of every other column's w h) (the
  * residual after the rest of the fit; for a single-class onset ~ x). Metal columns count for HH on a `fast` onset.
+ * T11 `keep` (per S-3 class, default none): for the HH part only, the columns of a kept class are NOT subtracted - a
+ * small share that another kit's hi-hat gives the wrong class (kit D's hi-hat mids taken by kit A's SD) stays in the part.
  */
-export function classParts(x: ArrayLike<number>, W: readonly ArrayLike<number>[], group: readonly TemplateGroup[], h: ArrayLike<number>, metalAsHh: readonly boolean[]): Float64Array[] {
+export function classParts(
+  x: ArrayLike<number>,
+  W: readonly ArrayLike<number>[],
+  group: readonly TemplateGroup[],
+  h: ArrayLike<number>,
+  metalAsHh: readonly boolean[],
+  keep: readonly boolean[] = [false, false, false],
+): Float64Array[] {
   return S3_CLASSES.map((cls) => {
     const r = Float64Array.from(x);
     W.forEach((w, k) => {
-      if (group[k] === cls || (cls === 'HH' && metalAsHh[k]) || !(h[k] > 0)) return;
+      const gi = (S3_CLASSES as readonly string[]).indexOf(group[k]);
+      if (group[k] === cls || (cls === 'HH' && metalAsHh[k]) || !(h[k] > 0) || (cls === 'HH' && gi >= 0 && keep[gi])) return;
       for (let m = 0; m < r.length; m++) r[m] -= w[m] * h[k];
     });
     for (let m = 0; m < r.length; m++) if (r[m] < 0) r[m] = 0;
@@ -520,12 +534,115 @@ function adaptedBasis(base: Basis, cols: readonly (Float64Array | null)[]): Basi
   return out;
 }
 
-export function classifyOnsets(det: OnsetDetection, cfg: DrumConfig = DEFAULT_DRUM_CONFIG, table: TemplateTable = DRUM_TEMPLATES): ClassifyResult {
+/* ------------------------------------------------------------------ S-9 (T11) */
+
+const TOM_INDEX: Partial<Record<DrumInst, number>> = { T1: 0, T2: 1, FT: 2 };
+const METAL_OF: Partial<Record<DrumInst, keyof MetalVotes>> = { HH: 'HH', HO: 'HO', RD: 'RD', 'RD.bell': 'RD', CR: 'CR', SP: 'CR', CN: 'CR' };
+
+/** Per-onset S-9 evidence from the final fit: tom activation and template vote, metal votes, total. */
+export function s9Evidence(fit: NonNullable<ClassifyResult['fit']>): { total: number; tom: number; tomVote: number; metal: MetalVotes }[] {
+  return fit.h.map((h) => {
+    let total = 0;
+    let tom = 0;
+    let tomIdx = 0;
+    const metal: MetalVotes = { HH: 0, HO: 0, RD: 0, CR: 0 };
+    h.forEach((v, k) => {
+      total += v;
+      const inst = fit.inst[k];
+      const ti = inst ? TOM_INDEX[inst] : undefined;
+      if (ti !== undefined) {
+        tom += v;
+        tomIdx += ti * v;
+      }
+      const m = inst ? METAL_OF[inst] : fit.group[k] === 'HH' ? 'HH' : undefined;
+      if (m) metal[m] += v;
+    });
+    return { total, tom, tomVote: tom > 0 ? tomIdx / tom : NaN, metal };
+  });
+}
+
+/** Take reference of an activation: refQuantile over the onsets it dominates (share >= .5), else over all totals. */
+function takeRef(a: readonly number[], total: readonly number[], cfg: DrumConfig['classify']): number {
+  const dom = a.filter((v, i) => total[i] > 0 && v / total[i] >= 0.5);
+  return dom.length >= cfg.refMinHits ? quantileOf(dom, cfg.refQuantile) : quantileOf([...total], cfg.refQuantile);
+}
+
+/**
+ * S-9 hits (T11): BD as S-3; SD as S-3 unless a tom is present and SD's share < toms.sdKeepShare; a tom (toms.ts) when
+ * the tom columns hold >= toms.shareMin at >= toms.levelMinDb (none in a take where such onsets exceed toms.maxTakeShare
+ * of the onsets with SD or a tom); one metal piece (cymbals.ts) on S-3 HH or on enough
+ * cymbal-absorber activation. Only S-3 decisions and the final fit are read; S-3 output is not changed.
+ */
+export function s9Hits(
+  det: OnsetDetection,
+  cls: readonly OnsetClass[],
+  fit: NonNullable<ClassifyResult['fit']>,
+  raw: MelSpec,
+  obs: readonly Float64Array[],
+  p: SpecParams,
+  cfg: DrumConfig,
+): AnalysisDrumHit[] {
+  const c = cfg.classify;
+  const ev = s9Evidence(fit);
+  const total = ev.map((e) => e.total);
+  const cymA = ev.map((e) => e.metal.HO + e.metal.RD + e.metal.CR);
+  const tomRef = takeRef(ev.map((e) => e.tom), total, c);
+  const cymRef = takeRef(cymA, total, c);
+  const lvl = (v: number, ref: number, min: number) => ref > 0 && 20 * Math.log10(Math.max(v, 1e-30) / ref) >= min;
+  const tomClaim = ev.map((e) => e.total > 0 && e.tom / e.total >= cfg.toms.shareMin && lvl(e.tom, tomRef, cfg.toms.levelMinDb));
+  // toms play fills: when they would outnumber maxTakeShare of the take's SD-or-tom onsets, the kit's SD looks like the
+  // template kit's toms (another kit), so the take keeps its SDs and gets no toms
+  const nClaim = tomClaim.filter(Boolean).length;
+  const nSdOrTom = cls.filter((o, i) => o.present[1] || tomClaim[i]).length;
+  const tomOn = nClaim > cfg.toms.maxTakeShare * nSdOrTom ? tomClaim.map(() => false) : tomClaim;
+  const metalOn = ev.map((e, i) => cls[i].present[2] || (e.total > 0 && cymA[i] / e.total >= cfg.cymbals.shareMin && lvl(cymA[i], cymRef, cfg.cymbals.levelMinDb)));
+  const centres = melFrequencies(p.melBands + 2, p.fminHz, Math.min(p.fmaxHz, p.sr / 2)).slice(1, -1);
+  const frames = det.onsets.map((o) => Math.round((o.t * p.sr) / p.hop));
+  const cy = cfg.cymbals;
+  const drop = highDrops(raw, centres, frames, { fminHz: cy.fminHz, dropFrames: cy.dropFrames, dropMinFrames: cy.dropMinFrames });
+  const closed = cls.map((o, i) => o.present[2] && !o.present[0] && !o.present[1] && !tomOn[i] && drop[i] < cy.fastDb);
+  const cosHh = cosToProfile(obs, centres, closed, cy.profileFminHz, cy.profileMinHits);
+  // toms: names by relative pitch within the take
+  const tomIdx = tomOn.map((on, i) => (on ? i : -1)).filter((i) => i >= 0);
+  const g = groupPitches(
+    tomIdx.map((i) => tomPitch(det.y, det.sr, det.onsets[i].t, cfg.toms)),
+    cfg.toms.groups,
+    cfg.toms.minGapOct,
+  );
+  const votes = Array.from({ length: g.count }, (_, k) => {
+    const v = tomIdx.filter((_, j) => g.group[j] === k).map((i) => ev[i].tomVote).filter(Number.isFinite);
+    return v.length ? v.reduce((a, b) => a + b, 0) / v.length : NaN;
+  });
+  const names = groupNames(g.count, votes);
+  const tomName = new Map(tomIdx.map((i, j) => [i, names[g.group[j]]]));
+  const hits: AnalysisDrumHit[] = [];
+  cls.forEach((o, i) => {
+    const t = o.t;
+    if (o.present[0]) hits.push({ t, inst: 'BD', strength: o.strength[0], confidence: o.confidence[0] });
+    if (o.present[1] && !(tomOn[i] && o.share[1] < cfg.toms.sdKeepShare)) hits.push({ t, inst: 'SD', strength: o.strength[1], confidence: o.confidence[1] });
+    const tn = tomName.get(i);
+    if (tn) {
+      const share = ev[i].tom / ev[i].total;
+      const alt = TOMS.filter((x) => x !== tn).sort((a, b) => Math.abs(TOMS.indexOf(a) - TOMS.indexOf(tn)) - Math.abs(TOMS.indexOf(b) - TOMS.indexOf(tn)))[0];
+      hits.push({ t, inst: tn, strength: ev[i].tom, confidence: presentConf(share, cfg.toms.shareMin), ...(c.candidatesMax > 0 ? { alts: [{ inst: alt, confidence: 0.25 }] } : {}) });
+    }
+    if (metalOn[i]) {
+      const m = metalLabel(ev[i].metal, drop[i], cosHh[i], cy);
+      const conf = o.present[2] ? o.confidence[2] : presentConf(cymA[i] / ev[i].total, cy.shareMin);
+      const strength = o.present[2] ? o.strength[2] : cymA[i];
+      hits.push({ t, inst: m.inst, strength, confidence: conf, ...(c.candidatesMax > 0 ? { alts: [{ inst: m.alt, confidence: Math.min(0.499, conf / 2) }] } : {}) });
+    }
+  });
+  return hits;
+}
+
+export function classifyOnsets(det: OnsetDetection, cfg: DrumConfig = DEFAULT_DRUM_CONFIG, table: TemplateTable = DRUM_TEMPLATES, level: DrumLevel = 'S-3'): ClassifyResult {
   const t0 = performance.now();
   const c = cfg.classify;
   if (!c.nmf) {
     const onsets = classifyRules(det.onsets, det.thresholds, c);
     const ms = performance.now() - t0;
+    if (level !== 'S-3') throw new Error('classify: S-9 needs nmf');
     return { hits: hitsOf(onsets, c.candidatesMax), onsets, columns: 0, refitAdded: [], adapted: [], ms: { spec: 0, nmf: ms, total: ms } };
   }
   const p = specParams(cfg);
@@ -575,7 +692,7 @@ export function classifyOnsets(det: OnsetDetection, cfg: DrumConfig = DEFAULT_DR
     const centres = melFrequencies(p.melBands + 2, p.fminHz, Math.min(p.fmaxHz, p.sr / 2)).slice(1, -1);
     for (let it = 0; it < c.adaptIterations; it++) {
       const { b: lb, acts: la } = last;
-      const parts = obs.map((x, i) => classParts(x, lb.W, lb.group, la[i].h, lb.metal.map((m) => m && !!merge[i])));
+      const parts = obs.map((x, i) => classParts(x, lb.W, lb.group, la[i].h, lb.metal.map((m) => m && !!merge[i]), onsets[i].share.map((sh) => sh < c.adaptSubMin)));
       const cols = adaptColumns(parts, onsets, fast, centres, c, kitCols);
       adapted = S3_CLASSES.filter((_, k) => cols[k]);
       if (!adapted.length) break;
@@ -585,5 +702,8 @@ export function classifyOnsets(det: OnsetDetection, cfg: DrumConfig = DEFAULT_DR
     }
   }
   const t2 = performance.now();
-  return { hits: hitsOf(onsets, c.candidatesMax), onsets, columns, refitAdded, adapted, ms: { spec: t1 - t0, nmf: t2 - t1, total: t2 - t0 } };
+  const fit = { inst: last.b.inst, group: last.b.group, h: last.acts.map((x) => x.h) };
+  // S-ext is analyzed as S-9 until T12
+  const hits = level === 'S-3' ? hitsOf(onsets, c.candidatesMax) : s9Hits(det, onsets, fit, raw, obs, p, cfg);
+  return { hits, onsets, columns, refitAdded, adapted, fit, ms: { spec: t1 - t0, nmf: t2 - t1, total: t2 - t0 } };
 }
