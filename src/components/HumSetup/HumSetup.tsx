@@ -18,10 +18,9 @@ export interface HumSetupValue {
 
 /**
  * Where the singing comes from: everything in S2 that depends on it. HumSetup only lays these out, so the
- * screen decides what the first card holds (today: a picked file).
+ * screen decides what the first card holds (a picked file, or the mic: screens/humFileSource.tsx,
+ * screens/humMicSource.tsx).
  */
-// T6 extends this for the mic source (summary row label, primary button text, hiding 「やめて戻る」 while
-// recording, optional 録り方).
 export interface HumSource {
   /** The first card's heading (numbered, e.g. 「1. 録音ファイル」). */
   heading: string;
@@ -29,14 +28,21 @@ export interface HumSource {
   field: ReactNode;
   /** 「解析する」 may start: chosen and fully read (not still probing). */
   ready: boolean;
-  /** The summary card's 「ファイル」 row. */
+  /** The summary card's source row: its label (default 「ファイル」) and value. */
+  summaryLabel?: string;
   summary: string;
+  /** The primary button (default 「解析する」). */
+  startLabel?: string;
   /** The text under 「解析する」 when idle. */
   hint: string;
   /** The error's action to choose again (e.g. 「別のファイルを選ぶ」). */
   retake: { label: string; onClick: () => void };
-  /** The `<li>`s of the 「録り方」 card. */
-  how: ReactNode;
+  /** The `<li>`s of the 「録り方」 card; none = no card. */
+  how?: ReactNode;
+  /** The note under 「歌い始めの場所」 (default: the one for a file, whose start is found automatically). */
+  startNote?: string;
+  /** Recording in progress (count-in, recording, finishing): 「やめて戻る」 is hidden. */
+  locked?: boolean;
 }
 
 export type HumSetupProps = {
@@ -343,19 +349,20 @@ export function HumSetup({
               <span>拍目から歌い始める</span>
             </div>
             <p className={styles.note}>
-              ふつうは 1 小節目の 1
-              拍目のままで大丈夫です。曲が途中から始まるとき（たとえば 4
-              拍目から歌い始める）は、そこに合わせてください。録音の中で歌い始めた時間は、自動で見つけます。
+              {source.startNote ??
+                'ふつうは 1 小節目の 1 拍目のままで大丈夫です。曲が途中から始まるとき（たとえば 4 拍目から歌い始める）は、そこに合わせてください。録音の中で歌い始めた時間は、自動で見つけます。'}
             </p>
           </section>
         </fieldset>
 
-        <section className={styles.card} aria-labelledby={`${id}-how`}>
-          <h2 id={`${id}-how`} className={styles.h2}>
-            録り方
-          </h2>
-          <ol className={styles.steps}>{source.how}</ol>
-        </section>
+        {source.how ? (
+          <section className={styles.card} aria-labelledby={`${id}-how`}>
+            <h2 id={`${id}-how`} className={styles.h2}>
+              録り方
+            </h2>
+            <ol className={styles.steps}>{source.how}</ol>
+          </section>
+        ) : null}
       </main>
 
       <aside className={styles.side} aria-labelledby={`${id}-sum`}>
@@ -383,7 +390,7 @@ export function HumSetup({
               <dd>{start}</dd>
             </div>
             <div>
-              <dt>ファイル</dt>
+              <dt>{source.summaryLabel ?? 'ファイル'}</dt>
               <dd>{source.summary}</dd>
             </div>
           </dl>
@@ -393,14 +400,16 @@ export function HumSetup({
             disabled={!canStart}
             onClick={onStart}
           >
-            {busy ? '解析しています…' : '解析する'}
+            {busy ? '解析しています…' : (source.startLabel ?? '解析する')}
           </Button>
           <p className={styles.note}>
             {busy ? '解析中は、設定を変えられません。' : source.hint}
           </p>
-          <Button className={styles.wide} onClick={onBack}>
-            やめて戻る
-          </Button>
+          {source.locked ? null : (
+            <Button className={styles.wide} onClick={onBack}>
+              やめて戻る
+            </Button>
+          )}
         </div>
       </aside>
     </div>

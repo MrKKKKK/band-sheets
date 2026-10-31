@@ -29,6 +29,7 @@ import { clearStaleMetaLines, type MetaField } from './lib/meta';
 import { parseSong } from './lib/parseSong';
 import { newSongText, serializeSong, UNTITLED } from './lib/serializeSong';
 import type { AnalysisClient } from './analysis/types';
+import type { MicSession } from './audio/micSession';
 import type { Song, SongMeta } from './lib/song';
 import {
   LOCAL_SONG_ID,
@@ -67,6 +68,8 @@ export type AppProps = {
   touchOnly?: boolean;
   /** The humming import's analysis client. Default: the real one, made on the first run. */
   analysisClient?: AnalysisClient;
+  /** The humming import's mic (「マイクで録る」). Default: the real one, made when the screen opens. */
+  micSession?: MicSession;
   /** Header slots: left of the song info (e.g. 「‹ 曲の一覧」) / right (save UI). */
   headerStart?: ReactNode;
   headerEnd?: ReactNode;
@@ -122,6 +125,7 @@ function App({
   baseVersion,
   touchOnly = false,
   analysisClient,
+  micSession,
   headerStart,
   headerEnd,
   onTextChange,
@@ -378,6 +382,7 @@ function App({
             ts={hum.ts}
             keySig={hum.keySig}
             client={analysisClient}
+            micSession={micSession}
             storage={store}
             onInsert={insertHum}
             onBack={leaveHum}

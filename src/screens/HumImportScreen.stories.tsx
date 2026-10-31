@@ -1,11 +1,13 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, userEvent, waitFor, within } from 'storybook/test';
+import { useState } from 'react';
 import { createFakeAnalysisClient } from '../analysis/fakeAnalysisClient';
+import { createFakeMicSession } from '../audio/fakeMicSession';
 import { sampleSong } from '../lib/fixtures/sampleSong';
 import { humSampleResult } from '../lib/import/fixtures/humResults';
 import { IMPORT_ERROR_MESSAGES } from '../lib/import/importErrors';
 import { createMemoryStorage } from '../lib/storage';
-import { HumImportScreen } from './HumImportScreen';
+import { HumImportScreen, type HumImportScreenProps } from './HumImportScreen';
 
 /** The whole S2 → S4 flow with the FAKE analysis client (no Worker, no decoding). */
 const meta = {
@@ -108,5 +110,82 @@ export const Review: Story = {
       await c.findByRole('heading', { name: '鼻歌の下書きを確かめる' }),
     ).toHaveFocus();
     expect(c.getByTestId('replace-note')).toBeVisible();
+  },
+};
+
+// --- 「マイクで録る」 (docs/mic-recording-plan.md T6) with the fake mic; ♩=240 so a bar is 1 s ---
+
+const fastSong = { ...sampleSong, meta: { ...sampleSong.meta, tempo: 240 } };
+
+/** A fresh fake mic per story (its clock runs by itself). */
+function WithMic(props: HumImportScreenProps) {
+  const [micSession] = useState(() =>
+    createFakeMicSession({ tickMs: 50, sampleRate: 8000 }),
+  );
+  return <HumImportScreen {...props} micSession={micSession} />;
+}
+
+async function chooseMic(canvasElement: HTMLElement) {
+  const c = within(canvasElement);
+  await userEvent.click(
+    within(c.getByRole('group', { name: '受け取り方' })).getByRole('button', {
+      name: 'マイクで録る',
+    }),
+  );
+  const rec = await c.findByRole('button', { name: '● 録音' });
+  await waitFor(() => expect(rec).toHaveFocus());
+  return rec;
+}
+
+/** M3: the mic is open, nothing recorded yet. */
+export const MicReady: Story = {
+  args: { client: createFakeAnalysisClient(), song: fastSong },
+  render: (args) => <WithMic {...args} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await chooseMic(canvasElement);
+    expect(
+      c.getByRole('heading', { name: '1. 歌の音を受け取る' }),
+    ).toBeVisible();
+    expect(c.getByRole('button', { name: '下書きを作る' })).toBeDisabled();
+    expect(c.getByText('まだ録っていません')).toBeVisible();
+    expect(c.getByTestId('import-live')).toHaveTextContent(
+      'マイクを使えるようになりました。',
+    );
+  },
+};
+
+/** M5 → M6 → M7: record a take; 「やめて戻る」 is gone while recording; then 下書きを作る → S4. */
+export const MicTakeToReview: Story = {
+  args: {
+    client: createFakeAnalysisClient({ results: { hum: humSampleResult() } }),
+    song: fastSong,
+  },
+  render: (args) => <WithMic {...args} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const rec = await chooseMic(canvasElement);
+    await userEvent.click(rec);
+    const stop = await c.findByRole(
+      'button',
+      { name: '■ 止める' },
+      { timeout: 4000 },
+    );
+    expect(c.queryByRole('button', { name: 'やめて戻る' })).toBeNull();
+    expect(c.getByRole('button', { name: '‹ やめて戻る' })).toBeDisabled();
+    await new Promise((r) => setTimeout(r, 1500));
+    await userEvent.click(stop);
+    const heading = await c.findByRole(
+      'heading',
+      { name: '録音 1 つ' },
+      { timeout: 8000 },
+    );
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(c.getByText(/^マイクの録音 0:0\d$/)).toBeVisible();
+    expect(c.getByRole('button', { name: 'やめて戻る' })).toBeVisible();
+    await userEvent.click(c.getByRole('button', { name: '下書きを作る' }));
+    expect(
+      await c.findByRole('heading', { name: '鼻歌の下書きを確かめる' }),
+    ).toHaveFocus();
   },
 };

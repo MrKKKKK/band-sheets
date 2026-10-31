@@ -11,6 +11,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { probeDuration } from '../analysis/probeDuration';
+import { createMicSession, type MicSession } from '../audio/micSession';
 import type { AnalysisClient, HumRequest } from '../analysis/types';
 import {
   HumReview,
@@ -19,17 +20,21 @@ import {
 import { HumSetup, type HumSetupValue } from '../components/HumSetup/HumSetup';
 import { ImportFrame } from '../components/ImportFrame/ImportFrame';
 import { ImportProgress } from '../components/ImportProgress/ImportProgress';
+import { SegmentedControl } from '../components/SegmentedControl/SegmentedControl';
 import { useAnalysisRun } from '../hooks/useAnalysisRun';
+import { useMicRecorder } from '../hooks/useMicRecorder';
 import { usePageDropGuard } from '../hooks/usePageDropGuard';
 import { DEFAULT_TEMPO } from '../lib/autoScroll';
 import {
   HUM_STEPS,
   humRunInfo,
+  humRunInfoAtBar1,
   humTargets,
   insertHumDraft,
 } from '../lib/import/humImport';
 import { humNoVoiceNotice } from '../lib/import/importErrors';
 import type { MelodyEvent, TimeSig } from '../lib/melody';
+import { humTakeFileName } from '../lib/fileName';
 import { UNTITLED } from '../lib/serializeSong';
 import type { Song } from '../lib/song';
 import {
@@ -38,6 +43,7 @@ import {
   type KeyValueStorage,
 } from '../lib/storage';
 import { fileHumSource } from './humFileSource';
+import { isRecording, micHumSource } from './humMicSource';
 import styles from './ImportScreen.module.css';
 
 export type HumImportScreenProps = {
@@ -64,7 +70,16 @@ export type HumImportScreenProps = {
   /** Default: probeDuration. */
   probe?: (file: Blob) => Promise<number | null>;
   playbackDeps?: HumReviewProps['playbackDeps'];
+  /** 「マイクで録る」's mic. Default: the real one (asks for the permission only when the mic is chosen). */
+  micSession?: MicSession;
 };
+
+type SourceKind = 'file' | 'mic';
+
+const SOURCE_OPTIONS: { value: SourceKind; label: string }[] = [
+  { value: 'file', label: 'ファイルを選ぶ' },
+  { value: 'mic', label: 'マイクで録る' },
+];
 
 export function HumImportScreen({
   song,
@@ -81,6 +96,7 @@ export function HumImportScreen({
   client: injected,
   probe = probeDuration,
   playbackDeps,
+  micSession,
 }: HumImportScreenProps) {
   const targets = useMemo(
     () => humTargets(song, partIndex, ts),
@@ -108,6 +124,7 @@ export function HumImportScreen({
     reviewRef,
     pick,
     start,
+    startFile,
     cancel,
   } = useAnalysisRun<HumRequest>({
     client: injected,
@@ -120,6 +137,39 @@ export function HumImportScreen({
         : humNoVoiceNotice(),
   });
   const songTitle = song.meta.title.trim() || UNTITLED;
+
+  // 「ファイルを選ぶ」 / 「マイクで録る」: both the picked file (useAnalysisRun) and the take (the recorder) are kept
+  // across switches; the chosen one is analysed. The recorder lives as long as the screen: leaving closes the mic.
+  const [sourceKind, setSourceKind] = useState<SourceKind>('file');
+  const [session] = useState(() => micSession ?? createMicSession());
+  const recorder = useMicRecorder({
+    session,
+    storage,
+    tempo: value.tempo,
+    ts,
+    announce: say,
+  });
+  const recording = isRecording(recorder.state);
+  const switchRef = useRef<HTMLDivElement>(null);
+  const chooseSource = (next: SourceKind) => {
+    setSourceKind(next);
+    // inside the click: the permission prompt (and the context's resume) need the user's gesture
+    if (next === 'mic') recorder.open();
+    else recorder.close();
+  };
+  /** M2's 「ファイルを選ぶほうに切り替える」: its button goes away, so focus moves to the pressed 「ファイルを選ぶ」. */
+  const focusSwitch = useRef(false);
+  const switchToFile = () => {
+    focusSwitch.current = true;
+    chooseSource('file');
+  };
+  useEffect(() => {
+    if (!focusSwitch.current || sourceKind !== 'file') return;
+    focusSwitch.current = false;
+    switchRef.current
+      ?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')
+      ?.focus();
+  }, [sourceKind]);
 
   usePageDropGuard();
 
@@ -137,6 +187,22 @@ export function HumImportScreen({
   }, [backRequest]);
 
   const startRun = () => {
+    if (sourceKind === 'mic') {
+      const take = recorder.take;
+      if (!take || (phase.kind === 'pick' && phase.probing)) return;
+      void startFile(take.file, take.durationSec, {
+        kind: 'hum',
+        source: { file: take.file },
+        // the clicks' tempo / time signature, not S2's fields (they may have changed since)
+        info: humRunInfoAtBar1({
+          tempo: take.meter.tempo,
+          ts: take.meter.ts,
+          key: value.key || undefined,
+          bar1Sec: take.bar1Sec,
+        }),
+      });
+      return;
+    }
     if (phase.kind !== 'pick' || !phase.file) return;
     void start({
       kind: 'hum',
@@ -193,17 +259,45 @@ export function HumImportScreen({
         probing: phase.kind === 'pick' ? phase.probing : false,
       }
     : null;
-  const source = fileHumSource({
-    pickedFile,
-    onPick: (f) => void pick(f),
-    inputRef: fileInputRef,
-    tempo: value.tempo,
-    beats: ts.num,
-  });
+  const source =
+    sourceKind === 'mic'
+      ? micHumSource({
+          recorder,
+          ts,
+          onUseFile: switchToFile,
+          saveName: humTakeFileName(songTitle, value.label, new Date()),
+          playbackDeps,
+          waitForFile: !!pickedFile?.probing,
+        })
+      : fileHumSource({
+          pickedFile,
+          onPick: (f) => void pick(f),
+          inputRef: fileInputRef,
+          tempo: value.tempo,
+          beats: ts.num,
+        });
+  const sourceWithSwitch = {
+    ...source,
+    field: (
+      <>
+        <div ref={switchRef}>
+          <SegmentedControl
+            label="受け取り方"
+            options={SOURCE_OPTIONS}
+            value={sourceKind}
+            onChange={chooseSource}
+            disabled={recording}
+          />
+        </div>
+        {source.field}
+      </>
+    ),
+  };
   return (
     <ImportFrame
       backLabel="‹ やめて戻る"
       onBack={onBack}
+      backDisabled={recording}
       note="鼻歌から下書き ・ 1 / 2（受け取る）"
     >
       <HumSetup
@@ -213,7 +307,7 @@ export function HumImportScreen({
         ts={ts}
         value={value}
         onChange={setValue}
-        source={source}
+        source={sourceWithSwitch}
         notice={phase.kind === 'pick' ? phase.notice : null}
         noticeRef={noticeRef}
         progress={

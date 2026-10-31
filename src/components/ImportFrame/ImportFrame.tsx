@@ -6,6 +6,8 @@ export type ImportFrameProps = {
   /** The back button's text, e.g. 「‹ 曲の一覧」. */
   backLabel: string;
   onBack: () => void;
+  /** The back button cannot be used now (e.g. while recording). */
+  backDisabled?: boolean;
   /** Muted text at the right end of the header. */
   note: string;
   /** Extra class for the note (a screen's own tweak). */
@@ -21,6 +23,7 @@ export type ImportFrameProps = {
 export function ImportFrame({
   backLabel,
   onBack,
+  backDisabled,
   note,
   noteClassName,
   children,
@@ -28,7 +31,12 @@ export function ImportFrame({
   return (
     <div className={styles.page}>
       <header className={styles.bar}>
-        <Button variant="ghost" className={styles.back} onClick={onBack}>
+        <Button
+          variant="ghost"
+          className={styles.back}
+          onClick={onBack}
+          disabled={backDisabled}
+        >
           {backLabel}
         </Button>
         <p className={styles.brand}>band-sheets</p>
