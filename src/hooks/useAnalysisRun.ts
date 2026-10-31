@@ -78,7 +78,8 @@ export interface AnalysisRun<R extends AnalysisRequest> {
    * Analyse `file` whose length is already known (a recording the screen made): no length probe and no
    * 「選びました」 announcement. On failure / cancel the pick phase shows the file picked BEFORE (or none), so the
    * picked file and the recording both survive. Reads no render-time state, so it works right after a state change
-   * in the same handler. Does nothing while an analysis runs.
+   * in the same handler. Does nothing while an analysis runs. A pick whose length is still being read is
+   * discarded (the file comes back with `duration: null`), so callers should wait for the probe.
    */
   startFile: (file: File, durationSec: number, request: R) => Promise<void>;
   cancel: () => void;
@@ -164,7 +165,6 @@ export function useAnalysisRun<R extends AnalysisRequest>({
   const pick = async (file: File) => {
     if (phase.kind === 'analyzing') return;
     const run = ++runRef.current;
-    analyzingRef.current = false;
     pickedRef.current = { file, duration: null };
     // Show the new file at once; starting waits for its length.
     setPhase({

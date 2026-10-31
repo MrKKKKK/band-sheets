@@ -44,11 +44,8 @@ describe('useAnalysisRun.startFile', () => {
   it('works when nothing was picked: analyzing -> review, no 選びました', async () => {
     const { hook, req, client } = setup();
     const take = file('take.wav');
-    const lives: string[] = [];
     await act(async () => {
-      const p = hook.result.current.startFile(take, 12, req(take));
-      lives.push(hook.result.current.live);
-      await p;
+      await hook.result.current.startFile(take, 12, req(take));
     });
     expect(client.requests).toHaveLength(1);
     expect(hook.result.current.phase.kind).toBe('review');
@@ -56,7 +53,7 @@ describe('useAnalysisRun.startFile', () => {
     expect(hook.result.current.live).not.toContain('選びました');
   });
 
-  it('announces the start without 選びました and gives progress focus target', async () => {
+  it('announces the start without 選びました', async () => {
     const { hook, req } = setup({
       results: { hum: humSampleResult() },
       holdAfterStages: 1,
@@ -107,6 +104,22 @@ describe('useAnalysisRun.startFile', () => {
       await hook.result.current.start(req(picked));
     });
     expect(client.requests).toHaveLength(2);
+  });
+
+  it('start + too-long drops the file (back to an empty pick)', async () => {
+    const { hook, req } = setup({ error: 'too-long' });
+    const f = file('a.wav');
+    await act(async () => {
+      await hook.result.current.pick(f);
+    });
+    await act(async () => {
+      await hook.result.current.start(req(f));
+    });
+    expect(hook.result.current.phase).toMatchObject({
+      kind: 'pick',
+      file: null,
+      duration: null,
+    });
   });
 
   it('on failure with nothing picked returns to an empty pick phase', async () => {

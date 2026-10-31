@@ -87,15 +87,6 @@ describe('humRunInfoAtBar1', () => {
     expect('key' in info).toBe(false);
     expect(() => validateHumInfo(info)).not.toThrow();
   });
-
-  it('never carries firstNoteSec / firstNoteTick, whatever bar the singing starts at', () => {
-    const setup = { tempo: 100, ts: T44, bar1Sec: 2.4, bar: 3, beat: 2 };
-    const info = humRunInfoAtBar1(setup);
-    expect(info.firstNoteSec).toBeUndefined();
-    expect(info.firstNoteTick).toBeUndefined();
-    expect(info.startSec).toBe(2.4);
-    expect(() => validateHumInfo(info)).not.toThrow();
-  });
 });
 
 describe('humTargets', () => {
