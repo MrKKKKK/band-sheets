@@ -27,6 +27,10 @@
  *   SVG markup with `style` attributes.
  * - The analysis Workers (src/analysis/kinds.ts) are emitted as separate
  *   same-origin chunks (`assets/*.worker-*.js`), not blob:/data: URLs.
+ * - The microphone recording (src/audio/micSession.ts): the capture AudioWorklet is loaded with
+ *   `audioWorklet.addModule(url)`, which script-src governs; the URL is Vite's `?worker&url` chunk
+ *   (`assets/capture.worklet-*.js`, same origin), never a blob: URL, so 'self' is enough. getUserMedia,
+ *   AudioContext and the click AudioBuffers need no CSP source; nothing is fetched or sent.
  * - The import screen (「録音から新しい曲」) plays the picked file and reads its
  *   length with an <audio> element on a `URL.createObjectURL(file)` blob: URL
  *   (src/hooks/useAudioPlayer.ts, src/analysis/probeDuration.ts): media-src blob:.

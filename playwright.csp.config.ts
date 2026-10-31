@@ -13,6 +13,13 @@ export default defineConfig({
     baseURL: 'http://localhost:5175/band-sheets/',
     trace: 'on-first-retry',
     ...devices['Desktop Chrome'],
+    // the mic harness (e2e/csp/csp.spec.ts): Chromium's fake mic, permission granted without a prompt
+    launchOptions: {
+      args: [
+        '--use-fake-ui-for-media-stream',
+        '--use-fake-device-for-media-stream',
+      ],
+    },
   },
   webServer: {
     command:

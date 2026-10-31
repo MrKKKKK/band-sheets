@@ -1,7 +1,8 @@
 /**
  * The PRODUCTION build under its Content-Security-Policy (src/lib/csp.ts, playwright.csp.config.ts): the whole
  * Drive flow with the fake GIS/Drive (served at the real Google URLs the policy allows), the editor's and the
- * viewer's alphaTab scores (melody + drums), and the analysis Worker (harness page) — with ZERO CSP violations.
+ * viewer's alphaTab scores (melody + drums), the analysis Worker and the mic capture AudioWorklet (harness pages) —
+ * with ZERO CSP violations.
  * A positive control proves the collector would see one.
  */
 import { expect, test, type Page } from '@playwright/test';
@@ -10,6 +11,7 @@ import type {
   Harness,
   HarnessOutcome,
 } from '../../src/analysis/testing/harness';
+import type { MicHarness } from '../../src/audio/testing/micHarness';
 import { parseCsp, CSP_DIRECTIVES } from '../../src/lib/csp';
 import { FIXTURES } from '../support/analysisAudio';
 import { installFakeDrive } from '../support/fakeDrive';
@@ -194,6 +196,41 @@ test('analysis Worker (harness page of the build): chords run, no CSP violation'
   expect(workers).toHaveLength(1);
   expect(workers[0]).toMatch(
     /^http:\/\/localhost:5175\/band-sheets\/assets\/chords\.worker-[\w-]+\.js$/,
+  );
+  await expectNoViolations(page, w);
+});
+
+test('mic capture AudioWorklet (harness page of the build, fake mic): addModule from a same-origin chunk, blocks arrive, no CSP violation', async ({
+  page,
+}) => {
+  const w = await watchCsp(page);
+  await page.goto('e2e/harness/mic.html');
+  await expectPolicy(page);
+  await page.waitForFunction(() => '__mic' in window);
+  await page.getByRole('button', { name: 'open' }).click();
+  const opened = await page.evaluate(
+    () => (window as unknown as { __mic: MicHarness }).__mic.opened,
+  );
+  if ('error' in opened) throw new Error(opened.error);
+  const take = await page.evaluate(() =>
+    (window as unknown as { __mic: MicHarness }).__mic.record(1),
+  );
+  expect(take.end.reason).toBe('stopped');
+  expect(take.endFrame - take.firstFrame).toBeGreaterThan(
+    0.5 * opened.sampleRate,
+  );
+  expect(take.peak).toBeGreaterThan(0.01);
+  // the worklet module: one same-origin chunk of the build (script-src 'self'), not blob:/data:
+  // (Playwright reports no request for a worklet module, so the harness tells which URL it loaded)
+  expect(opened.workletUrl).toMatch(
+    /^http:\/\/localhost:5175\/band-sheets\/assets\/capture\.worklet-[\w-]+\.js$/,
+  );
+  const res = await page.request.get(opened.workletUrl);
+  expect(res.ok()).toBe(true);
+  // one self-contained module: no import left for the AudioWorkletGlobalScope to resolve
+  expect(await res.text()).not.toMatch(/\bimport\b/);
+  await page.evaluate(() =>
+    (window as unknown as { __mic: MicHarness }).__mic.close(),
   );
   await expectNoViolations(page, w);
 });

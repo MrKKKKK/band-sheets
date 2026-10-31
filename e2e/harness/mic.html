@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>mic harness (e2e only)</title>
+  </head>
+  <body>
+    <!-- e2e/mic-session.spec.ts and e2e/csp/: the real MicSession (getUserMedia + capture worklet) under Chromium's fake mic. Not part of the app. -->
+    <button id="open" type="button">open</button>
+    <script type="module" src="/src/audio/testing/micHarness.ts"></script>
+  </body>
+</html>
