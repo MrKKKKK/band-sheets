@@ -213,3 +213,6 @@ export function announcementFor(
       return null;
   }
 }
+
+/** M6 → M7: between ■ and the take (the tail is awaited, the file is made). */
+export const FINISHING_STATUS = '録音をまとめています…';
