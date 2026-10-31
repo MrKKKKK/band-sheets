@@ -4,12 +4,10 @@
  * Samples are written in the platform's byte order; every browser we target is little-endian, as WAV requires.
  */
 
-export const WAV_HEADER_BYTES = 44;
-
 /** The 44-byte header of a mono 16-bit PCM WAV with `frames` samples. */
-export function wavHeader(frames: number, sampleRate: number): Uint8Array {
+function wavHeader(frames: number, sampleRate: number): Uint8Array {
   const data = frames * 2;
-  const b = new Uint8Array(WAV_HEADER_BYTES);
+  const b = new Uint8Array(44);
   const v = new DataView(b.buffer);
   const tag = (o: number, s: string) => {
     for (let i = 0; i < 4; i++) v.setUint8(o + i, s.charCodeAt(i));
@@ -30,21 +28,15 @@ export function wavHeader(frames: number, sampleRate: number): Uint8Array {
   return b;
 }
 
-/** The header followed by the chunks (empty ones dropped): what goes into the Blob. */
-export function wavParts(
-  chunks: readonly Int16Array[],
-  sampleRate: number,
-): (Uint8Array | Int16Array)[] {
-  let frames = 0;
-  for (const c of chunks) frames += c.length;
-  return [wavHeader(frames, sampleRate), ...chunks.filter((c) => c.length > 0)];
-}
-
 export function encodeWav16(
   chunks: readonly Int16Array[],
   sampleRate: number,
 ): Blob {
-  return new Blob(wavParts(chunks, sampleRate) as BlobPart[], {
-    type: 'audio/wav',
-  });
+  let frames = 0;
+  for (const c of chunks) frames += c.length;
+  const parts = [
+    wavHeader(frames, sampleRate),
+    ...chunks.filter((c) => c.length > 0),
+  ];
+  return new Blob(parts as BlobPart[], { type: 'audio/wav' });
 }
