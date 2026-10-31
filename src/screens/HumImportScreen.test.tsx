@@ -32,6 +32,7 @@ function setup(
   client = createFakeAnalysisClient({ results: { hum: humSampleResult() } }),
   label = 'B',
   song = sampleSong,
+  probe: (f: Blob) => Promise<number | null> = () => Promise.resolve(12),
 ) {
   const onInsert = vi.fn();
   const onBack = vi.fn();
@@ -48,7 +49,7 @@ function setup(
       onInsert={onInsert}
       onBack={onBack}
       client={client}
-      probe={() => Promise.resolve(12)}
+      probe={probe}
       playbackDeps={{ createTone: () => t }}
     />,
   );
@@ -240,6 +241,56 @@ describe('HumImportScreen', () => {
     await screen.findByRole('button', { name: '中止' });
     view.unmount();
     expect(hold.cancelCount).toBe(1);
+  });
+
+  it('S2: the file card, the summary row, the start hint, the recording steps and 「別のファイルを選ぶ」', async () => {
+    const { user } = setup(
+      createFakeAnalysisClient({ results: { hum: humSilentResult() } }),
+    );
+    expect(
+      screen.getByRole('heading', { name: '1. 録音ファイル' }),
+    ).toBeVisible();
+    expect(screen.getByRole('heading', { name: '録り方' })).toBeVisible();
+    expect(screen.getByText(/曲のテンポ（♩= 100）で/)).toBeVisible();
+    expect(screen.getByText(/1 小節（4 拍）数えてから/)).toBeVisible();
+    const summary = screen.getByText('ファイル').closest('div')!;
+    expect(summary).toHaveTextContent('まだ選んでいません');
+    expect(
+      screen.getByText('先に録音ファイルを選んでください。'),
+    ).toBeVisible();
+
+    await analyse(user);
+    await screen.findByTestId('import-notice');
+    expect(summary).toHaveTextContent('hum.wav');
+    expect(screen.getByText('数秒かかります。')).toBeVisible();
+
+    // the error's action opens the file dialog of the field above
+    const input = screen.getByTestId('audio-file-input');
+    const clicked = vi.fn();
+    input.addEventListener('click', clicked);
+    await user.click(
+      screen.getByRole('button', { name: '別のファイルを選ぶ' }),
+    );
+    expect(clicked).toHaveBeenCalledTimes(1);
+  });
+
+  it('S2: while the length is being read, 「解析する」 waits, the hint and the summary already show the file; the steps follow the tempo', async () => {
+    const { user } = setup(
+      createFakeAnalysisClient({ results: { hum: humSampleResult() } }),
+      'B',
+      sampleSong,
+      () => new Promise(() => {}),
+    );
+    await user.upload(screen.getByTestId('audio-file-input'), file());
+    await screen.findByTestId('picked-file');
+    expect(screen.getByRole('button', { name: '解析する' })).toBeDisabled();
+    expect(screen.getByText('数秒かかります。')).toBeVisible();
+    expect(screen.getByText('ファイル').closest('div')).toHaveTextContent(
+      'hum.wav',
+    );
+
+    await user.click(screen.getByRole('button', { name: 'テンポを 1 上げる' }));
+    expect(screen.getByText(/曲のテンポ（♩= 101）で/)).toBeVisible();
   });
 
   it('S2: a read-only section cannot be chosen; the first writable one is the default', () => {

@@ -1,15 +1,11 @@
-import { useId, useRef, useState, type ReactNode, type Ref } from 'react';
+import { useId, useState, type ReactNode, type Ref } from 'react';
 import type { HumTarget } from '../../lib/import/humImport';
 import type { ImportNotice } from '../../lib/import/importErrors';
 import type { TimeSig } from '../../lib/melody';
-import {
-  AudioFileField,
-  type PickedFile,
-} from '../AudioFileField/AudioFileField';
 import { Button } from '../Button/Button';
 import styles from './HumSetup.module.css';
 
-/** What S2 asks for, besides the file. */
+/** What S2 asks for, besides the source. */
 export interface HumSetupValue {
   label: string;
   /** Quarter notes per minute, like the song's `{tempo}`. */
@@ -18,6 +14,29 @@ export interface HumSetupValue {
   key: string;
   bar: number;
   beat: number;
+}
+
+/**
+ * Where the singing comes from: everything in S2 that depends on it. HumSetup only lays these out, so the
+ * screen decides what the first card holds (today: a picked file).
+ */
+// T6 extends this for the mic source (summary row label, primary button text, hiding 「やめて戻る」 while
+// recording, optional 録り方).
+export interface HumSource {
+  /** The first card's heading (numbered, e.g. 「1. 録音ファイル」). */
+  heading: string;
+  /** The first card's body. */
+  field: ReactNode;
+  /** 「解析する」 may start: chosen and fully read (not still probing). */
+  ready: boolean;
+  /** The summary card's 「ファイル」 row. */
+  summary: string;
+  /** The text under 「解析する」 when idle. */
+  hint: string;
+  /** The error's action to choose again (e.g. 「別のファイルを選ぶ」). */
+  retake: { label: string; onClick: () => void };
+  /** The `<li>`s of the 「録り方」 card. */
+  how: ReactNode;
 }
 
 export type HumSetupProps = {
@@ -29,8 +48,7 @@ export type HumSetupProps = {
   ts: TimeSig;
   value: HumSetupValue;
   onChange: (value: HumSetupValue) => void;
-  file: PickedFile | null;
-  onPick: (file: File) => void;
+  source: HumSource;
   /** Error / 「中止しました」 above the form (texts from importErrors.ts). */
   notice: ImportNotice | null;
   noticeRef?: Ref<HTMLDivElement>;
@@ -93,8 +111,7 @@ export function HumSetup({
   ts,
   value,
   onChange,
-  file,
-  onPick,
+  source,
   notice,
   noticeRef,
   progress,
@@ -103,14 +120,13 @@ export function HumSetup({
   headingRef,
 }: HumSetupProps) {
   const id = useId();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const busy = progress !== undefined && progress !== null;
   const set = (patch: Partial<HumSetupValue>) =>
     onChange({ ...value, ...patch });
   const keys =
     value.key && !KEYS.includes(value.key) ? [value.key, ...KEYS] : KEYS;
   const target = targets.find((t) => t.label === value.label);
-  const canStart = !busy && !!file && !file.probing && !!target?.writable;
+  const canStart = !busy && source.ready && !!target?.writable;
   /** The tempo field while typing; checked and clamped on blur / Enter (null = not editing). */
   const [tempoText, setTempoText] = useState<string | null>(null);
   const commitTempo = () => {
@@ -156,8 +172,8 @@ export function HumSetup({
             <p className={styles.noticeText}>{notice.message}</p>
             {notice.severity === 'error' ? (
               <div className={styles.actions}>
-                <Button onClick={() => fileInputRef.current?.click()}>
-                  別のファイルを選ぶ
+                <Button onClick={source.retake.onClick}>
+                  {source.retake.label}
                 </Button>
                 {notice.retry ? (
                   <Button
@@ -177,14 +193,9 @@ export function HumSetup({
           <legend className={styles.srOnly}>解析の内容</legend>
           <section className={styles.card} aria-labelledby={`${id}-file`}>
             <h2 id={`${id}-file`} className={styles.h2}>
-              1. 録音ファイル
+              {source.heading}
             </h2>
-            <AudioFileField
-              file={file}
-              onPick={onPick}
-              inputRef={fileInputRef}
-              hint="wav・mp3・m4a など、ブラウザで開ける形式。10 分まで。"
-            />
+            {source.field}
           </section>
 
           <section className={styles.card} aria-labelledby={`${id}-to`}>
@@ -343,24 +354,7 @@ export function HumSetup({
           <h2 id={`${id}-how`} className={styles.h2}>
             録り方
           </h2>
-          <ol className={styles.steps}>
-            <li>
-              <strong>ヘッドホンをつけます。</strong>
-              クリック（メトロノーム）の音が、マイクに入らないようにするためです。
-            </li>
-            <li>
-              録音アプリで録音を始め、曲のテンポ（♩= {value.tempo}）で
-              <strong>クリックを鳴らします</strong>。
-            </li>
-            <li>
-              <strong>1 小節（{ts.num} 拍）数えてから</strong>
-              歌い始めます。最初の数えの 1 小節は、小節の数に入れません。
-            </li>
-            <li>
-              「ラ」や「ん〜」で、1
-              つの音をはっきり歌います。録れたファイルを上で選んでください。
-            </li>
-          </ol>
+          <ol className={styles.steps}>{source.how}</ol>
         </section>
       </main>
 
@@ -390,7 +384,7 @@ export function HumSetup({
             </div>
             <div>
               <dt>ファイル</dt>
-              <dd>{file ? file.name : 'まだ選んでいません'}</dd>
+              <dd>{source.summary}</dd>
             </div>
           </dl>
           <Button
@@ -402,11 +396,7 @@ export function HumSetup({
             {busy ? '解析しています…' : '解析する'}
           </Button>
           <p className={styles.note}>
-            {busy
-              ? '解析中は、設定を変えられません。'
-              : file
-                ? '数秒かかります。'
-                : '先に録音ファイルを選んでください。'}
+            {busy ? '解析中は、設定を変えられません。' : source.hint}
           </p>
           <Button className={styles.wide} onClick={onBack}>
             やめて戻る

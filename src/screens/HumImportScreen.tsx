@@ -37,6 +37,7 @@ import {
   saveNoteNameMode,
   type KeyValueStorage,
 } from '../lib/storage';
+import { fileHumSource } from './humFileSource';
 import styles from './ImportScreen.module.css';
 
 export type HumImportScreenProps = {
@@ -95,6 +96,7 @@ export function HumImportScreen({
     bar: 1,
     beat: 1,
   }));
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [insertError, setInsertError] = useState<string | null>(null);
   const {
     phase,
@@ -183,6 +185,21 @@ export function HumImportScreen({
   }
 
   const file = phase.file;
+  const pickedFile = file
+    ? {
+        name: file.name,
+        size: file.size,
+        duration: phase.duration,
+        probing: phase.kind === 'pick' ? phase.probing : false,
+      }
+    : null;
+  const source = fileHumSource({
+    pickedFile,
+    onPick: (f) => void pick(f),
+    inputRef: fileInputRef,
+    tempo: value.tempo,
+    beats: ts.num,
+  });
   return (
     <ImportFrame
       backLabel="‹ やめて戻る"
@@ -196,17 +213,7 @@ export function HumImportScreen({
         ts={ts}
         value={value}
         onChange={setValue}
-        file={
-          file
-            ? {
-                name: file.name,
-                size: file.size,
-                duration: phase.duration,
-                probing: phase.kind === 'pick' ? phase.probing : false,
-              }
-            : null
-        }
-        onPick={(f) => void pick(f)}
+        source={source}
         notice={phase.kind === 'pick' ? phase.notice : null}
         noticeRef={noticeRef}
         progress={

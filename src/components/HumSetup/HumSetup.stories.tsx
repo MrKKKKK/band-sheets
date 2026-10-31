@@ -1,3 +1,4 @@
+import { createRef } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, userEvent, within } from 'storybook/test';
 import {
@@ -6,7 +7,19 @@ import {
 } from '../../lib/import/importErrors';
 import { ImportProgress } from '../ImportProgress/ImportProgress';
 import { HUM_STEPS } from '../../lib/import/humImport';
+import { fileHumSource } from '../../screens/humFileSource';
 import { HumSetup } from './HumSetup';
+
+const fileSource = (
+  file: { name: string; size: number; duration: number } | null,
+) =>
+  fileHumSource({
+    pickedFile: file && { ...file, probing: false },
+    onPick: fn(),
+    inputRef: createRef(),
+    tempo: 96,
+    beats: 4,
+  });
 
 const meta = {
   title: 'Import/HumSetup',
@@ -22,8 +35,7 @@ const meta = {
     ts: { num: 4, den: 4 },
     value: { label: 'Aメロ', tempo: 96, key: 'G', bar: 1, beat: 1 },
     onChange: fn(),
-    file: null,
-    onPick: fn(),
+    source: fileSource(null),
     notice: null,
     onStart: fn(),
     onBack: fn(),
@@ -50,7 +62,7 @@ export const Idle: Story = {
 };
 
 export const FileChosen: Story = {
-  args: { file: FILE },
+  args: { source: fileSource(FILE) },
   play: async ({ canvasElement, args }) => {
     const c = within(canvasElement);
     await userEvent.click(c.getByRole('button', { name: '解析する' }));
@@ -60,7 +72,7 @@ export const FileChosen: Story = {
 
 export const Analyzing: Story = {
   args: {
-    file: FILE,
+    source: fileSource(FILE),
     progress: (
       <ImportProgress
         fileName={FILE.name}
@@ -83,7 +95,7 @@ export const Analyzing: Story = {
 
 export const NoVoiceError: Story = {
   args: {
-    file: FILE,
+    source: fileSource(FILE),
     notice: { severity: 'error', message: HUM_NO_VOICE_MESSAGE },
   },
   play: async ({ canvasElement }) => {
@@ -97,7 +109,7 @@ export const NoVoiceError: Story = {
 
 export const Cancelled: Story = {
   args: {
-    file: FILE,
+    source: fileSource(FILE),
     notice: {
       severity: 'notice',
       message: IMPORT_ERROR_MESSAGES.cancelled,
