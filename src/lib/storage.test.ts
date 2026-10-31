@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   EDITOR_MODE_KEY,
+  MIC_LATENCY_KEY,
+  loadMicRemainder,
+  saveMicRemainder,
   createMemoryStorage,
   draftKey,
   loadEditorMode,
@@ -403,5 +406,84 @@ describe('migrateLegacyLocal', () => {
   it('never throws on null / throwing storage', () => {
     expect(migrateLegacyLocal(null, () => 'n', now)).toBeNull();
     expect(migrateLegacyLocal(throwing, () => 'n', now)).toBeNull();
+  });
+});
+
+describe('loadMicRemainder / saveMicRemainder', () => {
+  it('is null for a microphone that was not measured', () => {
+    const storage = createMemoryStorage();
+    expect(loadMicRemainder(storage, 'mic-a')).toBeNull();
+    saveMicRemainder(storage, 'mic-b', 40);
+    expect(loadMicRemainder(storage, 'mic-a')).toBeNull();
+  });
+
+  it('remembers each microphone separately, negative values too', () => {
+    const storage = createMemoryStorage();
+    expect(saveMicRemainder(storage, 'mic-a', 44.5)).toBe(true);
+    expect(saveMicRemainder(storage, 'mic-b', -12)).toBe(true);
+    expect(saveMicRemainder(storage, 'mic-a', 50)).toBe(true);
+    expect(loadMicRemainder(storage, 'mic-a')).toBe(50);
+    expect(loadMicRemainder(storage, 'mic-b')).toBe(-12);
+    expect(JSON.parse(storage.data.get(MIC_LATENCY_KEY)!)).toEqual({
+      v: 1,
+      devices: { 'mic-a': 50, 'mic-b': -12 },
+    });
+  });
+
+  it('survives failing, missing and garbage storage', () => {
+    expect(loadMicRemainder(null, 'a')).toBeNull();
+    expect(loadMicRemainder(throwing, 'a')).toBeNull();
+    expect(saveMicRemainder(null, 'a', 1)).toBe(false);
+    expect(saveMicRemainder(throwing, 'a', 1)).toBe(false);
+    for (const junk of [
+      'not json',
+      'null',
+      '[]',
+      '{"v":2,"devices":{"a":5}}',
+      '{"v":1}',
+      '{"v":1,"devices":[5]}',
+      '{"v":1,"devices":null}',
+    ]) {
+      const storage = createMemoryStorage({ [MIC_LATENCY_KEY]: junk });
+      expect(loadMicRemainder(storage, 'a')).toBeNull();
+    }
+  });
+
+  it('drops non-number entries but keeps the valid ones', () => {
+    const storage = createMemoryStorage({
+      [MIC_LATENCY_KEY]: '{"v":1,"devices":{"a":"5","b":null,"c":7}}',
+    });
+    expect(loadMicRemainder(storage, 'a')).toBeNull();
+    expect(loadMicRemainder(storage, 'b')).toBeNull();
+    expect(loadMicRemainder(storage, 'c')).toBe(7);
+    saveMicRemainder(storage, 'd', 1);
+    expect(JSON.parse(storage.data.get(MIC_LATENCY_KEY)!).devices).toEqual({
+      c: 7,
+      d: 1,
+    });
+  });
+
+  it('starts over when the stored value is broken', () => {
+    const storage = createMemoryStorage({ [MIC_LATENCY_KEY]: '{oops' });
+    expect(saveMicRemainder(storage, 'a', 3)).toBe(true);
+    expect(loadMicRemainder(storage, 'a')).toBe(3);
+  });
+
+  it('refuses an empty id and non-finite values', () => {
+    const storage = createMemoryStorage();
+    expect(saveMicRemainder(storage, '', 3)).toBe(false);
+    expect(saveMicRemainder(storage, 'a', NaN)).toBe(false);
+    expect(saveMicRemainder(storage, 'a', Infinity)).toBe(false);
+    expect(loadMicRemainder(storage, '')).toBeNull();
+    expect(storage.data.size).toBe(0);
+  });
+
+  it('treats prototype-like ids as ordinary keys', () => {
+    const storage = createMemoryStorage();
+    expect(loadMicRemainder(storage, 'constructor')).toBeNull();
+    expect(loadMicRemainder(storage, '__proto__')).toBeNull();
+    saveMicRemainder(storage, '__proto__', 9);
+    expect(loadMicRemainder(storage, '__proto__')).toBe(9);
+    expect(loadMicRemainder(storage, 'toString')).toBeNull();
   });
 });
