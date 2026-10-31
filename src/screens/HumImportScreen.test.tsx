@@ -242,6 +242,37 @@ describe('HumImportScreen', () => {
     expect(hold.cancelCount).toBe(1);
   });
 
+  it('S2: the file card, the summary row, the start hint, the recording steps and 「別のファイルを選ぶ」', async () => {
+    const { user } = setup(
+      createFakeAnalysisClient({ results: { hum: humSilentResult() } }),
+    );
+    expect(
+      screen.getByRole('heading', { name: '1. 録音ファイル' }),
+    ).toBeVisible();
+    expect(screen.getByRole('heading', { name: '録り方' })).toBeVisible();
+    expect(screen.getByText(/曲のテンポ（♩= 100）で/)).toBeVisible();
+    expect(screen.getByText(/1 小節（4 拍）数えてから/)).toBeVisible();
+    const summary = screen.getByText('ファイル').closest('div')!;
+    expect(summary).toHaveTextContent('まだ選んでいません');
+    expect(
+      screen.getByText('先に録音ファイルを選んでください。'),
+    ).toBeVisible();
+
+    await analyse(user);
+    await screen.findByTestId('import-notice');
+    expect(summary).toHaveTextContent('hum.wav');
+    expect(screen.getByText('数秒かかります。')).toBeVisible();
+
+    // the error's action opens the file dialog of the field above
+    const input = screen.getByTestId('audio-file-input');
+    const clicked = vi.fn();
+    input.addEventListener('click', clicked);
+    await user.click(
+      screen.getByRole('button', { name: '別のファイルを選ぶ' }),
+    );
+    expect(clicked).toHaveBeenCalledTimes(1);
+  });
+
   it('S2: a read-only section cannot be chosen; the first writable one is the default', () => {
     const song = {
       ...sampleSong,
