@@ -16,7 +16,9 @@ const THIRD_PARTY = path.join(
  * The librosa (ISC) and fft.js (MIT) notices must stay in the built JS (docs/audio-integration-plan.md section 2.2).
  * Prepends one `/*! ... *\/` comment to every Worker chunk that holds analysis code, generated from
  * src/lib/analysis/THIRD_PARTY.md (each `## ` heading, its `License:` line and its ```text block), after
- * minification so it cannot be stripped. scripts/check-bundle.mjs checks the built chunks against that file.
+ * minification so it cannot be stripped. scripts/check-bundle.mjs checks the built chunks against that file. Other
+ * chunks built through `worker.plugins` (the mic capture AudioWorklet, src/audio/capture.worklet.ts) hold no
+ * analysis module and stay bare; check-bundle checks that too.
  */
 function analysisLicenseBanner(): Plugin {
   let banner = '';
@@ -59,7 +61,11 @@ function analysisLicenseBanner(): Plugin {
 }
 
 /** Pages that get the CSP meta (paths as Vite's transformIndexHtml reports them). */
-const CSP_PAGES = new Set(['/index.html', '/e2e/harness/analysis.html']);
+const CSP_PAGES = new Set([
+  '/index.html',
+  '/e2e/harness/analysis.html',
+  '/e2e/harness/mic.html',
+]);
 
 /**
  * Adds the Content-Security-Policy `<meta>` (src/lib/csp.ts) to the built pages only. `apply: 'build'`: the dev

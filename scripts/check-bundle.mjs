@@ -8,10 +8,13 @@
  * 2. Every analysis Worker chunk keeps the third-party notices: each ```text block of
  *    src/lib/analysis/THIRD_PARTY.md (librosa ISC, fft.js MIT) verbatim (vite.config.ts analysisLicenseBanner).
  * 3. Size budget: the Worker chunks together <= 60 KB gzip (tables included).
- * 4. dist/index.html carries the Content-Security-Policy meta of src/lib/csp.ts (vite.config.ts cspMeta), before
+ * 4. The microphone code (src/audio/micSession.ts, the capture AudioWorklet) is not in the first load either, and the
+ *    worklet chunk carries NO analysis license banner (it holds no analysis code; vite.config.ts adds the banner
+ *    only to chunks with src/lib/analysis/ modules).
+ * 5. dist/index.html carries the Content-Security-Policy meta of src/lib/csp.ts (vite.config.ts cspMeta), before
  *    every script / stylesheet, and nothing inline that the policy would block.
  *
- * The Worker chunks are checked in a separate build of src/analysis/analysisClient.ts (into
+ * The Worker chunks are checked in a separate build of src/analysis/analysisClient.ts and src/audio/micSession.ts (into
  * node_modules/.tmp/analysis-probe, same vite.config.ts), so 2 and 3 are checked even while the app does not
  * import the client yet; Worker chunks found in dist/ (once the app imports it) are checked too.
  * The probe is also the positive control: every marker used in 1 must appear in it, so a marker that no longer
@@ -37,6 +40,7 @@ const WORKER_MARKERS = [
 ];
 const HUM_MARKERS = ['hum-v3']; // hum analyzer config name
 const CLIENT_MARKERS = ['band-sheets-analysis-']; // Worker names (src/analysis/kinds.ts)
+const MIC_MARKERS = ['band-sheets-mic-capture']; // the worklet's processor name (src/audio/captureCore.ts)
 
 const failures = [];
 const fail = (msg) => failures.push(msg);
@@ -114,7 +118,10 @@ async function probeBuild() {
       outDir: PROBE,
       emptyOutDir: true,
       rollupOptions: {
-        input: path.join(ROOT, 'src/analysis/analysisClient.ts'),
+        input: {
+          analysisClient: path.join(ROOT, 'src/analysis/analysisClient.ts'),
+          micSession: path.join(ROOT, 'src/audio/micSession.ts'),
+        },
         preserveEntrySignatures: 'exports-only',
       },
     },
@@ -146,9 +153,23 @@ const workersCode = probeWorkers.map((f) => readFileSync(f, 'utf8')).join('\n');
 for (const m of [...WORKER_MARKERS, ...HUM_MARKERS])
   if (!workersCode.includes(m))
     fail(`marker "${m}" not found in the probe Workers (stale marker)`);
-for (const m of CLIENT_MARKERS)
+for (const m of [...CLIENT_MARKERS, ...MIC_MARKERS])
   if (!probeAll.includes(m))
-    fail(`marker "${m}" not found in the probe client (stale marker)`);
+    fail(`marker "${m}" not found in the probe build (stale marker)`);
+{
+  const worklets = readdirSync(path.join(PROBE, 'assets')).filter((f) =>
+    /^capture\.worklet-[\w-]+\.js$/.test(f),
+  );
+  if (worklets.length !== 1)
+    fail(`probe: expected one capture.worklet chunk, found ${worklets.length}`);
+  for (const f of worklets) {
+    const code = readFileSync(path.join(PROBE, 'assets', f), 'utf8');
+    if (code.startsWith('/*!') || code.includes('librosa'))
+      fail(`probe ${f}: the mic worklet carries the analysis license banner`);
+    if (!MIC_MARKERS.every((m) => code.includes(m)))
+      fail(`probe ${f}: processor name not found`);
+  }
+}
 
 // --- the app's first load
 const initial = initialChunks();
@@ -170,6 +191,9 @@ for (const f of initial) {
       fail(
         `first-load chunk ${path.basename(f)} contains analysis marker "${m}"`,
       );
+  for (const m of MIC_MARKERS)
+    if (code.includes(m))
+      fail(`first-load chunk ${path.basename(f)} contains mic marker "${m}"`);
 }
 
 // --- the CSP meta (src/lib/csp.ts)
