@@ -1,3 +1,4 @@
+import { createRef } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, userEvent, within } from 'storybook/test';
 import {
@@ -6,7 +7,50 @@ import {
 } from '../../lib/import/importErrors';
 import { ImportProgress } from '../ImportProgress/ImportProgress';
 import { HUM_STEPS } from '../../lib/import/humImport';
-import { HumSetup } from './HumSetup';
+import { AudioFileField } from '../AudioFileField/AudioFileField';
+import { HumSetup, type HumSource } from './HumSetup';
+
+/** The file-based source HumImportScreen builds (tempo 96, 4/4 as in the args below). */
+function fileSource(
+  file: { name: string; size: number; duration: number } | null,
+): HumSource {
+  return {
+    heading: '1. 録音ファイル',
+    field: (
+      <AudioFileField
+        file={file && { ...file, probing: false }}
+        onPick={fn()}
+        inputRef={createRef()}
+        hint="wav・mp3・m4a など、ブラウザで開ける形式。10 分まで。"
+      />
+    ),
+    chosen: !!file,
+    ready: !!file,
+    summary: file ? file.name : 'まだ選んでいません',
+    startHint: '先に録音ファイルを選んでください。',
+    retake: { label: '別のファイルを選ぶ', onClick: fn() },
+    how: (
+      <>
+        <li>
+          <strong>ヘッドホンをつけます。</strong>
+          クリック（メトロノーム）の音が、マイクに入らないようにするためです。
+        </li>
+        <li>
+          録音アプリで録音を始め、曲のテンポ（♩= 96）で
+          <strong>クリックを鳴らします</strong>。
+        </li>
+        <li>
+          <strong>1 小節（4 拍）数えてから</strong>
+          歌い始めます。最初の数えの 1 小節は、小節の数に入れません。
+        </li>
+        <li>
+          「ラ」や「ん〜」で、1
+          つの音をはっきり歌います。録れたファイルを上で選んでください。
+        </li>
+      </>
+    ),
+  };
+}
 
 const meta = {
   title: 'Import/HumSetup',
@@ -22,8 +66,7 @@ const meta = {
     ts: { num: 4, den: 4 },
     value: { label: 'Aメロ', tempo: 96, key: 'G', bar: 1, beat: 1 },
     onChange: fn(),
-    file: null,
-    onPick: fn(),
+    source: fileSource(null),
     notice: null,
     onStart: fn(),
     onBack: fn(),
@@ -50,7 +93,7 @@ export const Idle: Story = {
 };
 
 export const FileChosen: Story = {
-  args: { file: FILE },
+  args: { source: fileSource(FILE) },
   play: async ({ canvasElement, args }) => {
     const c = within(canvasElement);
     await userEvent.click(c.getByRole('button', { name: '解析する' }));
@@ -60,7 +103,7 @@ export const FileChosen: Story = {
 
 export const Analyzing: Story = {
   args: {
-    file: FILE,
+    source: fileSource(FILE),
     progress: (
       <ImportProgress
         fileName={FILE.name}
@@ -83,7 +126,7 @@ export const Analyzing: Story = {
 
 export const NoVoiceError: Story = {
   args: {
-    file: FILE,
+    source: fileSource(FILE),
     notice: { severity: 'error', message: HUM_NO_VOICE_MESSAGE },
   },
   play: async ({ canvasElement }) => {
@@ -97,7 +140,7 @@ export const NoVoiceError: Story = {
 
 export const Cancelled: Story = {
   args: {
-    file: FILE,
+    source: fileSource(FILE),
     notice: {
       severity: 'notice',
       message: IMPORT_ERROR_MESSAGES.cancelled,
