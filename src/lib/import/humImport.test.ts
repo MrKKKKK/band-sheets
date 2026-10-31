@@ -1,3 +1,4 @@
+import { validateHumInfo } from '../analysis/hum/analyze';
 import { describe, expect, it } from 'vitest';
 import { ANALYSIS_STAGES } from '../../analysis/types';
 import { sampleSong } from '../fixtures/sampleSong';
@@ -14,6 +15,7 @@ import {
   firstNoteTick,
   HUM_STEPS,
   humRunInfo,
+  humRunInfoAtBar1,
   humTargets,
   insertHumDraft,
   labelledEvents,
@@ -64,6 +66,35 @@ describe('firstNoteTick / humRunInfo', () => {
       firstNoteSec: 0,
       firstNoteTick: 0,
     });
+  });
+});
+
+describe('humRunInfoAtBar1', () => {
+  it('sends only bpm, ts, key and startSec, and passes validateHumInfo', () => {
+    const info = humRunInfoAtBar1({
+      tempo: 96,
+      ts: T44,
+      key: 'G',
+      bar1Sec: 2.5,
+    });
+    expect(info).toEqual({ bpm: 96, ts: [4, 4], startSec: 2.5, key: 'G' });
+    expect(() => validateHumInfo(info)).not.toThrow();
+  });
+
+  it('counts the 6/8 bpm in eighths and omits an unset key', () => {
+    const info = humRunInfoAtBar1({ tempo: 60, ts: T68, bar1Sec: 0 });
+    expect(info).toEqual({ bpm: 120, ts: [6, 8], startSec: 0 });
+    expect('key' in info).toBe(false);
+    expect(() => validateHumInfo(info)).not.toThrow();
+  });
+
+  it('never carries firstNoteSec / firstNoteTick, whatever bar the singing starts at', () => {
+    const setup = { tempo: 100, ts: T44, bar1Sec: 2.4, bar: 3, beat: 2 };
+    const info = humRunInfoAtBar1(setup);
+    expect(info.firstNoteSec).toBeUndefined();
+    expect(info.firstNoteTick).toBeUndefined();
+    expect(info.startSec).toBe(2.4);
+    expect(() => validateHumInfo(info)).not.toThrow();
   });
 });
 

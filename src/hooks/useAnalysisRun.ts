@@ -17,7 +17,6 @@ import {
   isAnalysisError,
   MAX_DURATION_SEC,
   type AnalysisClient,
-  type AnalysisErrorCode,
   type AnalysisProgress,
   type AnalysisRequest,
   type AnalysisResultMap,
@@ -75,6 +74,13 @@ export interface AnalysisRun<R extends AnalysisRequest> {
   pick: (file: File) => Promise<void>;
   /** Analyse the file picked so far (its length known); does nothing without one, or while its length is read. */
   start: (request: R) => Promise<void>;
+  /**
+   * Analyse `file` whose length is already known (a recording the screen made): no length probe and no
+   * 「選びました」 announcement. On failure / cancel the pick phase shows the file picked BEFORE (or none), so the
+   * picked file and the recording both survive. Reads no render-time state, so it works right after a state change
+   * in the same handler. Does nothing while an analysis runs.
+   */
+  startFile: (file: File, durationSec: number, request: R) => Promise<void>;
   cancel: () => void;
 }
 
@@ -101,6 +107,12 @@ export function useAnalysisRun<R extends AnalysisRequest>({
   const noticeRef = useRef<HTMLDivElement>(null);
   const reviewRef = useRef<HTMLHeadingElement>(null);
   const focusNext = useRef<FocusTarget | null>('h1');
+  type Picked = { file: File | null; duration: number | null };
+  /** The file picked with `pick` (what failure / cancel returns to); kept in a ref so no handler reads a stale render. */
+  const pickedRef = useRef<Picked>({ file: null, duration: null });
+  /** Where the running analysis returns to on failure / cancel. */
+  const backRef = useRef<Picked>({ file: null, duration: null });
+  const analyzingRef = useRef(false);
 
   const say = useCallback((msg: string) => {
     // An unchanged live region is not read again: toggle a trailing NBSP.
@@ -143,22 +155,17 @@ export function useAnalysisRun<R extends AnalysisRequest>({
     notice: ImportNotice,
   ) => {
     focusNext.current = 'notice';
+    analyzingRef.current = false;
+    pickedRef.current = { file, duration };
     setPhase({ kind: 'pick', file, duration, notice });
     say(notice.message);
   };
 
-  const fail = (
-    file: File,
-    duration: number | null,
-    code: AnalysisErrorCode,
-  ) =>
-    code === 'too-long'
-      ? showNotice(null, null, noticeFor(code))
-      : showNotice(file, duration, noticeFor(code));
-
   const pick = async (file: File) => {
     if (phase.kind === 'analyzing') return;
     const run = ++runRef.current;
+    analyzingRef.current = false;
+    pickedRef.current = { file, duration: null };
     // Show the new file at once; starting waits for its length.
     setPhase({
       kind: 'pick',
@@ -170,19 +177,26 @@ export function useAnalysisRun<R extends AnalysisRequest>({
     const duration = await probe(file).catch(() => null);
     if (run !== runRef.current) return;
     if (duration !== null && duration > MAX_DURATION_SEC) {
-      fail(file, null, 'too-long');
+      showNotice(null, null, noticeFor('too-long'));
       return;
     }
+    pickedRef.current = { file, duration };
     setPhase({ kind: 'pick', file, duration, notice: null });
     say(
       `${file.name} を選びました${duration !== null ? `。長さ ${formatDurationJa(duration)}` : ''}`,
     );
   };
 
-  const start = async (request: R) => {
-    if (phase.kind !== 'pick' || !phase.file || phase.probing) return;
-    const { file, duration } = phase;
+  /** Runs the analysis of `file`; failure / cancel return to `back`. */
+  const analyze = async (
+    file: File,
+    duration: number | null,
+    back: Picked,
+    request: R,
+  ) => {
     const run = ++runRef.current;
+    analyzingRef.current = true;
+    backRef.current = back;
     focusNext.current = 'progress';
     setPhase({ kind: 'analyzing', file, duration, progress: null });
     say(`解析を始めました。${stepText(null)}`);
@@ -204,23 +218,42 @@ export function useAnalysisRun<R extends AnalysisRequest>({
       if (run !== runRef.current) return;
       const rejected = rejectResult?.(result);
       if (rejected) {
-        showNotice(file, duration, rejected);
+        showNotice(back.file, back.duration, rejected);
         return;
       }
+      analyzingRef.current = false;
       focusNext.current = 'review';
       setPhase({ kind: 'review', file, result });
       say(doneMessage);
     } catch (e) {
       if (run !== runRef.current) return;
-      fail(file, duration, isAnalysisError(e) ? e.code : 'internal');
+      const code = isAnalysisError(e) ? e.code : 'internal';
+      if (code === 'too-long' && back.file === file)
+        showNotice(null, null, noticeFor(code));
+      else showNotice(back.file, back.duration, noticeFor(code));
     }
+  };
+
+  const start = async (request: R) => {
+    if (phase.kind !== 'pick' || !phase.file || phase.probing) return;
+    const { file, duration } = phase;
+    await analyze(file, duration, { file, duration }, request);
+  };
+
+  const startFile = async (file: File, durationSec: number, request: R) => {
+    if (analyzingRef.current) return;
+    await analyze(file, durationSec, { ...pickedRef.current }, request);
   };
 
   const cancel = () => {
     if (phase.kind !== 'analyzing') return;
     runRef.current++;
     clientRef.current?.cancel();
-    fail(phase.file, phase.duration, 'cancelled');
+    showNotice(
+      backRef.current.file,
+      backRef.current.duration,
+      noticeFor('cancelled'),
+    );
   };
 
   return {
@@ -233,6 +266,7 @@ export function useAnalysisRun<R extends AnalysisRequest>({
     reviewRef,
     pick,
     start,
+    startFile,
     cancel,
   };
 }

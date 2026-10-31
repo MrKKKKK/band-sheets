@@ -63,6 +63,30 @@ export function humRunInfo(s: HumRunSetup): HumInput {
   };
 }
 
+export interface HumMicSetup {
+  /** The song's `{tempo}` (quarter notes per minute). */
+  tempo: number;
+  ts: TimeSig;
+  /** Only orders the pitch candidates (and spells the notes). */
+  key?: string;
+  /** Second of bar 1 in the recording file (the count-in is kept in the file, so usually the bar's length). */
+  bar1Sec: number;
+}
+
+/**
+ * What the hum Worker gets for a microphone take (mic-recording-plan §2.2): the clock knows where bar 1 starts, so
+ * only `startSec` is sent, no `firstNoteSec` / `firstNoteTick` and the request has no `firstNoteAuto`. Notes are
+ * counted from bar 1, so singing from a later bar needs no extra information here.
+ */
+export function humRunInfoAtBar1(s: HumMicSetup): HumInput {
+  return {
+    bpm: humBpmFromSongTempo(s.tempo, s.ts),
+    ts: [s.ts.num, s.ts.den],
+    startSec: s.bar1Sec,
+    ...(s.key ? { key: s.key } : {}),
+  };
+}
+
 export interface HumTarget {
   label: string;
   /** False: the section cannot be written by the app (read-only / bars no longer fit). */
