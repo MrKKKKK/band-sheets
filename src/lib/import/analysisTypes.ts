@@ -5,6 +5,9 @@ import type { InputErrorCode } from '../analysis/chords/analyze';
  * depend on `src/analysis/`; `src/analysis/types.ts` re-exports them. TYPE-ONLY imports: no analyzer code.
  */
 
+/** 10 minutes (plan section 6.1). */
+export const MAX_DURATION_SEC = 600;
+
 /** One entry per analysis kind (section 3.5: drums is added later as one more kind). */
 export type AnalysisKind = 'chords' | 'hum';
 

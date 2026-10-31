@@ -7,6 +7,7 @@
  */
 import type { TsAnalysisResult } from '../lib/analysis/chords/result';
 import type { HumAnalysisResult, HumInput } from '../lib/analysis/hum/types';
+import { MAX_DURATION_SEC } from '../lib/import/analysisTypes';
 import type {
   AnalysisErrorCode,
   AnalysisKind,
@@ -14,6 +15,7 @@ import type {
 } from '../lib/import/analysisTypes';
 
 export type { AnalysisKind };
+export { MAX_DURATION_SEC };
 
 /** Mono samples at the file's own rate (decodeFile's output). */
 export interface DecodedAudio {
@@ -96,9 +98,6 @@ export class AnalysisError extends Error {
 export function isAnalysisError(e: unknown): e is AnalysisError {
   return e instanceof AnalysisError;
 }
-
-/** 10 minutes (plan section 6.1). */
-export const MAX_DURATION_SEC = 600;
 
 export interface AnalysisClient {
   /**
