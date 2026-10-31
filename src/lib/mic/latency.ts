@@ -2,7 +2,7 @@
  * Input-latency measurement for the microphone recording (docs/mic-recording-plan.md §1, §2.4). Ported
  * from the spike's `micCheck.ts` (research/audio-analysis, T13) — detection and stats unchanged. The
  * page plays short clicks at known AudioContext times and records the mic through an AudioWorklet; the
- * caller puts the blocks on the context's frame axis (takeBuffer.ts) and passes the expected frames here.
+ * caller passes one contiguous Float32Array of the capture on the context's frame axis (from takeBuffer.ts) and the expected frames here.
  *
  * Round trip = when the click shows up in the recording - when it was scheduled = output latency +
  * input latency (+ the air path, ~0 for headphones on the mic). The browser reports part of it

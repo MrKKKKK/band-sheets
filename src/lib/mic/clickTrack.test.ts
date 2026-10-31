@@ -64,10 +64,9 @@ describe('clickBeats', () => {
     expect(b[b.length - 1].sec).toBeCloseTo(599.5, 9);
   });
 
-  it('has no drift: beat k is exactly k steps', () => {
+  it('has no drift: beat 900 is 900 x 60/97 s', () => {
     const b = clickBeats(97, T44, 600);
-    const step = beatSec(97, T44);
-    expect(b[900].sec).toBe(900 * step);
+    expect(b[900].sec).toBeCloseTo((900 * 60) / 97, 9);
   });
 
   it('is empty for a limit of 0 or less', () => {

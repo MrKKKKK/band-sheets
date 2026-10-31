@@ -72,14 +72,17 @@ export interface ClickPosition {
   beat: number;
 }
 
-/** The bar / beat at `elapsedSec` from the count-in's start (negative reads as 0). */
+/** The bar / beat at `sinceCountInSec` = seconds since the COUNT-IN's first beat (not since bar 1; negative reads as 0). */
 export function positionAt(
-  elapsedSec: number,
+  sinceCountInSec: number,
   tempo: number,
   ts: TimeSig,
 ): ClickPosition {
   const step = beatSec(tempo, ts);
-  const t = Number.isFinite(elapsedSec) && elapsedSec > 0 ? elapsedSec : 0;
+  const t =
+    Number.isFinite(sinceCountInSec) && sinceCountInSec > 0
+      ? sinceCountInSec
+      : 0;
   // the epsilon keeps a time that is exactly on a beat (up to float error) on that beat
   const n = Math.floor(t / step + 1e-9);
   return { bar: Math.floor(n / ts.num), beat: (n % ts.num) + 1 };
