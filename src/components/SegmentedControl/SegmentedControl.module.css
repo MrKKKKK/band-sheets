@@ -23,7 +23,12 @@
   cursor: pointer;
 }
 
-.option:hover:not([aria-pressed='true']) {
+.option:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.option:hover:not([aria-pressed='true'], :disabled) {
   color: var(--text);
 }
 

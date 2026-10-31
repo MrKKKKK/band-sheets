@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { AnalysisErrorCode } from './analysisTypes';
-import { IMPORT_ERROR_MESSAGES, importErrorInfo } from './importErrors';
+import {
+  IMPORT_ERROR_MESSAGES,
+  importErrorInfo,
+  noticeFor,
+  takeNoticeFor,
+} from './importErrors';
 
 const CODES: AnalysisErrorCode[] = [
   'decode-failed',
@@ -36,5 +41,23 @@ describe('importErrors', () => {
         code === 'cancelled' ? 'notice' : 'error',
       );
     expect(importErrorInfo('cancelled').message).toBe('中止しました。');
+  });
+});
+
+describe('takeNoticeFor (a recording made with the mic)', () => {
+  it('never asks for another file, keeps severity and retry', () => {
+    for (const code of CODES) {
+      const n = takeNoticeFor(code);
+      expect(n.message).not.toMatch(/ファイル/);
+      expect(n.message.endsWith('。')).toBe(true);
+      expect(n.severity).toBe(noticeFor(code).severity);
+      expect(n.retry).toBe(noticeFor(code).retry);
+    }
+    expect(takeNoticeFor('decode-failed').message).toMatch(/録り直/);
+    expect(takeNoticeFor('empty').message).toMatch(/録り直/);
+    // codes without a file in their text keep the common one
+    expect(takeNoticeFor('worker-crashed')).toEqual(
+      noticeFor('worker-crashed'),
+    );
   });
 });

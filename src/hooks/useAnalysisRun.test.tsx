@@ -10,6 +10,8 @@ import {
   humSampleResult,
   humSilentResult,
 } from '../lib/import/fixtures/humResults';
+import type { AnalysisErrorCode } from '../lib/import/analysisTypes';
+import type { ImportNotice } from '../lib/import/importErrors';
 import { useAnalysisRun } from './useAnalysisRun';
 
 const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
@@ -18,11 +20,13 @@ const file = (name: string) => new File(['x'], name, { type: 'audio/wav' });
 function setup(
   opts: FakeAnalysisOptions = { results: { hum: humSampleResult() } },
   probeSec: number | null = 30,
+  takeNotice?: (code: AnalysisErrorCode) => ImportNotice,
 ) {
   const client = createFakeAnalysisClient(opts);
   const hook = renderHook(() =>
     useAnalysisRun<HumRequest>({
       client,
+      takeNotice,
       probe: async () => probeSec,
       steps: HUM_STEPS,
       doneMessage: '終わりました',
@@ -41,6 +45,32 @@ function setup(
 }
 
 describe('useAnalysisRun.startFile', () => {
+  it('words a failure of the recording with takeNotice (shown and announced); start keeps the common text', async () => {
+    const takeNotice = (code: AnalysisErrorCode): ImportNotice => ({
+      severity: 'error',
+      message: `録り直し ${code}`,
+    });
+    const { hook, req } = setup({ error: 'empty' }, 30, takeNotice);
+    const take = file('take.wav');
+    await act(async () => {
+      await hook.result.current.startFile(take, 12, req(take));
+    });
+    expect(hook.result.current.phase).toMatchObject({
+      kind: 'pick',
+      notice: { message: '録り直し empty' },
+    });
+    expect(hook.result.current.live).toBe('録り直し empty');
+    await act(async () => {
+      await hook.result.current.pick(file('a.wav'));
+    });
+    await act(async () => {
+      await hook.result.current.start(req(file('a.wav')));
+    });
+    expect(hook.result.current.phase).toMatchObject({
+      notice: { message: '音が入っていません。別のファイルを選んでください。' },
+    });
+  });
+
   it('works when nothing was picked: analyzing -> review, no 選びました', async () => {
     const { hook, req, client } = setup();
     const take = file('take.wav');

@@ -87,8 +87,8 @@ export type MicRecorderProps = {
   ts: TimeSig;
   /** M2's 「ファイルを選ぶほうに切り替える」 shortcut. */
   onUseFile: () => void;
-  /** The file name for 「録音を保存（wav）」 (`humTakeFileName`). */
-  saveName: string;
+  /** The file name for 「録音を保存（wav）」 (`humTakeFileName`), made at the click (it holds the time). */
+  saveName: () => string;
   /** Writes the take to the PC. Default: `saveFile`. */
   save?: (blob: Blob, name: string) => void;
   /** Injected player parts for M7's listening (tests / stories). */
@@ -477,7 +477,7 @@ function TakeCard({
   take: MicTake;
   end: TakeEnd;
   recorder: MicRecorderView;
-  saveName: string;
+  saveName: () => string;
   save: (blob: Blob, name: string) => void;
   playbackDeps?: MicRecorderProps['playbackDeps'];
   headingRef: Ref<HTMLHeadingElement>;
@@ -551,7 +551,7 @@ function TakeCard({
       </div>
       <div className={styles.row}>
         <Button onClick={recorder.retake}>{RETAKE_BUTTON}</Button>
-        <Button onClick={() => save(take.file, saveName)}>
+        <Button onClick={() => save(take.file, saveName())}>
           {SAVE_WAV_BUTTON}
         </Button>
         <span className={styles.note}>{RETAKE_HINT}</span>

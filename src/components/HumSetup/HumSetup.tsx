@@ -18,25 +18,33 @@ export interface HumSetupValue {
 
 /**
  * Where the singing comes from: everything in S2 that depends on it. HumSetup only lays these out, so the
- * screen decides what the first card holds (today: a picked file).
+ * screen decides what the first card holds (a picked file, or the mic: screens/humFileSource.tsx,
+ * screens/humMicSource.tsx).
  */
-// T6 extends this for the mic source (summary row label, primary button text, hiding 「やめて戻る」 while
-// recording, optional 録り方).
 export interface HumSource {
-  /** The first card's heading (numbered, e.g. 「1. 録音ファイル」). */
-  heading: string;
   /** The first card's body. */
   field: ReactNode;
   /** 「解析する」 may start: chosen and fully read (not still probing). */
   ready: boolean;
-  /** The summary card's 「ファイル」 row. */
+  /** The summary card's source row: its label (e.g. 「ファイル」) and value. */
+  summaryLabel: string;
   summary: string;
+  /** One more summary row under it (the mic take's input latency). */
+  summaryExtra?: { label: string; value: string };
+  /** The primary button (e.g. 「解析する」). */
+  startLabel: string;
   /** The text under 「解析する」 when idle. */
   hint: string;
   /** The error's action to choose again (e.g. 「別のファイルを選ぶ」). */
   retake: { label: string; onClick: () => void };
-  /** The `<li>`s of the 「録り方」 card. */
-  how: ReactNode;
+  /** The `<li>`s of the 「録り方」 card; none = no card. */
+  how?: ReactNode;
+  /** The note under 「歌い始めの場所」. */
+  startNote: string;
+  /** The tempo / time signature the analysis will use when not S2's fields (a mic take: the clicks'). */
+  meter?: { tempo: number; ts: TimeSig };
+  /** Recording in progress (count-in, recording, finishing): 「やめて戻る」 is hidden. */
+  locked?: boolean;
 }
 
 export type HumSetupProps = {
@@ -140,6 +148,7 @@ export function HumSetup({
     Math.min(TEMPO_RANGE.max, Math.max(TEMPO_RANGE.min, Math.round(n)));
   const where = `${songTitle}${partName ? ` / ${partName}` : ''} / ${value.label}`;
   const start = `${value.bar} 小節目の ${value.beat} 拍目`;
+  const summaryMeter = source.meter ?? { tempo: value.tempo, ts };
 
   return (
     <div className={styles.layout}>
@@ -193,7 +202,7 @@ export function HumSetup({
           <legend className={styles.srOnly}>解析の内容</legend>
           <section className={styles.card} aria-labelledby={`${id}-file`}>
             <h2 id={`${id}-file`} className={styles.h2}>
-              {source.heading}
+              1. 歌の音を受け取る
             </h2>
             {source.field}
           </section>
@@ -342,20 +351,18 @@ export function HumSetup({
               </select>
               <span>拍目から歌い始める</span>
             </div>
-            <p className={styles.note}>
-              ふつうは 1 小節目の 1
-              拍目のままで大丈夫です。曲が途中から始まるとき（たとえば 4
-              拍目から歌い始める）は、そこに合わせてください。録音の中で歌い始めた時間は、自動で見つけます。
-            </p>
+            <p className={styles.note}>{source.startNote}</p>
           </section>
         </fieldset>
 
-        <section className={styles.card} aria-labelledby={`${id}-how`}>
-          <h2 id={`${id}-how`} className={styles.h2}>
-            録り方
-          </h2>
-          <ol className={styles.steps}>{source.how}</ol>
-        </section>
+        {source.how ? (
+          <section className={styles.card} aria-labelledby={`${id}-how`}>
+            <h2 id={`${id}-how`} className={styles.h2}>
+              録り方
+            </h2>
+            <ol className={styles.steps}>{source.how}</ol>
+          </section>
+        ) : null}
       </main>
 
       <aside className={styles.side} aria-labelledby={`${id}-sum`}>
@@ -369,9 +376,12 @@ export function HumSetup({
               <dd>{where}</dd>
             </div>
             <div>
-              <dt>テンポ / 拍子</dt>
+              <dt>
+                {source.meter ? 'テンポ / 拍子（録音）' : 'テンポ / 拍子'}
+              </dt>
               <dd>
-                ♩= {value.tempo} ・ {ts.num}/{ts.den}
+                ♩= {summaryMeter.tempo} ・ {summaryMeter.ts.num}/
+                {summaryMeter.ts.den}
               </dd>
             </div>
             <div>
@@ -383,9 +393,15 @@ export function HumSetup({
               <dd>{start}</dd>
             </div>
             <div>
-              <dt>ファイル</dt>
+              <dt>{source.summaryLabel}</dt>
               <dd>{source.summary}</dd>
             </div>
+            {source.summaryExtra ? (
+              <div>
+                <dt>{source.summaryExtra.label}</dt>
+                <dd>{source.summaryExtra.value}</dd>
+              </div>
+            ) : null}
           </dl>
           <Button
             variant="primary"
@@ -393,14 +409,16 @@ export function HumSetup({
             disabled={!canStart}
             onClick={onStart}
           >
-            {busy ? '解析しています…' : '解析する'}
+            {busy ? '解析しています…' : source.startLabel}
           </Button>
           <p className={styles.note}>
             {busy ? '解析中は、設定を変えられません。' : source.hint}
           </p>
-          <Button className={styles.wide} onClick={onBack}>
-            やめて戻る
-          </Button>
+          {source.locked ? null : (
+            <Button className={styles.wide} onClick={onBack}>
+              やめて戻る
+            </Button>
+          )}
         </div>
       </aside>
     </div>

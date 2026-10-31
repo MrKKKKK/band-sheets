@@ -55,7 +55,7 @@ const meta = {
     recorder: viewOf(stateOf({ phase: 'closed' })),
     ts: { num: 4, den: 4 },
     onUseFile: fn(),
-    saveName: '鼻歌_聖者の行進_Aメロ_20261031-1200.wav',
+    saveName: () => '鼻歌_聖者の行進_Aメロ_20261031-1200.wav',
     save: fn(),
   },
 } satisfies Meta<typeof MicRecorder>;
@@ -605,7 +605,7 @@ function Live({
       recorder={recorder}
       ts={{ num: 4, den: 4 }}
       onUseFile={() => setFileTab(true)}
-      saveName="録音.wav"
+      saveName={() => '録音.wav'}
       save={fn()}
       playbackDeps={fakeDeps}
     />
