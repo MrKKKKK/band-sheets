@@ -134,15 +134,21 @@ BD・SD は既知のキットの合成なみになった。残る課題は HH �
 
 - 設定 `drum-v0` **`fb158baf9dfe`**（コミット `dc0ec5a` 以降、`ts/drum` を変えていないこと）。録音 drm-05-e・drm-06-f、`開始: 0秒`（1 の直し）。
 - 採点: 今までどおり楽器ごとの ±50 ms（録音ごとに 1 つのずらし ±100 ms）、格子、直す手数。**1 小節目の前を外す規則は無し**（ずれを直したので要らない）。
-- コマンド（作業ディレクトリ `spikes/analysis`、ワーキングツリーがきれいなこと）:
+### T14 の実行方法（ガードの直し済み）
+
+- 専用の入口 `ts/drum/heldout_eval.ts` を足した（`cli.ts --take` の経路は T14 には使わない。1 録音ごとに look-3 の行を書くので 2 本目で止まるため）。
+- コマンド（ワーキングツリーがきれいで、`dc0ec5a` 以降 `ts/drum` の解析を変えていないこと。1 回だけ）:
 
 ```
 docker exec -u node -w /workspaces/band-sheets/.worktrees/spike5/spikes/analysis band-sheets \
-  npx tsx ts/drum/cli.ts --take drm-05-e --take drm-06-f --look-point 3 --commit <HEAD> --level <S-3|S-9|S-ext> \
-  --results /workspaces/band-sheets/.worktrees/spike5/spikes/analysis/recordings/drum-results/heldout-<level>
+  npx tsx ts/drum/heldout_eval.ts --final-heldout
 ```
 
-- **注意（T14 の前に決めること）**: 今の CLI のガード（`heldout_guard.ts` `lookPointBlock`）は、ホールドアウトの look-3 の行が 1 行でもあると次を断る。CLI は録音ごとに 1 行書くので、上のコマンドは **e を解析して f で止まり、2 回目の段階も走らない**。T14 の前に、1 回の実行で 2 本 × 3 段階を走らせる形（例: `--level` に複数を書けて、ガードは最初に 1 回だけ確かめる）に直す必要がある。
+- 最初に 1 回だけ確かめる: ワーキングツリーがきれい、`out/results/heldout-log.jsonl` にドラムの look-3（heldOut）の行が無い。どちらかが違えば音を読む前に断る。
+- 通ったら look-3 の行を **1 行だけ**、解析の前に書く（`take "heldout"`、録音 id = マニフェストのホールドアウト 2 本、`levels` S-9 / S-3 / S-ext、設定のハッシュ、コミット、`task T14`）。その後 2 本 × 3 段階を全部走らせる。
+- 出力は合計のみ（楽器ごとの合算と録音ごとの F50、格子、直す手数/キーボード、取り違えの数、ずれの分布）を標準出力と gitignore の `out/heldout-eval/final/summary.md` に。ヒットや録音ごとの結果 JSON は書かない。主な段階は S-9、S-3 と S-ext を並べる。
+- `--selftest`: 同じ道を開発用 4 本（drm-01-a〜04-d）で走らせる。look-3 の行は書かず、ワーキングツリーの状態も見ず、ホールドアウトの id は断る（出力は `out/heldout-eval/selftest/`）。確認済み: 合算 F50 全体 S-9 .706 / S-3 .786 / S-ext .702、直す手数 .614 / .546 / .613 で、上の ③ の表と一致した。
+- 試験: `heldout_eval.test.ts`（偽のログで、ログ無し → 1 行だけ書いて走る / 既にある → 音を読む前に断る / きれいでない木 → 断る / selftest は書かない・ホールドアウトを断る）。
 
 ## コマンド（作業ディレクトリ `spikes/analysis`、道具は gitignore の `out/t12b/`）
 

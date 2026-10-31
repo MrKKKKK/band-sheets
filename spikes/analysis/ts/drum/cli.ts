@@ -98,14 +98,14 @@ export function parseArgs(argv: string[]): CliArgs {
   return a;
 }
 
-function gitCommit(): string | undefined {
+export function gitCommit(): string | undefined {
   try {
     return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: import.meta.dirname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {
     return undefined;
   }
 }
-function gitPorcelain(): string | null {
+export function gitPorcelain(): string | null {
   try {
     return execFileSync('git', ['status', '--porcelain'], { cwd: import.meta.dirname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch {
@@ -113,7 +113,7 @@ function gitPorcelain(): string | null {
   }
 }
 
-function loadConfig(path?: string): DrumConfig {
+export function loadConfig(path?: string): DrumConfig {
   return resolveDrumConfig(path ? (JSON.parse(readFileSync(path, 'utf8')) as unknown) : {});
 }
 
