@@ -22,8 +22,6 @@ export interface HumSetupValue {
  * screens/humMicSource.tsx).
  */
 export interface HumSource {
-  /** The first card's heading (numbered, e.g. 「1. 録音ファイル」). */
-  heading: string;
   /** The first card's body. */
   field: ReactNode;
   /** 「解析する」 may start: chosen and fully read (not still probing). */
@@ -31,6 +29,8 @@ export interface HumSource {
   /** The summary card's source row: its label (default 「ファイル」) and value. */
   summaryLabel?: string;
   summary: string;
+  /** One more summary row under it (the mic take's input latency). */
+  summaryExtra?: { label: string; value: string };
   /** The primary button (default 「解析する」). */
   startLabel?: string;
   /** The text under 「解析する」 when idle. */
@@ -199,7 +199,7 @@ export function HumSetup({
           <legend className={styles.srOnly}>解析の内容</legend>
           <section className={styles.card} aria-labelledby={`${id}-file`}>
             <h2 id={`${id}-file`} className={styles.h2}>
-              {source.heading}
+              1. 歌の音を受け取る
             </h2>
             {source.field}
           </section>
@@ -393,6 +393,12 @@ export function HumSetup({
               <dt>{source.summaryLabel ?? 'ファイル'}</dt>
               <dd>{source.summary}</dd>
             </div>
+            {source.summaryExtra ? (
+              <div>
+                <dt>{source.summaryExtra.label}</dt>
+                <dd>{source.summaryExtra.value}</dd>
+              </div>
+            ) : null}
           </dl>
           <Button
             variant="primary"

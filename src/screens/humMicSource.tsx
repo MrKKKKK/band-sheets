@@ -4,6 +4,7 @@ import {
 } from '../components/MicRecorder/MicRecorder';
 import type { HumSource } from '../components/HumSetup/HumSetup';
 import { formatClock } from '../lib/import/format';
+import { latencyText } from '../lib/mic/micTexts';
 import type { RecorderState } from '../lib/mic/recorderState';
 
 /** Count-in, recording and making the file: S2 cannot be left or switched to the file meanwhile. */
@@ -33,7 +34,6 @@ export function micHumSource({
   const { state, take } = recorder;
   const recording = isRecording(state);
   return {
-    heading: '1. 歌の音を受け取る',
     field: (
       <MicRecorder
         recorder={recorder}
@@ -50,6 +50,10 @@ export function micHumSource({
       : recording
         ? '録音しています'
         : 'まだ録っていません',
+    // the take was recorded with this mic's remembered remainder (measuring needs an open mic, M7 has none)
+    summaryExtra: take
+      ? { label: '入力の遅れ', value: latencyText(state.remainderMs) }
+      : undefined,
     startLabel: '下書きを作る',
     hint: take ? '数秒かかります。' : '先に録音してください。',
     retake: { label: '録り直す', onClick: recorder.retake },

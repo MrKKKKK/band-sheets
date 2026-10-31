@@ -248,7 +248,7 @@ describe('HumImportScreen', () => {
       createFakeAnalysisClient({ results: { hum: humSilentResult() } }),
     );
     expect(
-      screen.getByRole('heading', { name: '1. 録音ファイル' }),
+      screen.getByRole('heading', { name: '1. 歌の音を受け取る' }),
     ).toBeVisible();
     expect(screen.getByRole('heading', { name: '録り方' })).toBeVisible();
     expect(screen.getByText(/曲のテンポ（♩= 100）で/)).toBeVisible();

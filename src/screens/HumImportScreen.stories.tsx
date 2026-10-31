@@ -183,6 +183,8 @@ export const MicTakeToReview: Story = {
     await waitFor(() => expect(heading).toHaveFocus());
     expect(c.getByText(/^マイクの録音 0:0\d$/)).toBeVisible();
     expect(c.getByRole('button', { name: 'やめて戻る' })).toBeVisible();
+    expect(c.getByText('入力の遅れ', { selector: 'dt' })).toBeVisible();
+    expect(c.getByText('まだ測っていません', { selector: 'dd' })).toBeVisible();
     await userEvent.click(c.getByRole('button', { name: '下書きを作る' }));
     expect(
       await c.findByRole('heading', { name: '鼻歌の下書きを確かめる' }),

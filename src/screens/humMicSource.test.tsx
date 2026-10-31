@@ -47,7 +47,6 @@ describe('micHumSource', () => {
   it('before a take: not ready, 「音」 not recorded yet, no 録り方 card', () => {
     const s = build(view({ phase: 'ready', notice: null }));
     expect(s).toMatchObject({
-      heading: '1. 歌の音を受け取る',
       ready: false,
       summaryLabel: '音',
       summary: 'まだ録っていません',
@@ -56,6 +55,7 @@ describe('micHumSource', () => {
       locked: false,
     });
     expect(s.how).toBeUndefined();
+    expect(s.summaryExtra).toBeUndefined();
     expect(s.startNote).toMatch(/カウントの次の拍が 1 小節目の 1 拍目/);
   });
 
@@ -93,7 +93,11 @@ describe('micHumSource', () => {
       summary: 'マイクの録音 0:24',
       hint: '数秒かかります。',
       locked: false,
+      summaryExtra: { label: '入力の遅れ', value: 'まだ測っていません' },
     });
+    const measured = view({ phase: 'take', take: info, end: 'user' }, true);
+    measured.state.remainderMs = 48;
+    expect(build(measured).summaryExtra?.value).toBe('48 ms');
     expect(build(r, true).ready).toBe(false);
     s.retake.onClick();
     expect(r.retake).toHaveBeenCalled();

@@ -21,7 +21,6 @@ export function fileHumSource({
   beats: number;
 }): HumSource {
   return {
-    heading: '1. 録音ファイル',
     field: (
       <AudioFileField
         file={pickedFile}
