@@ -1,5 +1,5 @@
 /** Messages between the drum bench page and its Worker (spike 5 T8). No hits ever cross back: counts and timings only. */
-import type { DrumInfo } from '../drum/types';
+import type { DrumInfo, DrumLevel } from '../drum/types';
 
 export interface DrumRunRequest {
   type: 'run';
@@ -8,6 +8,8 @@ export interface DrumRunRequest {
   /** mono samples at `sr`, transferred (zero-copy) */
   samples: Float32Array;
   info: DrumInfo;
+  /** analysis level (T13); default S-3 */
+  level?: DrumLevel;
   /** partial DrumConfig overrides */
   config?: unknown;
 }

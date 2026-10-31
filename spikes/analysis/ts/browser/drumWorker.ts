@@ -39,7 +39,7 @@ scope.onmessage = (e) => {
   try {
     const t0 = performance.now();
     const cfg = resolveDrumConfig(req.config ?? {});
-    const r = analyzeDrums({ ...req.info, samples: req.samples, sampleRate: req.sr }, cfg, {
+    const r = analyzeDrums({ ...req.info, samples: req.samples, sampleRate: req.sr, level: req.level }, cfg, {
       onStage: (name, ms) => scope.postMessage({ type: 'stage', id: req.id, name, ms }),
     });
     const analysisMs = performance.now() - t0;

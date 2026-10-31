@@ -5,6 +5,7 @@
  * Nothing is sent anywhere (CSP connect-src 'self', network APIs removed in the Worker) and the hits are never shown.
  * Test hook: window.__drumBench.
  */
+import type { DrumLevel } from '../drum/types';
 import type { DrumRunRequest, DrumRunSummary, DrumWorkerMessage } from './drumProtocol';
 import { readWavHeader } from './wav';
 
@@ -81,6 +82,7 @@ function analyse(
   mono: Float32Array,
   sr: number,
   info: DrumRunRequest['info'],
+  level: DrumLevel,
 ): Promise<Pick<Row, 'label' | 'inputSr' | 'summary'>> {
   const id = nextId++;
   return new Promise((resolve, reject) => {
@@ -91,7 +93,7 @@ function analyse(
       else if (m.type === 'error') reject(Object.assign(new Error(m.message), { code: m.code }));
       else resolve({ label, inputSr: sr, summary: m.summary });
     };
-    const req: DrumRunRequest = { type: 'run', id, sr, samples: mono, info };
+    const req: DrumRunRequest = { type: 'run', id, sr, samples: mono, info, level };
     worker.postMessage(req, [mono.buffer as ArrayBuffer]); // transfer: mono is detached here
   });
 }
@@ -140,6 +142,7 @@ runEl.addEventListener('click', async () => {
   bench.error = undefined;
   const ts = parseTs($<HTMLInputElement>('ts').value);
   const info = { bpm: Number($<HTMLInputElement>('bpm').value), ts: ts ?? ([0, 0] as [number, number]), startSec: Number($<HTMLInputElement>('start').value) };
+  const level = $<HTMLSelectElement>('level').value as DrumLevel;
   const repeat = Math.max(1, Math.min(40, Math.floor(Number($<HTMLInputElement>('repeat').value) || 1)));
   runEl.disabled = true;
   try {
@@ -152,7 +155,7 @@ runEl.addEventListener('click', async () => {
     const sr = dec.sr;
     const mono = repeat === 1 ? dec.mono : repeatSignal(dec.mono, repeat);
     const decodeMs = performance.now() - tStart;
-    const r = await analyse(`file ${bench.runs.length + 1}`, mono, sr, info);
+    const r = await analyse(`file ${bench.runs.length + 1} ${level}`, mono, sr, info, level);
     addRow({ ...r, repeat, decodeMs, wallMs: performance.now() - tStart, ticks: ticks - ticks0, maxTickGapMs: maxGap });
     statusEl.textContent = '完了';
   } catch (e) {
