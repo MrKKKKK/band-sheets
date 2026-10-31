@@ -62,6 +62,7 @@ import {
   type HumPlayback,
   type ListenMode,
 } from '../../hooks/useHumPlayback';
+import { SAVE_WAV_BUTTON } from '../../lib/mic/micTexts';
 import { Button } from '../Button/Button';
 import { Chip } from '../Button/Chip';
 import { ConfirmDialog } from '../ConfirmDialog/ConfirmDialog';
@@ -97,6 +98,8 @@ export type HumReviewProps = {
   live: string;
   say: (message: string) => void;
   headingRef?: Ref<HTMLHeadingElement>;
+  /** 「録音を保存（wav）」: given only when the recording is a mic take (never for a picked file). */
+  onSaveTake?: () => void;
   /** Tests / stories: no real <audio> / AudioContext. */
   playbackDeps?: { audio?: AudioPlayerDeps; createTone?: () => TonePlayer };
 };
@@ -140,6 +143,7 @@ export function HumReview({
   live,
   say,
   headingRef,
+  onSaveTake,
   playbackDeps,
 }: HumReviewProps) {
   const ids = { fix: useId(), score: useId(), side: useId(), panel: useId() };
@@ -316,6 +320,15 @@ export function HumReview({
               {file.name} ・ {formatClock(result.source.durationSec)}
             </span>
           </p>
+
+          {onSaveTake ? (
+            <div className={styles.saveTake}>
+              <Button onClick={onSaveTake}>{SAVE_WAV_BUTTON}</Button>
+              <span className={styles.note}>
+                あとで「ファイルを選ぶ」から使い直せます。
+              </span>
+            </div>
+          ) : null}
 
           <PlayerBar
             pb={pb}

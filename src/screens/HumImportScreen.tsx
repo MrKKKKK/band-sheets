@@ -11,6 +11,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { probeDuration } from '../analysis/probeDuration';
+import { saveFile } from '../audio/saveFile';
 import { createMicSession, type MicSession } from '../audio/micSession';
 import type { AnalysisClient, HumRequest } from '../analysis/types';
 import {
@@ -72,6 +73,8 @@ export type HumImportScreenProps = {
   playbackDeps?: HumReviewProps['playbackDeps'];
   /** 「マイクで録る」's mic. Default: the real one (asks for the permission only when the mic is chosen). */
   micSession?: MicSession;
+  /** 「録音を保存（wav）」. Default: `saveFile`. */
+  save?: (blob: Blob, name: string) => void;
 };
 
 type SourceKind = 'file' | 'mic';
@@ -97,6 +100,7 @@ export function HumImportScreen({
   probe = probeDuration,
   playbackDeps,
   micSession,
+  save = saveFile,
 }: HumImportScreenProps) {
   const targets = useMemo(
     () => humTargets(song, partIndex, ts),
@@ -252,6 +256,15 @@ export function HumImportScreen({
         live={live}
         say={say}
         headingRef={reviewRef}
+        onSaveTake={
+          sourceKind === 'mic' && recorder.take?.file === phase.file
+            ? () =>
+                save(
+                  phase.file,
+                  humTakeFileName(songTitle, value.label, new Date()),
+                )
+            : undefined
+        }
         playbackDeps={playbackDeps}
       />
     );

@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -16,7 +16,11 @@ import { HumReview } from './HumReview';
 
 function setup(
   result: HumAnalysisResult = humSampleResult(),
-  props: { onBack?: () => void; backRequest?: number } = {},
+  props: {
+    onBack?: () => void;
+    backRequest?: number;
+    onSaveTake?: () => void;
+  } = {},
 ) {
   const onBack = props.onBack ?? vi.fn();
   const onInsert = vi.fn();
@@ -43,6 +47,7 @@ function setup(
         onInsert={onInsert}
         onBack={onBack}
         backRequest={props.backRequest}
+        onSaveTake={props.onSaveTake}
         live={live}
         say={setLive}
         playbackDeps={{
@@ -246,3 +251,17 @@ async function openNote3() {
   await userEvent.keyboard('{ArrowRight}{ArrowRight}{ArrowRight}');
   await screen.findByTestId('candidate-panel');
 }
+
+describe('HumReview: 録音を保存（wav）', () => {
+  it('is shown only when onSaveTake is given, and a click calls it', async () => {
+    setup();
+    expect(
+      screen.queryByRole('button', { name: '録音を保存（wav）' }),
+    ).toBeNull();
+    cleanup();
+    const onSaveTake = vi.fn();
+    setup(humSampleResult(), { onSaveTake });
+    await press('録音を保存（wav）');
+    expect(onSaveTake).toHaveBeenCalledTimes(1);
+  });
+});

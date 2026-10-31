@@ -74,6 +74,16 @@ export const Default: Story = {
   },
 };
 
+/** A mic take: 「録音を保存（wav）」 is offered (a picked file never shows it). */
+export const SaveTake: Story = {
+  args: { onSaveTake: fn() },
+  play: async ({ canvasElement, args }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByRole('button', { name: '録音を保存（wav）' }));
+    expect(args.onSaveTake).toHaveBeenCalledTimes(1);
+  },
+};
+
 /** 16th-note start shift: one press = a 16th, two = a half beat; the bound disables the back buttons. */
 export const StartShift16th: Story = {
   play: async ({ canvasElement }) => {
