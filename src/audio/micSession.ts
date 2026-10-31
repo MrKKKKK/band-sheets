@@ -15,31 +15,17 @@ import { clickSamples } from '../lib/mic/clickTrack';
 import type { ReportedLatency } from '../lib/mic/latency';
 import { CAPTURE_PROCESSOR, type CaptureMessage } from './captureCore';
 import { createCaptureRouter } from './captureRouter';
+import type {
+  MicDevice,
+  MicErrorKind,
+  MicInterruption,
+} from '../lib/mic/micTypes';
+
+export type { MicDevice, MicErrorKind, MicInterruption };
 import captureWorkletUrl from './capture.worklet.ts?worker&url';
 
 /** The worklet module's URL: dev `/src/audio/capture.worklet.ts?worker_file&type=module`, build `assets/capture.worklet-*.js` (same origin either way). */
 export const CAPTURE_WORKLET_URL = captureWorkletUrl;
-
-/** An input device as the user should see it: Chromium's virtual `default` / `communications` entries are folded into the real device. */
-export interface MicDevice {
-  /** the REAL device id (also the key of the remembered latency) */
-  deviceId: string;
-  /** empty until the permission was given once */
-  label: string;
-  /** the system's default input */
-  isDefault: boolean;
-}
-
-export type MicErrorKind =
-  /** NotAllowedError / SecurityError */
-  | 'denied'
-  /** NotFoundError / OverconstrainedError (the chosen device is gone) */
-  | 'notFound'
-  /** NotReadableError / AbortError: another app holds it, or the OS failed */
-  | 'busy'
-  /** no getUserMedia / AudioContext / AudioWorklet */
-  | 'unsupported'
-  | 'unknown';
 
 export class MicError extends Error {
   readonly kind: MicErrorKind;
@@ -53,17 +39,6 @@ export class MicError extends Error {
 export function isMicError(e: unknown): e is MicError {
   return e instanceof MicError;
 }
-
-/**
- * Why an open mic stopped working by itself. A hidden tab is NOT one.
- * - `ended`: the track ended (unplugged, permission revoked);
- * - `contextClosed` / `contextInterrupted`: the AudioContext closed, or was interrupted / suspended after running
- *   (not by `close()`);
- * - `workletError`: the capture processor threw.
- * A context that just stalls (no state change) is not reported: the caller watches `now()` for that.
- */
-export type MicInterruption =
-  'ended' | 'contextClosed' | 'contextInterrupted' | 'workletError';
 
 export interface MicHandlers {
   /** Peak |sample| (0…1) of the last ~43 ms, about 23 times a second, while the mic is open. */
