@@ -12,6 +12,7 @@ import { formatClock, formatFileSize } from '../../lib/import/format';
 import type { TimeSig } from '../../lib/melody';
 import { clickBeats, clickNotes } from '../../lib/mic/clickTrack';
 import {
+  BAR_SUFFIX,
   CANCEL_COUNT_IN,
   COUNT_IN_NOTE,
   COUNT_IN_STATUS,
@@ -19,11 +20,24 @@ import {
   ELAPSED_LABEL,
   FINISHING_STATUS,
   HEADPHONES_NOTE,
-  LATENCY_HINT,
+  LATENCY_HINT_LEAD,
+  LATENCY_HINT_REST,
   latencyText,
   measureButtonText,
   MIC_ERROR_TEXTS,
+  METER_HINT,
   micLabel,
+  PAUSE_LABEL,
+  PLAY_FAILED,
+  PLAY_LABEL,
+  RETAKE_BUTTON,
+  RETAKE_HINT,
+  SAVE_WAV_BUTTON,
+  TAKE_HEADING,
+  TAKE_PLAY_HINT,
+  WAITING_MIC_OPTION,
+  WAITING_NOTE,
+  WITH_CLICK_LABEL,
   readyNoticeText,
   RECORDING_NOTE,
   RECORDING_STATUS,
@@ -81,7 +95,7 @@ export type MicRecorderProps = {
   playbackDeps?: { audio?: AudioPlayerDeps; createTone?: () => TonePlayer };
 };
 
-type Group = 'wait' | 'error' | 'ready' | 'count' | 'rec' | 'take';
+type Group = 'wait' | 'error' | 'ready' | 'count' | 'rec' | 'finish' | 'take';
 
 /** Phases that belong to one screen of the canvas: focus moves only when the group changes. */
 function groupOf(state: RecorderState): Group {
@@ -99,8 +113,9 @@ function groupOf(state: RecorderState): Group {
     case 'countIn':
       return 'count';
     case 'recording':
-    case 'finishing':
       return 'rec';
+    case 'finishing':
+      return 'finish';
     case 'take':
     case 'confirmRetake':
       return 'take';
@@ -127,7 +142,9 @@ function BeatBoxes({
 }) {
   return (
     <div
-      className={small ? styles.beatsSmall : styles.beats}
+      className={
+        small ? styles.beatsSmall : count > 4 ? styles.beatsMid : styles.beats
+      }
       aria-hidden="true"
       data-testid="beats"
     >
@@ -167,13 +184,16 @@ export function MicRecorder({
   const stopRef = useRef<HTMLButtonElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const takeRef = useRef<HTMLHeadingElement>(null);
+  const waitRef = useRef<HTMLSpanElement>(null);
+  const finishRef = useRef<HTMLParagraphElement>(null);
   const prevGroup = useRef(group);
 
   useEffect(() => {
     if (prevGroup.current === group) return;
     prevGroup.current = group;
     const target: Record<Group, { current: HTMLElement | null } | null> = {
-      wait: null,
+      wait: waitRef,
+      finish: finishRef,
       error: errorRef,
       ready: recordRef,
       count: cancelRef,
@@ -199,7 +219,7 @@ export function MicRecorder({
             disabled
             aria-describedby={noteId}
           >
-            <option>マイクの許可を待っています…</option>
+            <option>{WAITING_MIC_OPTION}</option>
           </select>
         </div>
         <div className={styles.row}>
@@ -215,8 +235,8 @@ export function MicRecorder({
           >
             ● 録音
           </Button>
-          <span id={noteId} className={styles.note}>
-            マイクが使えるようになると押せます。
+          <span id={noteId} ref={waitRef} tabIndex={-1} className={styles.note}>
+            {WAITING_NOTE}
           </span>
         </div>
       </div>
@@ -298,7 +318,7 @@ export function MicRecorder({
                 <p className={styles.note}>いま</p>
                 <p className={styles.bigNum} data-testid="bar">
                   {state.bar}
-                  <span className={styles.bigUnit}> 小節目</span>
+                  <span className={styles.bigUnit}> {BAR_SUFFIX}</span>
                 </p>
               </div>
               <BeatBoxes small count={state.meter.ts.num} beat={state.beat} />
@@ -325,7 +345,9 @@ export function MicRecorder({
             </div>
           </>
         ) : (
-          <p className={styles.status}>{FINISHING_STATUS}</p>
+          <p ref={finishRef} tabIndex={-1} className={styles.status}>
+            {FINISHING_STATUS}
+          </p>
         )}
       </div>
     );
@@ -350,7 +372,7 @@ export function MicRecorder({
           title={RETAKE_TITLE}
           message={`${RETAKE_BODY}${RETAKE_NOTE}`}
           cancelLabel="やめる"
-          confirmLabel="録り直す"
+          confirmLabel={RETAKE_BUTTON}
           onCancel={recorder.cancelRetake}
           onConfirm={recorder.confirmRetake}
         />
@@ -399,7 +421,7 @@ export function MicRecorder({
         <span className={styles.label}>音の大きさ</span>
         <MeterRow recorder={recorder} />
         <span className={`${styles.note} ${styles.meterHint}`}>
-          声を出して確かめます
+          {METER_HINT}
         </span>
       </div>
       <div className={styles.row}>
@@ -413,7 +435,10 @@ export function MicRecorder({
       </div>
       {state.remainderMs === null ? (
         <div className={styles.hint}>
-          <span>{LATENCY_HINT}</span>
+          <span>
+            <strong>{LATENCY_HINT_LEAD}</strong>
+            {LATENCY_HINT_REST}
+          </span>
         </div>
       ) : null}
       <div className={styles.row}>
@@ -484,7 +509,7 @@ function TakeCard({
       <div className={styles.takeCard}>
         <div className={styles.takeHead}>
           <h3 ref={headingRef} tabIndex={-1} className={styles.takeTitle}>
-            録音 1 つ
+            {TAKE_HEADING}
           </h3>
           <span className={styles.takeInfo} data-testid="take-info">
             長さ {formatClock(take.durationSec)}（約 {bars} 小節）・{' '}
@@ -506,32 +531,30 @@ function TakeCard({
             onClick={() => (player.playing ? pb.pause() : pb.play())}
             disabled={player.failed}
           >
-            {player.playing ? '■ 止める' : '▶ 聞く'}
+            {player.playing ? PAUSE_LABEL : PLAY_LABEL}
           </Button>
           <label className={styles.check} htmlFor={clickId}>
             <input
               id={clickId}
               type="checkbox"
-              defaultChecked
+              checked={pb.mode !== 'recording'}
               onChange={(e) => {
                 pb.setMode(e.target.checked ? 'both' : 'recording');
               }}
             />
-            クリックも一緒に聞く
+            {WITH_CLICK_LABEL}
           </label>
           <span className={styles.note}>
-            {player.failed
-              ? 'この録音を再生できませんでした。'
-              : 'ヘッドホンのままで聞くと、歌とクリックのずれが確かめられます。'}
+            {player.failed ? PLAY_FAILED : TAKE_PLAY_HINT}
           </span>
         </div>
       </div>
       <div className={styles.row}>
-        <Button onClick={recorder.retake}>録り直す</Button>
+        <Button onClick={recorder.retake}>{RETAKE_BUTTON}</Button>
         <Button onClick={() => save(take.file, saveName)}>
-          録音を保存（wav）
+          {SAVE_WAV_BUTTON}
         </Button>
-        <span className={styles.note}>録り直すと、この録音は消えます。</span>
+        <span className={styles.note}>{RETAKE_HINT}</span>
       </div>
     </>
   );

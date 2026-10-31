@@ -327,6 +327,7 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
       type: 'measureDone',
       remainderMs: verdict.remainderMs,
       spreadMs: verdict.spreadMs,
+      found: verdict.found,
     });
   }
 

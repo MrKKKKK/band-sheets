@@ -1,10 +1,16 @@
 import { useEffect, useRef } from 'react';
 import { MEASURE_CLICKS } from '../../lib/mic/latency';
 import {
+  MEASURE_AGAIN,
+  MEASURE_CANCEL,
+  MEASURE_CLOSE,
   MEASURE_FAILED_TEXT,
   MEASURE_FAILED_TIPS,
   MEASURE_FAILED_TITLE,
-  MEASURE_INSTRUCTION,
+  MEASURE_INSTRUCTION_LEAD,
+  MEASURE_INSTRUCTION_REST,
+  MEASURE_PICTURE,
+  MEASURE_TRY,
   MEASURE_TITLE,
   MEASURED_TITLE,
   measuredNote,
@@ -58,7 +64,7 @@ export function LatencyDialog({
         initialFocusRef={cancelRef}
         footer={
           <Button ref={cancelRef} onClick={onClose}>
-            中止
+            {MEASURE_CANCEL}
           </Button>
         }
       >
@@ -80,9 +86,12 @@ export function LatencyDialog({
               <rect x="42" y="8" width="8" height="14" rx="4" />
               <path d="M40 22a6 6 0 0 0 12 0" />
             </svg>
-            <span>ヘッドホン ⇄ マイク</span>
+            <span>{MEASURE_PICTURE}</span>
           </div>
-          <p className={styles.text}>{MEASURE_INSTRUCTION}</p>
+          <p className={styles.text}>
+            <strong>{MEASURE_INSTRUCTION_LEAD}</strong>
+            {MEASURE_INSTRUCTION_REST}
+          </p>
           <div className={styles.dots} aria-hidden="true">
             {Array.from({ length: total }, (_, i) => (
               <b key={i} className={i < heard ? styles.on : undefined} />
@@ -115,9 +124,9 @@ export function LatencyDialog({
         initialFocusRef={primaryRef}
         footer={
           <>
-            <Button onClick={onMeasure}>もう一度測る</Button>
+            <Button onClick={onMeasure}>{MEASURE_AGAIN}</Button>
             <Button ref={primaryRef} variant="primary" onClick={onClose}>
-              閉じる
+              {MEASURE_CLOSE}
             </Button>
           </>
         }
@@ -130,7 +139,9 @@ export function LatencyDialog({
             <br />
             {state.remainderMs === null ? '' : measuredText(state.remainderMs)}
           </div>
-          <p className={styles.muted}>{measuredNote(state.spreadMs)}</p>
+          <p className={styles.muted}>
+            {measuredNote(state.spreadMs, state.found)}
+          </p>
         </div>
       </Dialog>
     );
@@ -145,9 +156,9 @@ export function LatencyDialog({
       initialFocusRef={primaryRef}
       footer={
         <>
-          <Button onClick={onClose}>閉じる</Button>
+          <Button onClick={onClose}>{MEASURE_CLOSE}</Button>
           <Button ref={primaryRef} variant="primary" onClick={onMeasure}>
-            もう一度測る
+            {MEASURE_AGAIN}
           </Button>
         </>
       }
@@ -156,7 +167,7 @@ export function LatencyDialog({
         <div className={styles.err} data-testid="measure-failed">
           <strong>{MEASURE_FAILED_TEXT}</strong>
         </div>
-        <p className={styles.muted}>次を試してください。</p>
+        <p className={styles.muted}>{MEASURE_TRY}</p>
         <ul className={styles.tips}>
           {MEASURE_FAILED_TIPS.map((t) => (
             <li key={t}>{t}</li>

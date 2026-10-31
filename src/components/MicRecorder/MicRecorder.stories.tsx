@@ -1,7 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, userEvent, waitFor, within } from 'storybook/test';
-import { createFakeMicSession } from '../../audio/fakeMicSession';
+import {
+  createFakeMicSession,
+  type FakeMicSession,
+} from '../../audio/fakeMicSession';
 import { useMicRecorder } from '../../hooks/useMicRecorder';
 import { createMemoryStorage } from '../../lib/storage';
 import {
@@ -59,6 +62,8 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
+
+let session: FakeMicSession | null = null;
 
 const body = (el: HTMLElement) => within(el.ownerDocument.body);
 
@@ -210,6 +215,37 @@ export const M3TooShortNotice: Story = {
 
 const METER = { tempo: 96, ts: { num: 4, den: 4 } };
 
+const countIn = (num: number, den: number, tempo: number, beat: number) =>
+  viewOf(
+    stateOf({
+      phase: 'countIn',
+      meter: { tempo, ts: { num, den } },
+      beat,
+    }),
+    { level: 0.02 },
+  );
+
+export const M5CountIn68: Story = {
+  args: { recorder: countIn(6, 8, 120, 4), ts: { num: 6, den: 8 } },
+  play: ({ canvasElement }) => {
+    const boxes = within(canvasElement).getByTestId('beats');
+    expect(boxes.querySelectorAll('b')).toHaveLength(6);
+    expect(boxes.scrollWidth).toBeLessThanOrEqual(boxes.clientWidth);
+  },
+};
+
+export const M5CountIn128: Story = {
+  args: { recorder: countIn(12, 8, 120, 7), ts: { num: 12, den: 8 } },
+  play: ({ canvasElement }) => {
+    const boxes = within(canvasElement).getByTestId('beats');
+    expect(boxes.querySelectorAll('b')).toHaveLength(12);
+    expect(boxes.scrollWidth).toBeLessThanOrEqual(boxes.clientWidth);
+    expect(canvasElement.scrollWidth).toBeLessThanOrEqual(
+      canvasElement.clientWidth,
+    );
+  },
+};
+
 export const M5CountIn: Story = {
   args: {
     recorder: viewOf(stateOf({ phase: 'countIn', meter: METER, beat: 3 }), {
@@ -302,21 +338,25 @@ const takeState = (end: 'user' | 'limit' | 'ended' | 'stalled' = 'user') =>
   stateOf({ phase: 'take', take, end }, { remainderMs: 48 });
 
 /** A fake <audio> so ▶ works without a sound device. */
-const fakeDeps: MicRecorderProps['playbackDeps'] = {
+const depsWith = (start: () => number): MicRecorderProps['playbackDeps'] => ({
   audio: {
-    createElement: () =>
-      fakeAudio({ duration: 24 }) as unknown as HTMLAudioElement,
+    createElement: () => {
+      const audio = fakeAudio({ duration: 24 });
+      setTimeout(() => audio.loadMetadata(), 0);
+      return audio as unknown as HTMLAudioElement;
+    },
     createUrl: () => 'blob:fake',
     revokeUrl: () => {},
   },
   createTone: () => ({
-    start: () => 0,
+    start,
     stop: () => {},
     now: () => 0,
     playOne: () => {},
     close: () => {},
   }),
-};
+});
+const fakeDeps = depsWith(() => 0);
 
 export const M7Take: Story = {
   args: {
@@ -393,8 +433,46 @@ export const M7Playing: Story = {
     ).not.toBeChecked();
     await userEvent.click(c.getByRole('button', { name: '▶ 聞く' }));
     await waitFor(() =>
-      expect(c.getByRole('button', { name: '■ 止める' })).toBeVisible(),
+      expect(c.getByRole('button', { name: '⏸ 止める' })).toBeVisible(),
     );
+  },
+};
+
+const clickStart = fn(() => 0);
+
+export const M7PlayWithClick: Story = {
+  args: {
+    recorder: viewOf(takeState(), { take }),
+    playbackDeps: depsWith(clickStart),
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    clickStart.mockClear();
+    await userEvent.click(c.getByRole('button', { name: '▶ 聞く' }));
+    await waitFor(() => expect(clickStart).toHaveBeenCalled());
+  },
+};
+
+const noClickStart = fn(() => 0);
+
+export const M7PlayWithoutClick: Story = {
+  args: {
+    recorder: viewOf(takeState(), { take }),
+    playbackDeps: depsWith(noClickStart),
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    noClickStart.mockClear();
+    await userEvent.click(
+      c.getByRole('checkbox', { name: 'クリックも一緒に聞く' }),
+    );
+    await userEvent.click(c.getByRole('button', { name: '▶ 聞く' }));
+    await waitFor(() =>
+      expect(c.getByRole('button', { name: '⏸ 止める' })).toBeVisible(),
+    );
+    // let the player's `playing` event pass: the click tone must still not start
+    await new Promise((r) => setTimeout(r, 200));
+    expect(noClickStart).not.toHaveBeenCalled();
   },
 };
 
@@ -454,7 +532,10 @@ export const M4Measuring: Story = {
 export const M4Measured: Story = {
   args: {
     recorder: viewOf(
-      stateOf({ phase: 'measured', spreadMs: 3 }, { remainderMs: 48 }),
+      stateOf(
+        { phase: 'measured', spreadMs: 3, found: 4 },
+        { remainderMs: 48 },
+      ),
     ),
   },
   play: async ({ canvasElement, args }) => {
@@ -495,12 +576,16 @@ export const M4MeasureFailed: Story = {
 
 function Live({
   sessionOptions,
+  onSession,
 }: {
   sessionOptions?: Parameters<typeof createFakeMicSession>[0];
+  onSession?: (s: FakeMicSession) => void;
 }) {
-  const [session] = useState(() =>
-    createFakeMicSession({ tickMs: 50, ...sessionOptions }),
-  );
+  const [session] = useState(() => {
+    const s = createFakeMicSession({ tickMs: 50, ...sessionOptions });
+    onSession?.(s);
+    return s;
+  });
   const [storage] = useState(() => createMemoryStorage());
   const [fileTab, setFileTab] = useState(false);
   const recorder = useMicRecorder({
@@ -583,11 +668,7 @@ export const FlowMeasureSucceeds: Story = {
     const dialog = await d.findByRole('dialog', {
       name: '入力の遅れを測ります',
     });
-    await within(dialog)
-      .findByText(/測れました|入力の遅れ \d+ ms/, undefined, {
-        timeout: 8000,
-      })
-      .catch(() => {});
+    expect(dialog).toBeVisible();
     const done = await d.findByRole(
       'dialog',
       { name: '測れました' },
@@ -634,5 +715,42 @@ export const FlowPermissionDenied: Story = {
       c.getByRole('button', { name: 'ファイルを選ぶほうに切り替える' }),
     );
     expect(await c.findByText('ファイルを選ぶ')).toBeVisible();
+  },
+};
+
+export const FlowRemainingAndLimit: Story = {
+  // the fake clock is moved by hand: no waiting for 10 real minutes (8 kHz keeps the take small)
+  render: () => {
+    return (
+      <Live
+        sessionOptions={{ tickMs: undefined, sampleRate: 8000 }}
+        onSession={(s) => {
+          session = s;
+        }}
+      />
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const rec = await c.findByRole('button', { name: '● 録音' });
+    await waitFor(() => expect(rec).toBeEnabled());
+    await userEvent.click(rec);
+    await c.findByRole('button', { name: /やめる/ });
+    // through the count-in (a bar is 1 s at ♩=240) into the recording
+    session!.advance(1.5);
+    const stop = await c.findByRole('button', { name: '■ 止める' });
+    expect(c.queryByTestId('remaining')).toBeNull();
+    // 9 minutes of the file: the remaining time appears
+    session!.advance(541 - 1.5);
+    const remaining = await c.findByTestId('remaining');
+    expect(remaining).toHaveTextContent(/残り [01]:\d\d/);
+    expect(stop).toBeVisible();
+    // 10 minutes: it stops by itself and the take says so
+    session!.advance(61);
+    const note = await c.findByTestId('take-end-notice', undefined, {
+      timeout: 10000,
+    });
+    expect(note).toHaveTextContent('10 分になったので止めました。');
+    expect(c.getByTestId('take-info')).toHaveTextContent(/長さ (9:59|10:00)/);
   },
 };

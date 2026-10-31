@@ -32,7 +32,10 @@ export const Measuring: Story = {
 
 export const Measured: Story = {
   args: {
-    state: stateOf({ phase: 'measured', spreadMs: 3 }, { remainderMs: 48 }),
+    state: stateOf(
+      { phase: 'measured', spreadMs: 3, found: 4 },
+      { remainderMs: 48 },
+    ),
   },
   play: async ({ canvasElement }) => {
     const d = within(await dialog(canvasElement));

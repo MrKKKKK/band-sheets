@@ -56,7 +56,7 @@
 
 .select {
   box-sizing: border-box;
-  min-width: 320px;
+  width: 480px;
   max-width: 100%;
   min-height: var(--control-h);
   padding: 0 var(--space-3);
@@ -104,7 +104,7 @@
 .err {
   box-sizing: border-box;
   padding: 14px 18px;
-  border: 1px solid var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--bg));
   border-radius: var(--radius-md);
   background: var(--danger-bg);
   color: var(--danger);
@@ -128,6 +128,13 @@
   background: var(--danger);
   border-color: var(--danger);
   filter: brightness(0.9);
+}
+
+.recBtn:disabled {
+  border-color: var(--border);
+  background: var(--disabled-bg);
+  color: var(--text-muted);
+  filter: none;
 }
 
 .recWide {
@@ -174,10 +181,16 @@
 }
 
 .beats,
+.beatsMid,
 .beatsSmall {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: var(--space-4);
+}
+
+.beatsMid {
+  gap: var(--space-2);
 }
 
 .beatsSmall {
@@ -185,6 +198,7 @@
 }
 
 .beats b,
+.beatsMid b,
 .beatsSmall b {
   display: flex;
   align-items: center;
@@ -198,6 +212,12 @@
   font: 600 48px var(--font-chord);
 }
 
+.beatsMid b {
+  width: 64px;
+  height: 64px;
+  font-size: 32px;
+}
+
 .beatsSmall b {
   width: 56px;
   height: 56px;
@@ -205,6 +225,7 @@
 }
 
 .beats b.on,
+.beatsMid b.on,
 .beatsSmall b.on {
   border-color: var(--accent);
   background: var(--accent);
@@ -212,6 +233,7 @@
 }
 
 .beats b.done,
+.beatsMid b.done,
 .beatsSmall b.done {
   border-color: var(--accent-border);
   background: var(--accent-bg);
@@ -293,13 +315,4 @@
 .check input {
   width: 20px;
   height: 20px;
-}
-
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }

@@ -52,6 +52,7 @@ const PHASES: Record<RecorderState['phase'], () => RecorderState> = {
         type: 'measureDone',
         remainderMs: 50,
         spreadMs: 2,
+        found: 4,
       },
     ),
   measureFailed: () =>
@@ -200,11 +201,13 @@ describe('recorderReducer: measuring (M4)', () => {
       type: 'measureDone',
       remainderMs: 51,
       spreadMs: 1.5,
+      found: 4,
     });
     expect(s).toMatchObject({
       phase: 'measured',
       remainderMs: 51,
       spreadMs: 1.5,
+      found: 4,
     });
     s = recorderReducer(s, { type: 'closeMeasure' });
     expect(s).toMatchObject({ phase: 'ready', remainderMs: 51, notice: null });
@@ -231,7 +234,12 @@ describe('recorderReducer: measuring (M4)', () => {
     const r = ready();
     expect(recorderReducer(r, { type: 'measureFailed' })).toBe(r);
     expect(
-      recorderReducer(r, { type: 'measureDone', remainderMs: 1, spreadMs: 0 }),
+      recorderReducer(r, {
+        type: 'measureDone',
+        remainderMs: 1,
+        spreadMs: 0,
+        found: 4,
+      }),
     ).toBe(r);
   });
 });

@@ -3,9 +3,8 @@ import { barLineTimes, waveformColumns } from './waveform';
 import styles from './TakeWaveform.module.css';
 
 export type TakeWaveformProps = {
-  /** The largest |sample| (0–1) of every `bucketSec`. */
+  /** The largest |sample| (0–1) of every 10 ms. */
   peaks: ArrayLike<number>;
-  bucketSec?: number;
   durationSec: number;
   /** Where bar 1 starts (s) = one bar; 0 s .. bar1Sec is the count-in. */
   bar1Sec: number;

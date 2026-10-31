@@ -52,7 +52,7 @@ export type RecorderPhase =
   /** M4 A; `heard` = clicks played so far (0–4) */
   | { phase: 'measuring'; heard: number }
   /** M4 B; the new remainder is `remainderMs` */
-  | { phase: 'measured'; spreadMs: number }
+  | { phase: 'measured'; spreadMs: number; found: number }
   | { phase: 'measureFailed' }
   /** M5; `beat` = the count-in beat sounding (1-based), 0 before the first click */
   | { phase: 'countIn'; meter: Meter; beat: number }
@@ -97,7 +97,13 @@ export type RecorderEvent =
   | { type: 'chooseMic'; deviceId: string }
   | { type: 'measure' }
   | { type: 'measureProgress'; heard: number }
-  | { type: 'measureDone'; remainderMs: number; spreadMs: number }
+  | {
+      type: 'measureDone';
+      remainderMs: number;
+      spreadMs: number;
+      /** clicks heard of the ones played */
+      found: number;
+    }
   | { type: 'measureFailed' }
   /** M4's 閉じる / 中止 */
   | { type: 'closeMeasure' }
@@ -271,7 +277,11 @@ export function recorderReducer(
     case 'measureDone':
       return s.phase === 'measuring'
         ? {
-            ...to(s, { phase: 'measured', spreadMs: e.spreadMs }),
+            ...to(s, {
+              phase: 'measured',
+              spreadMs: e.spreadMs,
+              found: e.found,
+            }),
             remainderMs: e.remainderMs,
           }
         : s;

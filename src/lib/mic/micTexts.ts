@@ -103,8 +103,17 @@ export function measureButtonText(remainderMs: number | null): string {
   return remainderMs === null ? '遅れを測る' : '測り直す';
 }
 
-export const LATENCY_HINT =
-  '一度測っておくと、下書きの拍のずれが小さくなります。測らなくても録れます（約 50 ms ずれることがあり、次の画面の「16分ずらし」で直せます）。';
+export const LATENCY_HINT_LEAD =
+  '一度測っておくと、下書きの拍のずれが小さくなります。';
+export const LATENCY_HINT_REST =
+  '測らなくても録れます（約 50 ms ずれることがあり、次の画面の「16分ずらし」で直せます）。';
+export const LATENCY_HINT = `${LATENCY_HINT_LEAD}${LATENCY_HINT_REST}`;
+
+/** M1: the select and the note while the permission is awaited. */
+export const WAITING_MIC_OPTION = 'マイクの許可を待っています…';
+export const WAITING_NOTE = 'マイクが使えるようになると押せます。';
+/** M3: beside the meter. */
+export const METER_HINT = '声を出して確かめます';
 
 export const HEADPHONES_NOTE =
   'ヘッドホンをつけてください。クリックの音がマイクに入るのを防ぎます。';
@@ -117,8 +126,15 @@ export function recordNote(beats: number): string {
 // --- M4 ---
 
 export const MEASURE_TITLE = '入力の遅れを測ります';
-export const MEASURE_INSTRUCTION =
-  'ヘッドホンのスピーカー側を、マイクにぴったりつけてください。クリックが数回鳴ります。';
+export const MEASURE_INSTRUCTION_LEAD =
+  'ヘッドホンのスピーカー側を、マイクにぴったりつけてください。';
+export const MEASURE_INSTRUCTION_REST = 'クリックが数回鳴ります。';
+export const MEASURE_INSTRUCTION = `${MEASURE_INSTRUCTION_LEAD}${MEASURE_INSTRUCTION_REST}`;
+export const MEASURE_PICTURE = 'ヘッドホン ⇄ マイク';
+export const MEASURE_CANCEL = '中止';
+export const MEASURE_CLOSE = '閉じる';
+export const MEASURE_AGAIN = 'もう一度測る';
+export const MEASURE_TRY = '次を試してください。';
 
 export function measureProgressText(heard: number, total: number): string {
   return `測っています…（${heard} / ${total}）`;
@@ -130,8 +146,9 @@ export function measuredText(remainderMs: number): string {
   return `入力の遅れ ${Math.round(remainderMs)} ms を覚えました。`;
 }
 
-export function measuredNote(spreadMs: number): string {
-  return `このマイクで録るときは、この分を自動で補正します。マイクやヘッドホンを変えたときは、測り直してください。ばらつき：${Math.round(spreadMs)} ms。`;
+/** `spreadMs` = max − min of the `found` clicks heard; shown as ± half of it. */
+export function measuredNote(spreadMs: number, found: number): string {
+  return `このマイクで録るときは、この分を自動で補正します。マイクやヘッドホンを変えたときは、測り直してください。${found} 回のばらつき：±${Math.round(spreadMs / 2)} ms。`;
 }
 
 export const MEASURE_FAILED_TITLE = '測れませんでした';
@@ -153,8 +170,10 @@ export const RECORDING_NOTE =
   'クリックは鳴り続けます。歌い終わったら「止める」を押してください。10 分で自動的に止まります。';
 export const ELAPSED_LABEL = '経過（最長 10 分）';
 
+export const BAR_SUFFIX = '小節目';
+
 export function barText(bar: number): string {
-  return `${bar} 小節目`;
+  return `${bar} ${BAR_SUFFIX}`;
 }
 
 export function remainingText(sec: number): string {
@@ -162,6 +181,16 @@ export function remainingText(sec: number): string {
 }
 
 export const TAKE_STATUS = '録れました';
+export const TAKE_HEADING = '録音 1 つ';
+export const PLAY_LABEL = '▶ 聞く';
+export const PAUSE_LABEL = '⏸ 止める';
+export const WITH_CLICK_LABEL = 'クリックも一緒に聞く';
+export const TAKE_PLAY_HINT =
+  'ヘッドホンのままで聞くと、歌とクリックのずれが確かめられます。';
+export const PLAY_FAILED = 'この録音を再生できませんでした。';
+export const RETAKE_BUTTON = '録り直す';
+export const SAVE_WAV_BUTTON = '録音を保存（wav）';
+export const RETAKE_HINT = '録り直すと、この録音は消えます。';
 export const RETAKE_TITLE = '録り直しますか？';
 export const RETAKE_BODY = '今の録音は消えます。録り直しますか？';
 export const RETAKE_NOTE =
