@@ -138,3 +138,11 @@
   font-weight: 700;
   line-height: 1.6;
 }
+
+.saveTake {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 12px;
+}

@@ -28,6 +28,7 @@ function setup(
   opts: FakeMicOptions = {},
   client = createFakeAnalysisClient({ results: { hum: humSampleResult() } }),
   probeSec = 12,
+  save: (blob: Blob, name: string) => void = vi.fn(),
 ) {
   const session = createFakeMicSession({ sampleRate: 8000, ...opts });
   const onBack = vi.fn();
@@ -46,6 +47,7 @@ function setup(
       client={client}
       probe={() => Promise.resolve(probeSec)}
       micSession={session}
+      save={save}
       playbackDeps={{
         createTone: () => ({
           start: vi.fn(() => 0),
@@ -354,5 +356,37 @@ describe('HumImportScreen: マイクで録る', () => {
     fireEvent.click(seg('ファイルを選ぶ'));
     await flush();
     expect(screen.queryByTestId('picked-file')).toBeNull();
+  });
+
+  it('S4 offers 「録音を保存（wav）」 for a mic take: saves the take with a click-time name', async () => {
+    const save = vi.fn();
+    const { session } = setup({}, undefined, 12, save);
+    await chooseMic();
+    await recordTake(session);
+    // M7's own save goes through the same injected save
+    fireEvent.click(button('録音を保存（wav）'));
+    expect(save).toHaveBeenCalledTimes(1);
+    save.mockClear();
+    fireEvent.click(button('下書きを作る'));
+    await flush();
+    fireEvent.click(button('録音を保存（wav）'));
+    expect(save).toHaveBeenCalledTimes(1);
+    const [blob, name] = save.mock.calls[0] as [Blob, string];
+    expect(blob.type).toBe('audio/wav');
+    expect(name).toMatch(/\.wav$/);
+  });
+
+  it('S4 has no save button for a picked file', async () => {
+    const { client } = setup();
+    await pickFile();
+    fireEvent.click(button('解析する'));
+    await flush();
+    expect(client.requests).toHaveLength(1);
+    expect(
+      screen.getByRole('heading', { name: '鼻歌の下書きを確かめる' }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: '録音を保存（wav）' }),
+    ).toBeNull();
   });
 });
