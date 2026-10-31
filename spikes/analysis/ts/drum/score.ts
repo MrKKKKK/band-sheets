@@ -20,7 +20,9 @@
  *  - edits (直す手数), per bar, hits keyed (tick, inst, mark): matching truth to estimate hits at cost
  *    (inst differs: 1) + (mark differs: 1) + (shift in grid cells = ceil(|dtick| / gridTicks)); unmatched estimate = delete 1,
  *    unmatched truth = add 1 (minimum-cost assignment, Hungarian). Shuffle: 1 per maximal run of consecutive wrong bars.
- *    Hits are not moved across a barline (that is delete + add).
+ *    Hits are not moved across a barline (that is delete + add). Bars: every scored truth bar AND every bar that has
+ *    estimates only (after the last truth bar, e.g. quantize.ts's closing head at bar = nBars): those estimates are deletes
+ *    (T16, review should-fix 2; the grid precision counted them already).
  *  - keyboard steps (from scratch with src/lib/drumInput.ts): events per bar = one per distinct onset tick (+ a rest event
  *    for a leading gap / an empty bar), length = ticks to the next onset (bar end for the last). Steps = 1 per event
  *    (instrument key or R) + 1 per extra simultaneous hit (Shift+key) + 1 per ghost (S) + 1 per accent (A) + 1 per change
@@ -194,6 +196,8 @@ export interface InstOnsetScores {
   all: OnsetScore;
   /** truth inst -> est inst -> count; 'none' = missed (as a column) / extra (as a row). */
   confusion: Record<string, Record<string, number>>;
+  /** est - truth seconds of the matched pairs, per instrument (timing spread for the pooled reports). */
+  dev: Record<string, number[]>;
 }
 
 export function instrumentOnsets(ref: TimedHit[], est: TimedHit[], tol: number): InstOnsetScores {
@@ -201,6 +205,7 @@ export function instrumentOnsets(ref: TimedHit[], est: TimedHit[], tol: number):
   const perInst: Record<string, OnsetScore> = {};
   const unR: TimedHit[] = [];
   const unE: TimedHit[] = [];
+  const dev: Record<string, number[]> = {};
   let matched = 0;
   for (const inst of insts) {
     const r = ref.filter((h) => h.inst === inst);
@@ -212,6 +217,7 @@ export function instrumentOnsets(ref: TimedHit[], est: TimedHit[], tol: number):
     );
     const pairs = r.length && e.length ? matchOnsets(r.map((h) => h.t), e.map((h) => h.t), tol) : [];
     matched += pairs.length;
+    if (pairs.length) dev[inst] = pairs.map(([i, j]) => e[j].t - r[i].t);
     const mr = new Set(pairs.map((p) => p[0]));
     const me = new Set(pairs.map((p) => p[1]));
     r.forEach((h, i) => mr.has(i) || unR.push(h));
@@ -247,7 +253,7 @@ export function instrumentOnsets(ref: TimedHit[], est: TimedHit[], tol: number):
   const nEst = est.length;
   const precision = nEst ? matched / nEst : 0;
   const recall = nRef ? matched / nRef : 0;
-  return { perInst, all: { precision, recall, f: nRef && nEst ? fMeasure(precision, recall) : 0, matched, nRef, nEst }, confusion };
+  return { perInst, all: { precision, recall, f: nRef && nEst ? fMeasure(precision, recall) : 0, matched, nRef, nEst }, confusion, dev };
 }
 
 /* ------------------------------------------------------------------ grid, strength, swing */
@@ -433,6 +439,7 @@ export interface EditScore {
   ratioCopy: number;
 }
 
+/** `bars` = the scored truth bars; `est` must already leave out excluded bars (any est bar not in `bars` is deleted). */
 export function editScores(truth: GridHit[], est: GridHit[], bars: number[], opts: { barTicks: number; gridTicks?: number; swingWrong?: boolean[] }): EditScore {
   const byBar = (hs: GridHit[]) => {
     const m = new Map<number, BarHit[]>();
@@ -447,10 +454,8 @@ export function editScores(truth: GridHit[], est: GridHit[], bars: number[], opt
   let cur = 8;
   let curCopy = 8;
   const seen = new Set<string>();
-  for (const b of bars) {
-    const t = T.get(b) ?? [];
-    hitEdits += barEdits(t, E.get(b) ?? [], opts.gridTicks);
-  }
+  const scored = new Set(bars);
+  for (const b of [...bars, ...[...E.keys()].filter((k) => !scored.has(k))]) hitEdits += barEdits(T.get(b) ?? [], E.get(b) ?? [], opts.gridTicks);
   for (const b of bars) {
     const t = T.get(b) ?? [];
     const r = barKeyboardSteps(t, opts.barTicks, cur);
@@ -496,6 +501,13 @@ export interface TakeScore {
   /** Instruments present in truth or estimate (for the table columns). */
   insts: string[];
   alignment: Alignment;
+  /** Raw counts for pooling over takes (pool.ts sums these, so pooled and per-take tables use the same bars and tolerance). */
+  counts: {
+    onset: Record<string, { matched: number; nRef: number; nEst: number }>;
+    /** est - truth seconds of the matched pairs at the main tolerance. */
+    devSec: Record<string, number[]>;
+    grid?: { matched: number; nRef: number; nEst: number };
+  };
 }
 
 export function scoreTake(inp: TakeInput): TakeScore {
@@ -535,6 +547,7 @@ export function scoreTake(inp: TakeInput): TakeScore {
   };
   put('onset', main);
   put('onset25', tightRes);
+  const counts: TakeScore['counts'] = { onset: Object.fromEntries(Object.entries(main.perInst).map(([k, v]) => [k, { matched: v.matched, nRef: v.nRef, nEst: v.nEst }])), devSec: main.dev };
   s['align.offsetMs'] = alignment.offsetSec * 1000;
 
   const tq = truthHits.map((h) => ({ bar: h.bar, tick: h.tick, inst: h.inst, mark: h.mark }));
@@ -568,9 +581,9 @@ export function scoreTake(inp: TakeInput): TakeScore {
       heads,
       tol,
     ).f;
-    return { scores: s, confusion: main.confusion, swingConfusion: sw.confusion, insts: Object.keys(main.perInst), alignment };
+    return { scores: s, confusion: main.confusion, swingConfusion: sw.confusion, insts: Object.keys(main.perInst), alignment, counts: { ...counts, grid: { matched: g.matched, nRef: g.nRef, nEst: g.nEst } } };
   }
-  return { scores: s, confusion: main.confusion, swingConfusion: {}, insts: Object.keys(main.perInst), alignment };
+  return { scores: s, confusion: main.confusion, swingConfusion: {}, insts: Object.keys(main.perInst), alignment, counts };
 }
 
 export { WHOLE_TICKS };

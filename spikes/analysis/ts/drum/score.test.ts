@@ -197,6 +197,11 @@ describe('edits', () => {
     expect(r.ratio).toBeCloseTo(1 / 9, 12);
     expect(r.ratioCopy).toBeCloseTo(1 / 6, 12);
   });
+  it('editScores: estimates in bars without truth (after the last truth bar) are deletes (T16)', () => {
+    const r = editScores(four(0), [...four(0), { bar: 1, tick: 0, inst: 'BD' }, { bar: 1, tick: 16, inst: 'SD' }], [0], { barTicks: 64 });
+    expect(r.hitEdits).toBe(2);
+    expect(r.keyboardSteps).toBe(5); // the keyboard side counts truth bars only
+  });
   it('shuffle: one edit per run of wrong bars', () => {
     const r = editScores([], [], [0, 1, 2, 3], { barTicks: 64, swingWrong: [true, true, false, true] });
     expect(r.swingEdits).toBe(2);
