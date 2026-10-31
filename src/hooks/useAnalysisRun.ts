@@ -17,6 +17,7 @@ import {
   isAnalysisError,
   MAX_DURATION_SEC,
   type AnalysisClient,
+  type AnalysisErrorCode,
   type AnalysisProgress,
   type AnalysisRequest,
   type AnalysisResultMap,
@@ -56,6 +57,8 @@ export interface AnalysisRunOptions<R extends AnalysisRequest> {
   doneMessage: string;
   /** A result that cannot become a draft: the notice to show instead of the review. */
   rejectResult?: (result: AnalysisResultMap[R['kind']]) => ImportNotice | null;
+  /** The notice for a failed `startFile` run (a recording the screen made). Default: noticeFor. */
+  takeNotice?: (code: AnalysisErrorCode) => ImportNotice;
 }
 
 type FocusTarget = 'h1' | 'progress' | 'notice' | 'review';
@@ -91,6 +94,7 @@ export function useAnalysisRun<R extends AnalysisRequest>({
   steps,
   doneMessage,
   rejectResult,
+  takeNotice = noticeFor,
 }: AnalysisRunOptions<R>): AnalysisRun<R> {
   type Phase = RunPhase<AnalysisResultMap[R['kind']]>;
   const [phase, setPhase] = useState<Phase>({
@@ -193,6 +197,7 @@ export function useAnalysisRun<R extends AnalysisRequest>({
     duration: number | null,
     back: Picked,
     request: R,
+    failNotice: (code: AnalysisErrorCode) => ImportNotice = noticeFor,
   ) => {
     const run = ++runRef.current;
     analyzingRef.current = true;
@@ -229,8 +234,8 @@ export function useAnalysisRun<R extends AnalysisRequest>({
       if (run !== runRef.current) return;
       const code = isAnalysisError(e) ? e.code : 'internal';
       if (code === 'too-long' && back.file === file)
-        showNotice(null, null, noticeFor(code));
-      else showNotice(back.file, back.duration, noticeFor(code));
+        showNotice(null, null, failNotice(code));
+      else showNotice(back.file, back.duration, failNotice(code));
     }
   };
 
@@ -242,7 +247,13 @@ export function useAnalysisRun<R extends AnalysisRequest>({
 
   const startFile = async (file: File, durationSec: number, request: R) => {
     if (analyzingRef.current) return;
-    await analyze(file, durationSec, { ...pickedRef.current }, request);
+    await analyze(
+      file,
+      durationSec,
+      { ...pickedRef.current },
+      request,
+      takeNotice,
+    );
   };
 
   const cancel = () => {

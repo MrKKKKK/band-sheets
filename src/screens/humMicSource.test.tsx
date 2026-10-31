@@ -39,7 +39,7 @@ const build = (recorder: MicRecorderView, waitForFile = false) =>
     recorder,
     ts: meter.ts,
     onUseFile: vi.fn(),
-    saveName: 'x.wav',
+    saveName: () => 'x.wav',
     waitForFile,
   });
 

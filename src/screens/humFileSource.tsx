@@ -30,7 +30,11 @@ export function fileHumSource({
       />
     ),
     ready: !!pickedFile && !pickedFile.probing,
+    summaryLabel: 'ファイル',
     summary: pickedFile ? pickedFile.name : 'まだ選んでいません',
+    startLabel: '解析する',
+    startNote:
+      'ふつうは 1 小節目の 1 拍目のままで大丈夫です。曲が途中から始まるとき（たとえば 4 拍目から歌い始める）は、そこに合わせてください。録音の中で歌い始めた時間は、自動で見つけます。',
     hint: pickedFile
       ? '数秒かかります。'
       : '先に録音ファイルを選んでください。',

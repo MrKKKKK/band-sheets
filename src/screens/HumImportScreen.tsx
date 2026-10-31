@@ -32,7 +32,7 @@ import {
   humTargets,
   insertHumDraft,
 } from '../lib/import/humImport';
-import { humNoVoiceNotice } from '../lib/import/importErrors';
+import { humNoVoiceNotice, takeNoticeFor } from '../lib/import/importErrors';
 import type { MelodyEvent, TimeSig } from '../lib/melody';
 import { humTakeFileName } from '../lib/fileName';
 import { UNTITLED } from '../lib/serializeSong';
@@ -135,6 +135,7 @@ export function HumImportScreen({
       result.melody.quantized.events.some((e) => e.kind === 'note')
         ? null
         : humNoVoiceNotice(),
+    takeNotice: takeNoticeFor,
   });
   const songTitle = song.meta.title.trim() || UNTITLED;
 
@@ -150,6 +151,11 @@ export function HumImportScreen({
     announce: say,
   });
   const recording = isRecording(recorder.state);
+  /**
+   * The source the notice box belongs to (a pick's too-long, or the last run's failure / cancel): its buttons
+   * (retake, 「もう一度試す」) act on the source shown, so it is shown only with that source.
+   */
+  const [noticeFrom, setNoticeFrom] = useState<SourceKind>('file');
   const switchRef = useRef<HTMLDivElement>(null);
   const chooseSource = (next: SourceKind) => {
     setSourceKind(next);
@@ -187,6 +193,7 @@ export function HumImportScreen({
   }, [backRequest]);
 
   const startRun = () => {
+    setNoticeFrom(sourceKind);
     if (sourceKind === 'mic') {
       const take = recorder.take;
       if (!take || (phase.kind === 'pick' && phase.probing)) return;
@@ -265,13 +272,16 @@ export function HumImportScreen({
           recorder,
           ts,
           onUseFile: switchToFile,
-          saveName: humTakeFileName(songTitle, value.label, new Date()),
+          saveName: () => humTakeFileName(songTitle, value.label, new Date()),
           playbackDeps,
           waitForFile: !!pickedFile?.probing,
         })
       : fileHumSource({
           pickedFile,
-          onPick: (f) => void pick(f),
+          onPick: (f) => {
+            setNoticeFrom('file');
+            void pick(f);
+          },
           inputRef: fileInputRef,
           tempo: value.tempo,
           beats: ts.num,
@@ -308,7 +318,11 @@ export function HumImportScreen({
         value={value}
         onChange={setValue}
         source={sourceWithSwitch}
-        notice={phase.kind === 'pick' ? phase.notice : null}
+        notice={
+          phase.kind === 'pick' && noticeFrom === sourceKind
+            ? phase.notice
+            : null
+        }
         noticeRef={noticeRef}
         progress={
           phase.kind === 'analyzing' ? (

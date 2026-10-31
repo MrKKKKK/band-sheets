@@ -45,6 +45,7 @@ export function micHumSource({
     ),
     ready: !!take && !waitForFile,
     summaryLabel: '音',
+    meter: take?.meter,
     summary: take
       ? `マイクの録音 ${formatClock(take.durationSec)}`
       : recording

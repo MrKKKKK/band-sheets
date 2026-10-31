@@ -27,6 +27,7 @@ afterEach(() => {
 function setup(
   opts: FakeMicOptions = {},
   client = createFakeAnalysisClient({ results: { hum: humSampleResult() } }),
+  probeSec = 12,
 ) {
   const session = createFakeMicSession({ sampleRate: 8000, ...opts });
   const onBack = vi.fn();
@@ -43,7 +44,7 @@ function setup(
       onInsert={vi.fn()}
       onBack={onBack}
       client={client}
-      probe={() => Promise.resolve(12)}
+      probe={() => Promise.resolve(probeSec)}
       micSession={session}
       playbackDeps={{
         createTone: () => ({
@@ -102,12 +103,13 @@ async function recordTake(session: FakeMicSession, sec = 3) {
   expect(screen.getByRole('heading', { name: '録音 1 つ' })).toBeVisible();
 }
 
-async function pickFile() {
+async function pickFile(expectPicked = true) {
   fireEvent.change(screen.getByTestId('audio-file-input'), {
     target: { files: [new File(['x'], 'hum.wav', { type: 'audio/wav' })] },
   });
   await flush();
-  expect(screen.getByTestId('picked-file')).toHaveTextContent('hum.wav');
+  if (expectPicked)
+    expect(screen.getByTestId('picked-file')).toHaveTextContent('hum.wav');
 }
 
 describe('HumImportScreen: マイクで録る', () => {
@@ -262,5 +264,95 @@ describe('HumImportScreen: マイクで録る', () => {
     expect(
       screen.getByRole('dialog', { name: '録り直しますか？' }),
     ).toBeVisible();
+  });
+
+  it('the notice belongs to its source: a file’s too-long is not shown with the mic', async () => {
+    setup({}, undefined, 700);
+    await pickFile(false);
+    expect(screen.getByTestId('import-notice')).toHaveTextContent('長すぎます');
+    await chooseMic();
+    expect(screen.queryByTestId('import-notice')).toBeNull();
+    fireEvent.click(seg('ファイルを選ぶ'));
+    await flush();
+    expect(screen.getByTestId('import-notice')).toHaveTextContent('長すぎます');
+  });
+
+  it('a file analysis’ 「もう一度試す」 is not offered with the mic; the take is analysed and its failure is the mic’s', async () => {
+    const { session, client } = setup(
+      {},
+      createFakeAnalysisClient({ error: 'internal' }),
+    );
+    await pickFile();
+    fireEvent.click(button('解析する'));
+    await flush();
+    expect(button('もう一度試す')).toBeVisible();
+    await chooseMic();
+    expect(screen.queryByTestId('import-notice')).toBeNull();
+    await recordTake(session);
+    fireEvent.click(button('下書きを作る'));
+    await flush();
+    expect((client.requests[1].source as { file: File }).file.type).toBe(
+      'audio/wav',
+    );
+    expect((client.requests[1].source as { file: File }).file.name).not.toBe(
+      'hum.wav',
+    );
+    // the take's failure is the mic's notice, worded for a recording
+    expect(screen.getByTestId('import-notice')).toHaveTextContent('録り直');
+    fireEvent.click(seg('ファイルを選ぶ'));
+    await flush();
+    expect(screen.queryByTestId('import-notice')).toBeNull();
+  });
+
+  it('a take that cannot be read says to record again, not to choose a file', async () => {
+    const { session } = setup(
+      {},
+      createFakeAnalysisClient({ error: 'decode-failed' }),
+    );
+    await chooseMic();
+    await recordTake(session);
+    fireEvent.click(button('下書きを作る'));
+    await flush();
+    const notice = screen.getByTestId('import-notice');
+    expect(notice).toHaveTextContent(
+      '録音を読めませんでした。録り直してください。',
+    );
+    expect(notice).not.toHaveTextContent('ファイル');
+    expect(live()).toHaveTextContent('録音を読めませんでした。');
+  });
+
+  it('with a take, the summary shows the tempo / time signature the take is analysed with', async () => {
+    const { session } = setup();
+    await chooseMic();
+    await recordTake(session);
+    fireEvent.click(button('テンポを 1 上げる'));
+    expect(screen.getByTestId('hum-tempo')).toHaveValue(101);
+    expect(summaryRow('テンポ / 拍子（録音）')).toHaveTextContent(
+      '♩= 100 ・ 4/4',
+    );
+    fireEvent.click(seg('ファイルを選ぶ'));
+    await flush();
+    expect(summaryRow('テンポ / 拍子')).toHaveTextContent('♩= 101 ・ 4/4');
+  });
+
+  it('a file dropped on the page while on the mic does nothing', async () => {
+    const { session, client } = setup();
+    await chooseMic();
+    const drop = new Event('drop', { bubbles: true, cancelable: true });
+    Object.assign(drop, {
+      dataTransfer: {
+        files: [new File(['x'], 'hum.wav', { type: 'audio/wav' })],
+        types: ['Files'],
+      },
+    });
+    window.dispatchEvent(drop);
+    await flush();
+    expect(drop.defaultPrevented).toBe(true);
+    expect(session.stats.opens).toBe(1);
+    expect(client.requests).toHaveLength(0);
+    expect(button('下書きを作る')).toBeDisabled();
+    fireEvent.click(seg('ファイルを選ぶ'));
+    await flush();
+    expect(screen.queryByTestId('picked-file')).toBeNull();
   });
 });

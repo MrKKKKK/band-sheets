@@ -76,6 +76,31 @@ export function noticeFor(code: AnalysisErrorCode): ImportNotice {
   };
 }
 
+/**
+ * The texts that ask for another file, for a recording made with the mic (S2's 「マイクで録る」): its action is
+ * 「録り直す」, not choosing a file. Every other code keeps IMPORT_ERROR_MESSAGES' text.
+ */
+const TAKE_ERROR_MESSAGES: Partial<Record<AnalysisErrorCode, string>> = {
+  'decode-failed': '録音を読めませんでした。録り直してください。',
+  'too-long': '録音が長すぎます。10 分までで録り直してください。',
+  empty: '音が入っていません。マイクの音量を確かめて、録り直してください。',
+  'too-short': '録音が短すぎます。1 秒以上、録り直してください。',
+  'non-finite': '録音が壊れているようです。録り直してください。',
+  silent:
+    '音が聞こえませんでした。マイクの音量を確かめて、録り直してください。',
+  'no-beats':
+    '拍を見つけられませんでした。リズムをはっきりさせて、録り直してください。',
+  internal:
+    '解析できませんでした。もう一度試してください。直らないときは、録り直してください。',
+};
+
+/** noticeFor, worded for a mic recording. */
+export function takeNoticeFor(code: AnalysisErrorCode): ImportNotice {
+  const n = noticeFor(code);
+  const message = TAKE_ERROR_MESSAGES[code];
+  return message ? { ...n, message } : n;
+}
+
 /** The S2 notice when the analysis found no sung note (choose another file; a retry would give the same). */
 export function humNoVoiceNotice(): ImportNotice {
   return { severity: 'error', message: HUM_NO_VOICE_MESSAGE };
