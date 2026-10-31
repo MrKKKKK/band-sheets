@@ -147,6 +147,29 @@ describe('createFakeMicSession', () => {
     expect((await c2.done).reason).toBe('closed');
   });
 
+  it('a new open does not close the earlier mic; each open has its own clock from 0', async () => {
+    const s = createFakeMicSession();
+    const a = await s.open(null, { onInterrupted() {} });
+    s.advance(1);
+    const b = await s.open(null, { onInterrupted() {} });
+    expect(s.stats.closes).toBe(0);
+    expect(b.now()).toBe(0);
+    expect(s.openMic).toBe(b);
+    await a.close();
+    expect(s.openMic).toBe(b);
+    expect(s.stats.closes).toBe(1);
+  });
+
+  it('clockNeedsResume: the clock stands still until resume()', async () => {
+    const s = createFakeMicSession({ clockNeedsResume: true });
+    const mic = await s.open(null, { onInterrupted() {} });
+    s.advance(1);
+    expect(mic.now()).toBe(0);
+    await mic.resume();
+    s.advance(1);
+    expect(mic.now()).toBeCloseTo(1, 2);
+  });
+
   it('setDevices notifies listeners', async () => {
     const s = createFakeMicSession();
     const fn = vi.fn();

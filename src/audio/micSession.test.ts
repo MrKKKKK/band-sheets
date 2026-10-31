@@ -77,6 +77,11 @@ describe('foldDevices', () => {
 });
 
 describe('micErrorOf', () => {
+  it('classifies by name, also a plain object (OverconstrainedError is not an Error everywhere)', () => {
+    expect(micErrorOf({ name: 'OverconstrainedError' }).kind).toBe('notFound');
+    expect(micErrorOf('x').kind).toBe('unknown');
+  });
+
   it.each([
     ['NotAllowedError', 'denied'],
     ['SecurityError', 'denied'],
@@ -98,6 +103,7 @@ describe('micErrorOf', () => {
 
 class FakeTrack extends EventTarget {
   stopped = false;
+  readyState: MediaStreamTrackState = 'live';
   label: string;
   settings: MediaTrackSettings;
   constructor(settings: MediaTrackSettings, label = 'Mic') {
@@ -176,6 +182,8 @@ class FakeContext extends EventTarget {
   outputLatency = 0.04;
   sampleRate: number;
   resumes = 0;
+  resumeHangs = false;
+  sourceError: unknown = null;
   closed = false;
   sources: FakeSource[] = [];
   destination = {};
@@ -184,7 +192,12 @@ class FakeContext extends EventTarget {
     this.sampleRate = o.sampleRate ?? 48000;
   }
   createMediaStreamSource() {
+    if (this.sourceError) throw this.sourceError;
     return {};
+  }
+  setState(state: string) {
+    this.state = state as AudioContextState;
+    this.dispatchEvent(new Event('statechange'));
   }
   createBuffer(_c: number, length: number) {
     return { length, copyToChannel() {} };
@@ -194,9 +207,11 @@ class FakeContext extends EventTarget {
     this.sources.push(s);
     return s;
   }
-  async resume() {
+  resume() {
     this.resumes++;
-    this.state = 'running';
+    if (this.resumeHangs) return new Promise<void>(() => {}); // the autoplay rule refused: never settles
+    this.setState('running');
+    return Promise.resolve();
   }
   async close() {
     this.closed = true;
@@ -214,7 +229,6 @@ function fakeGraph() {
   const connect = (async (_ctx, _src, handlers) => {
     g.onError = handlers?.onError;
     return {
-      node: {} as AudioWorkletNode,
       startCapture(from: number, end: number) {
         g.captures.push([from, end]);
         return {} as Capture;
@@ -227,7 +241,14 @@ function fakeGraph() {
   return { g, connect };
 }
 
-function setup(opts: Parameters<typeof fakeMediaDevices>[0] = {}) {
+function setup(
+  opts: Parameters<typeof fakeMediaDevices>[0] & {
+    /** runs on the new context before anything else */
+    initContext?: (c: FakeContext) => void;
+    /** replaces the graph's connect (e.g. to fail like addModule) */
+    connect?: typeof connectCapture;
+  } = {},
+) {
   const media = fakeMediaDevices(opts);
   const contexts: FakeContext[] = [];
   const { g, connect } = fakeGraph();
@@ -235,10 +256,11 @@ function setup(opts: Parameters<typeof fakeMediaDevices>[0] = {}) {
     mediaDevices: media.md,
     createContext: (o) => {
       const c = new FakeContext(o);
+      opts.initContext?.(c);
       contexts.push(c);
       return c as unknown as AudioContext;
     },
-    connect,
+    connect: opts.connect ?? connect,
   });
   const handlers: MicHandlers & { reasons: string[] } = {
     reasons: [],
@@ -412,6 +434,97 @@ describe('createMicSession', () => {
     await m2.close();
     d.media.tracks[1].dispatchEvent(new Event('ended'));
     expect(d.handlers.reasons).toEqual([]);
+  });
+});
+
+describe('createMicSession: failures after getUserMedia', () => {
+  // addModule's fetch / CSP failure (AbortError) is NOT "busy", nor any other name "denied" etc.
+  it.each(['AbortError', 'NotAllowedError'])(
+    'connect (addModule) failing with %s → unknown, track stopped, context closed',
+    async (name) => {
+      const { session, media, contexts, handlers } = setup({
+        connect: async () => {
+          throw new DOMException('x', name);
+        },
+      });
+      await expect(session.open(null, handlers)).rejects.toMatchObject({
+        kind: 'unknown',
+      });
+      expect(media.tracks.every((t) => t.stopped)).toBe(true);
+      expect(contexts[0].closed).toBe(true);
+      expect(handlers.reasons).toEqual([]);
+    },
+  );
+
+  it('createMediaStreamSource failing → unknown, cleaned up', async () => {
+    const { session, media, contexts, handlers } = setup({
+      initContext: (c) =>
+        (c.sourceError = new DOMException('x', 'NotSupportedError')),
+    });
+    await expect(session.open(null, handlers)).rejects.toMatchObject({
+      kind: 'unknown',
+    });
+    expect(media.tracks.every((t) => t.stopped)).toBe(true);
+    expect(contexts[0].closed).toBe(true);
+  });
+
+  it('the context cannot be made → unsupported, track stopped', async () => {
+    const media = fakeMediaDevices();
+    const s = createMicSession({
+      mediaDevices: media.md,
+      createContext: () => {
+        throw new DOMException('x', 'NotSupportedError');
+      },
+      connect: fakeGraph().connect,
+    });
+    await expect(s.open(null, { onInterrupted() {} })).rejects.toMatchObject({
+      kind: 'unsupported',
+    });
+    expect(media.tracks.every((t) => t.stopped)).toBe(true);
+  });
+
+  it('open returns even when resume() never settles (autoplay rule); the caller resumes again', async () => {
+    const { session, contexts, handlers } = setup({
+      initContext: (c) => (c.resumeHangs = true),
+    });
+    const mic = await session.open(null, handlers);
+    expect(contexts[0].resumes).toBe(1);
+    void mic.resume();
+    expect(contexts[0].resumes).toBe(2);
+  });
+});
+
+describe('createMicSession: interruptions by state', () => {
+  it("'interrupted' → contextInterrupted", async () => {
+    const { session, contexts, handlers } = setup();
+    await session.open(null, handlers);
+    contexts[0].setState('interrupted');
+    expect(handlers.reasons).toEqual(['contextInterrupted']);
+  });
+
+  it('suspended after running → contextInterrupted; suspended before ever running → nothing', async () => {
+    const a = setup();
+    await a.session.open(null, a.handlers);
+    a.contexts[0].setState('suspended');
+    expect(a.handlers.reasons).toEqual(['contextInterrupted']);
+
+    const b = setup({ initContext: (c) => (c.resumeHangs = true) });
+    await b.session.open(null, b.handlers);
+    b.contexts[0].setState('suspended');
+    expect(b.handlers.reasons).toEqual([]);
+  });
+
+  it('a track that ended during the awaits is reported right after open', async () => {
+    const media = { tracks: [] as FakeTrack[] };
+    const t = setup({
+      connect: (async () => {
+        media.tracks.at(-1)!.readyState = 'ended';
+        return fakeGraph().connect({} as BaseAudioContext, {} as AudioNode);
+      }) as typeof connectCapture,
+    });
+    media.tracks = t.media.tracks;
+    await t.session.open(null, t.handlers);
+    expect(t.handlers.reasons).toEqual(['ended']);
   });
 });
 

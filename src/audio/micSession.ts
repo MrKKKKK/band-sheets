@@ -57,8 +57,10 @@ export function isMicError(e: unknown): e is MicError {
 /**
  * Why an open mic stopped working by itself. A hidden tab is NOT one.
  * - `ended`: the track ended (unplugged, permission revoked);
- * - `contextClosed` / `contextInterrupted`: the AudioContext closed or was interrupted (not by `close()`);
+ * - `contextClosed` / `contextInterrupted`: the AudioContext closed, or was interrupted / suspended after running
+ *   (not by `close()`);
  * - `workletError`: the capture processor threw.
+ * A context that just stalls (no state change) is not reported: the caller watches `now()` for that.
  */
 export type MicInterruption =
   'ended' | 'contextClosed' | 'contextInterrupted' | 'workletError';
@@ -200,9 +202,14 @@ function realIdOf(
   );
 }
 
+/** Classifies a getUserMedia failure (only those: an AbortError elsewhere, e.g. addModule's, is not "busy"). */
 export function micErrorOf(e: unknown): MicError {
   if (isMicError(e)) return e;
-  const name = e instanceof Error || e instanceof DOMException ? e.name : '';
+  // by name: OverconstrainedError is not an Error / DOMException in every browser
+  const name =
+    typeof e === 'object' && e !== null
+      ? String((e as { name?: unknown }).name ?? '')
+      : '';
   switch (name) {
     case 'NotAllowedError':
     case 'SecurityError':
@@ -221,7 +228,6 @@ export function micErrorOf(e: unknown): MicError {
 // --- the capture graph ----------------------------------------------------------------------------------------
 
 export interface CaptureGraph {
-  readonly node: AudioWorkletNode;
   startCapture(fromFrame: number, endFrame: number): Capture;
   /** Resolves every pending capture with `closed` and detaches the port. */
   dispose(): void;
@@ -253,7 +259,6 @@ export async function connectCapture(
   source.connect(node);
   node.connect(ctx.destination);
   return {
-    node,
     startCapture: router.startCapture,
     dispose() {
       router.dispose();
@@ -377,28 +382,40 @@ export function createMicSession(deps: MicSessionDeps = {}): MicSession {
       stopStream(stream);
       throw new MicError('unsupported', e);
     }
+    let wasRunning = false;
     try {
       const source = ctx.createMediaStreamSource(stream);
       graph = await connect(ctx, source, {
         onLevel: handlers.onLevel,
         onError: () => interrupt('workletError'),
       });
-      // after the awaits the click's user activation may no longer count: the caller resumes again on ● too
-      await ctx.resume().catch(() => {});
     } catch (e) {
+      // addModule (fetch / CSP: AbortError), the source or the node: not a getUserMedia error
       stopStream(stream);
       await ctx.close().catch(() => {});
-      throw micErrorOf(e);
+      throw new MicError('unknown', e);
     }
+    // not awaited: it stays pending while the autoplay rule refuses to start (after the awaits the click's user
+    // activation may no longer count); the caller resumes again on ● / 遅れを測る
+    void ctx.resume().catch(() => {});
 
-    track.addEventListener('ended', () => interrupt('ended'));
-    ctx.addEventListener('statechange', () => {
+    const checkState = () => {
       const state = ctx.state as AudioContextState | 'interrupted';
-      if (state === 'closed') {
+      if (state === 'running') wasRunning = true;
+      else if (state === 'closed') {
         graph.dispose();
         interrupt('contextClosed');
-      } else if (state === 'interrupted') interrupt('contextInterrupted');
-    });
+      } else if (
+        state === 'interrupted' ||
+        (state === 'suspended' && wasRunning) // we never suspend it ourselves
+      )
+        interrupt('contextInterrupted');
+    };
+    track.addEventListener('ended', () => interrupt('ended'));
+    ctx.addEventListener('statechange', checkState);
+    // something may have happened during the awaits, before the listeners were there
+    if (track.readyState === 'ended') interrupt('ended');
+    checkState();
 
     const clicks = new Set<AudioBufferSourceNode>();
     const clickBuffer = (strong: boolean) => {

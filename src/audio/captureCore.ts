@@ -47,6 +47,7 @@ export class CaptureCore {
   private chunkFrame = 0;
   private chunkLength = 0;
   private sentEnd = 0;
+  private mono = new Float32Array(128);
 
   constructor(post: Post) {
     this.post = post;
@@ -76,7 +77,8 @@ export class CaptureCore {
   ): void {
     const n = channels.length;
     let peak = this.levelPeak;
-    const mono = new Float32Array(length);
+    if (this.mono.length < length) this.mono = new Float32Array(length);
+    const mono = this.mono; // reused: no allocation per render quantum
     for (let i = 0; i < length; i++) {
       let s = 0;
       for (let c = 0; c < n; c++) s += channels[c][i];

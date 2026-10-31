@@ -7,6 +7,7 @@ import {
   CAPTURE_WORKLET_URL,
   createMicSession,
   type CaptureEnd,
+  type MicDevice,
   type OpenMic,
 } from '../micSession';
 
@@ -15,22 +16,17 @@ export interface MicHarnessOpened {
   deviceId: string;
   label: string;
   sampleRate: number;
-  devices: { deviceId: string; label: string; isDefault: boolean }[];
+  devices: MicDevice[];
   /** the module given to audioWorklet.addModule, resolved against the page */
   workletUrl: string;
-  /** enumerateDevices' audioinput ids as the browser gives them (with the virtual ones) */
-  rawDeviceIds: string[];
 }
 
 export interface MicHarnessTake {
   end: CaptureEnd;
   firstFrame: number;
   endFrame: number;
-  gapFrames: number;
   levels: number;
   peak: number;
-  latency: { baseLatencySec: number; outputLatencySec: number };
-  clicks: number;
 }
 
 export interface MicHarness {
@@ -59,16 +55,12 @@ async function openMic(
       onLevel: () => levels++,
       onInterrupted: (r) => console.warn('interrupted', r),
     });
-    const raw = await navigator.mediaDevices.enumerateDevices();
     return {
       deviceId: mic.deviceId,
       label: mic.label,
       sampleRate: mic.sampleRate,
       workletUrl: new URL(CAPTURE_WORKLET_URL, location.href).href,
       devices: await session.listDevices(),
-      rawDeviceIds: raw
-        .filter((d) => d.kind === 'audioinput')
-        .map((d) => d.deviceId),
     };
   } catch (e) {
     return { error: String(e) };
@@ -97,9 +89,7 @@ const harness: MicHarness = {
       Math.round((t0 + 600) * r),
     );
     levels = 0;
-    await new Promise((res) => setTimeout(res, (sec / 2) * 1000));
-    const latency = mic.latencyNow(); // while the clicks sound
-    await new Promise((res) => setTimeout(res, (sec / 2) * 1000));
+    await new Promise((res) => setTimeout(res, sec * 1000));
     mic.stopClicks();
     cap.stop(Math.round(mic.now() * r));
     const end = await Promise.race([
@@ -118,11 +108,8 @@ const harness: MicHarness = {
       end,
       firstFrame: cap.buffer.firstFrame,
       endFrame: cap.buffer.endFrame,
-      gapFrames: cap.buffer.gapFrames,
       levels,
       peak,
-      latency,
-      clicks: clicks.length,
     };
   },
   async close() {

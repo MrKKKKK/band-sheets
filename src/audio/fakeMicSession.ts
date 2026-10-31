@@ -35,10 +35,15 @@ export interface FakeMicOptions {
   voice?: 'hum' | 'silence';
   /** The clock moves by itself every `tickMs` (stories). Default: only advance(). */
   tickMs?: number;
+  /** Like a context the autoplay rule keeps suspended: the clock stands still until `resume()` is called. */
+  clockNeedsResume?: boolean;
 }
 
 export interface FakeMicSession extends MicSession {
-  /** Moves the clock by `sec` (in 128-frame render quanta), producing levels / chunks / capture ends on the way. */
+  /**
+   * Moves the latest open mic's clock by `sec` (in 128-frame render quanta), producing levels / chunks / capture
+   * ends on the way. Each open starts its own clock at 0 (a new AudioContext).
+   */
   advance(sec: number): void;
   /** The open mic reports `reason` (once). The input goes silent; `contextClosed` / `contextInterrupted` also stop the clock, and `contextClosed` ends the capture with `closed`. */
   interrupt(reason: MicInterruption): void;
@@ -52,7 +57,7 @@ export interface FakeMicSession extends MicSession {
     resumes: number;
     stopClicks: number;
   };
-  /** The mic open now (null after close()). */
+  /** The latest mic opened, unless it was closed. An earlier one is NOT closed by a new open (like the real one). */
   readonly openMic: OpenMic | null;
 }
 
@@ -80,11 +85,13 @@ export function createFakeMicSession(
     strong: clickSamples(rate, true),
   };
 
-  let frame = 0;
-  /** where advance() has been asked to go (frames, fractional): leftovers of a quantum carry over */
-  let target = 0;
   let mic: {
     open: OpenMic;
+    frame: number;
+    /** where advance() has been asked to go (frames, fractional): leftovers of a quantum carry over */
+    target: number;
+    running: boolean;
+    closed: boolean;
     core: CaptureCore;
     handlers: MicHandlers;
     router: ReturnType<typeof createCaptureRouter>;
@@ -110,19 +117,17 @@ export function createFakeMicSession(
   }
 
   function advance(sec: number): void {
-    if (mic?.frozen) return;
-    target += sec * rate;
-    while (frame + QUANTUM <= target + 1e-6) {
-      const m = mic;
-      if (m && !m.frozen) {
-        m.heard = m.heard.filter((c) => c.at + c.wave.length > frame);
-        m.core.process([render(m, frame)], frame, QUANTUM);
-      }
-      if (m?.frozen) {
-        target = frame;
+    const m = mic;
+    if (!m || m.frozen || !m.running) return;
+    m.target += sec * rate;
+    while (m.frame + QUANTUM <= m.target + 1e-6) {
+      m.heard = m.heard.filter((c) => c.at + c.wave.length > m.frame);
+      m.core.process([render(m, m.frame)], m.frame, QUANTUM);
+      if (m.frozen || m.closed) {
+        m.target = m.frame;
         return;
       }
-      frame += QUANTUM;
+      m.frame += QUANTUM;
     }
   }
 
@@ -139,7 +144,6 @@ export function createFakeMicSession(
         ? (devices.find((d) => d.isDefault) ?? devices[0])
         : devices.find((d) => d.deviceId === deviceId);
     if (!dev) throw new MicError('notFound');
-    await mic?.open.close();
     stats.opens++;
     const core = new CaptureCore((msg) =>
       queueMicrotask(() => m.router.receive(msg)),
@@ -153,6 +157,10 @@ export function createFakeMicSession(
       core,
       handlers,
       router,
+      frame: 0,
+      target: 0,
+      running: !opts.clockNeedsResume,
+      closed: false,
       heard: [],
       silent: false,
       frozen: false,
@@ -163,8 +171,9 @@ export function createFakeMicSession(
         sampleRate: rate,
         async resume() {
           stats.resumes++;
+          m.running = true;
         },
-        now: () => frame / rate,
+        now: () => m.frame / rate,
         latencyNow: () => ({ ...latency }),
         scheduleClicks(list) {
           for (const c of list) {
@@ -178,13 +187,15 @@ export function createFakeMicSession(
         },
         stopClicks() {
           stats.stopClicks++;
-          m.heard = m.heard.filter((c) => c.at < frame);
+          m.heard = m.heard.filter((c) => c.at < m.frame);
         },
         startCapture: (from, end) => router.startCapture(from, end),
         async close() {
-          if (mic !== m) return;
+          if (m.closed) return;
+          m.closed = true;
           stats.closes++;
           router.dispose();
+          if (mic !== m) return;
           mic = null;
           if (timer !== null) clearInterval(timer);
           timer = null;
@@ -224,7 +235,7 @@ export function createFakeMicSession(
     scheduled,
     stats,
     get openMic() {
-      return mic?.open ?? null;
+      return mic && !mic.closed ? mic.open : null;
     },
   };
 }
