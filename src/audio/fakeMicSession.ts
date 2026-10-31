@@ -29,6 +29,8 @@ export interface FakeMicOptions {
   sampleRate?: number;
   /** Default base 10 ms + output 40 ms. */
   latency?: ReportedLatency;
+  /** Like Chromium before any sound: `latencyNow()` reports 0 until the first click of the latest `scheduleClicks` has played. */
+  latencyOnlyWhileClicking?: boolean;
   /** How late a click shows up in the input (ms); null = never heard. Default 100. */
   clickRoundTripMs?: number | null;
   /** The input apart from the clicks. Default 'hum'. */
@@ -100,6 +102,8 @@ export function createFakeMicSession(
     silent: boolean;
     frozen: boolean;
     interrupted: boolean;
+    /** context time of the first click of the latest scheduleClicks */
+    clicksFrom: number;
   } | null = null;
 
   function render(m: NonNullable<typeof mic>, start: number): Float32Array {
@@ -165,6 +169,7 @@ export function createFakeMicSession(
       silent: false,
       frozen: false,
       interrupted: false,
+      clicksFrom: Infinity,
       open: {
         deviceId: dev.deviceId,
         label: dev.label,
@@ -174,8 +179,13 @@ export function createFakeMicSession(
           m.running = true;
         },
         now: () => m.frame / rate,
-        latencyNow: () => ({ ...latency }),
+        latencyNow: () =>
+          opts.latencyOnlyWhileClicking && m.frame / rate < m.clicksFrom
+            ? { baseLatencySec: 0, outputLatencySec: 0 }
+            : { ...latency },
         scheduleClicks(list) {
+          if (list.length > 0)
+            m.clicksFrom = Math.min(...list.map((c) => c.time));
           for (const c of list) {
             scheduled.push(c);
             if (roundTrip !== null)

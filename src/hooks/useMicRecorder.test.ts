@@ -18,6 +18,7 @@ import {
   STALL_MS,
   TAIL_WAIT_MS,
   TICK_MS,
+  useMicLevel,
   useMicRecorder,
 } from './useMicRecorder';
 
@@ -32,20 +33,25 @@ afterEach(() => {
 
 function setup(
   opts: FakeMicOptions = {},
-  storage: KeyValueStorage = createMemoryStorage(),
+  storage: KeyValueStorage | null = createMemoryStorage(),
 ) {
   const session = createFakeMicSession(opts);
   const said: string[] = [];
-  const hook = renderHook(() =>
-    useMicRecorder({
-      session,
-      storage,
-      tempo: 120, // 1 bar = 2 s
-      ts,
-      announce: (t) => said.push(t),
-    }),
+  const renders = { count: 0 };
+  const hook = renderHook(
+    ({ tempo }: { tempo: number }) => {
+      renders.count++;
+      return useMicRecorder({
+        session,
+        storage,
+        tempo,
+        ts,
+        announce: (t) => said.push(t),
+      });
+    },
+    { initialProps: { tempo: 120 } }, // 1 bar = 2 s
   );
-  return { session, storage, hook, said };
+  return { session, storage, hook, said, renders };
 }
 
 /** Moves the mic's clock and the timers together, in TICK_MS steps. */
@@ -85,9 +91,9 @@ describe('useMicRecorder', () => {
     const r = s.hook.result.current;
     expect(r.state.deviceId).toBe('fake-mic');
     expect(r.state.remainderMs).toBeNull();
-    expect(r.devices.map((d) => d.deviceId)).toEqual(['fake-mic']);
+    expect(r.state.devices.map((d) => d.deviceId)).toEqual(['fake-mic']);
     await step(s.session, 0.2);
-    expect(s.hook.result.current.level).toBeGreaterThan(0.1);
+    expect(s.hook.result.current.getLevel()).toBeGreaterThan(0.1);
     expect(s.said).toEqual(['マイクを使えるようになりました。']);
   });
 
@@ -133,7 +139,7 @@ describe('useMicRecorder', () => {
     expect(take.peaks.length).toBe(Math.ceil(take.durationSec * 100));
     expect(s.session.openMic).toBeNull();
     expect(s.session.stats.stopClicks).toBeGreaterThan(0);
-    expect(r.level).toBe(0);
+    expect(r.getLevel()).toBe(0);
     expect(s.said.slice(1)).toEqual([
       'カウントを始めました。まだ歌わないでください。',
       '録音を始めました。',
@@ -324,7 +330,7 @@ describe('useMicRecorder', () => {
       deviceId: 'a',
       notice: { kind: 'deviceGone' },
     });
-    expect(s.hook.result.current.devices).toEqual([a]);
+    expect(s.hook.result.current.state.devices).toEqual([a]);
   });
 
   it('retake asks first; confirming drops the take and reopens the mic', async () => {
@@ -380,5 +386,103 @@ describe('useMicRecorder', () => {
     await wait(0);
     expect(s.session.stats.opens).toBe(1);
     expect(s.session.stats.closes).toBe(1);
+  });
+
+  it('● twice schedules one take', async () => {
+    const s = setup();
+    await opened(s);
+    act(() => {
+      s.hook.result.current.record();
+      s.hook.result.current.record();
+    });
+    expect(s.session.scheduled).toHaveLength(1200);
+    expect(s.hook.result.current.state.phase).toBe('countIn');
+  });
+
+  it('without storage a measurement still compensates; the latency is read while the clicks sound', async () => {
+    // latencyNow() is 0 until clicks play: a reading before the count-in would leave 50 ms uncompensated
+    const s = setup({ voice: 'silence', latencyOnlyWhileClicking: true }, null);
+    await opened(s);
+    act(() => s.hook.result.current.measure());
+    await step(s.session, 3);
+    expect(s.hook.result.current.state.phase).toBe('measured');
+    expect(s.hook.result.current.state.remainderMs).toBeCloseTo(50, 0);
+    act(() => s.hook.result.current.closeMeasure());
+    await recordFor(s, 3);
+    act(() => s.hook.result.current.stop());
+    await step(s.session, 0.3);
+    const peaks = s.hook.result.current.take!.peaks;
+    expect(peaks[0]).toBeGreaterThan(0.5);
+    expect(peaks[50]).toBeGreaterThan(0.5);
+    expect(peaks[5]).toBe(0);
+  });
+
+  it('an interruption during the measurement reopens the mic and stores nothing', async () => {
+    const s = setup();
+    await opened(s);
+    act(() => s.hook.result.current.measure());
+    await step(s.session, 0.6);
+    act(() => s.session.interrupt('ended'));
+    await wait(0);
+    expect(s.hook.result.current.state).toMatchObject({
+      phase: 'ready',
+      notice: { kind: 'micStopped', during: 'idle' },
+      remainderMs: null,
+    });
+    expect(loadMicRemainder(s.storage, 'fake-mic')).toBeNull();
+    expect(s.session.stats.opens).toBe(2);
+    await step(s.session, 3);
+    expect(s.hook.result.current.state.phase).toBe('ready');
+  });
+
+  it('close while the take is being made keeps the take', async () => {
+    const s = setup();
+    await opened(s);
+    await recordFor(s, 4);
+    act(() => s.hook.result.current.stop());
+    act(() => s.hook.result.current.close());
+    expect(s.hook.result.current.state.phase).toBe('finishing');
+    await step(s.session, 0.3);
+    expect(s.hook.result.current.state.phase).toBe('take');
+    expect(s.hook.result.current.take).not.toBeNull();
+    expect(s.session.openMic).toBeNull();
+  });
+
+  it('unmounting while the take is being made closes the mic and makes nothing', async () => {
+    const s = setup();
+    await opened(s);
+    await recordFor(s, 4);
+    act(() => s.hook.result.current.stop());
+    const before = s.hook.result.current;
+    s.hook.unmount();
+    expect(s.session.openMic).toBeNull();
+    await wait(TAIL_WAIT_MS * 2);
+    expect(before.state.phase).toBe('finishing');
+  });
+
+  it('the take keeps the tempo it was recorded with and stays the same object', async () => {
+    const s = setup();
+    await opened(s);
+    await recordFor(s, 4);
+    s.hook.rerender({ tempo: 90 });
+    act(() => s.hook.result.current.stop());
+    await step(s.session, 0.3);
+    const take = s.hook.result.current.take!;
+    expect(take.meter).toEqual({ tempo: 120, ts });
+    expect(take.bar1Sec).toBe(2);
+    s.hook.rerender({ tempo: 80 });
+    expect(s.hook.result.current.take).toBe(take);
+  });
+
+  it('level changes re-render only useMicLevel, not the recorder', async () => {
+    const s = setup();
+    await opened(s);
+    const level = renderHook(() => useMicLevel(s.hook.result.current));
+    const rendersBefore = s.renders.count;
+    await step(s.session, 0.5);
+    expect(s.renders.count).toBe(rendersBefore);
+    expect(level.result.current).toBeGreaterThan(0.1);
+    act(() => s.hook.result.current.close());
+    expect(level.result.current).toBe(0);
   });
 });

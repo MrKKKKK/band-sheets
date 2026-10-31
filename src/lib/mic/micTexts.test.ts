@@ -17,7 +17,7 @@ import {
 } from './recorderState';
 
 const meter = { tempo: 120, ts: { num: 4, den: 4 } };
-const take = { durationSec: 24.4, bar1Sec: 2 };
+const take = { durationSec: 24.4, bar1Sec: 2, meter };
 
 /** The announcement of each step of `events`. */
 function announcements(...events: RecorderEvent[]): (string | null)[] {
@@ -73,7 +73,7 @@ describe('announcementFor', () => {
         { type: 'tick', sinceCountInSec: 540 },
         { type: 'tick', sinceCountInSec: 560 },
         { type: 'tick', sinceCountInSec: 600 },
-        { type: 'finished', take: { durationSec: 599.9, bar1Sec: 2 } },
+        { type: 'finished', take: { ...take, durationSec: 599.9 } },
       ).slice(-4),
     ).toEqual([
       '残り 1 分です。',
@@ -124,7 +124,10 @@ describe('announcementFor', () => {
     expect(
       announcements(
         ...OPEN,
-        { type: 'devices', devices: [] },
+        {
+          type: 'devices',
+          devices: [{ deviceId: 'b', label: 'B', isDefault: true }],
+        },
         { type: 'opened', deviceId: 'b', remainderMs: null },
       ).at(-1),
     ).toBe(
@@ -153,7 +156,14 @@ describe('texts', () => {
       expect(t.body).not.toBe('');
     }
     expect(MIC_ERROR_TEXTS.unsupported.retry).toBeNull();
+    expect(MIC_ERROR_TEXTS.busy).toMatchObject({
+      title: 'マイクが使用できません。',
+      retry: 'もう一度試す',
+    });
     expect(MIC_ERROR_TEXTS.busy.body).toContain('ほかのアプリ');
+    expect(MIC_ERROR_TEXTS.unknown.body).toBe(
+      'もう一度試してください。直らないときは、録音アプリで録ったファイルを使ってください。',
+    );
   });
 
   it('take ends', () => {

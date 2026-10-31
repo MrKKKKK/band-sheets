@@ -13,11 +13,10 @@
  *   the compensation; the tail is awaited with a time limit (a stopped context never delivers it).
  * - M7 closes the mic (the browser's recording indicator goes away); a retake opens it again.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   isMicError,
   type Capture,
-  type MicDevice,
   type MicSession,
   type OpenMic,
 } from '../audio/micSession';
@@ -64,13 +63,16 @@ export const TAIL_WAIT_MS = 1500;
 /** … and after an interruption (the context may never deliver it). */
 export const INTERRUPTED_WAIT_MS = 500;
 /** The measurement: first click this far after 遅れを測る, then one click every MEASURE_GAP_SEC. */
-export const MEASURE_LEAD_SEC = 0.3;
-export const MEASURE_GAP_SEC = 0.5;
+const MEASURE_LEAD_SEC = 0.3;
+const MEASURE_GAP_SEC = 0.5;
 /** Waveform bucket of the take's peaks (s). */
 const PEAK_BUCKET_SEC = 0.01;
 const TAKE_FILE_NAME = '録音.wav';
 
-/** A finished take (M7). `file` is a 16-bit mono WAV; 0 s = the count-in's first beat as heard. */
+/**
+ * A finished take (M7). `file` is a 16-bit mono WAV; 0 s = the count-in's first beat as heard. `meter` = the clicks'
+ * tempo / time signature (analyze with these, not with S2's fields, which stay editable).
+ */
 export interface MicTake extends TakeInfo {
   file: File;
   /** the largest |sample| (0–1) of every 10 ms, for the waveform */
@@ -90,11 +92,13 @@ export interface UseMicRecorderOptions {
 
 export interface MicRecorder {
   state: RecorderState;
-  /** Audio inputs (labels after the permission). The open one is `state.deviceId`. */
-  devices: MicDevice[];
-  /** The input's peak (0–1) while a mic is open, else 0. */
-  level: number;
-  /** In M7 / M8, else null. */
+  /**
+   * The input's peak (0–1) while a mic is open, else 0: a store of its own (~23 changes a second), so only the
+   * meter re-renders — read it with `useMicLevel`.
+   */
+  subscribeLevel(listener: () => void): () => void;
+  getLevel(): number;
+  /** In M7 / M8, else null; the same object while it lasts. */
   take: MicTake | null;
   /** 「マイクで録る」 chosen / a retry from M2. Asks for the permission. */
   open(): void;
@@ -119,8 +123,7 @@ export interface MicRecorder {
 
 interface Snapshot {
   state: RecorderState;
-  level: number;
-  take: { file: File; peaks: Float32Array } | null;
+  take: MicTake | null;
 }
 
 interface EngineDeps {
@@ -153,7 +156,9 @@ function waitAtMost<T>(p: Promise<T>, ms: number): Promise<T | null> {
 
 function createEngine(deps: EngineDeps, initial: EngineProps) {
   let props = initial;
-  let snap: Snapshot = { state: initialRecorderState, level: 0, take: null };
+  let snap: Snapshot = { state: initialRecorderState, take: null };
+  let level = 0;
+  const levelListeners = new Set<() => void>();
   let mic: OpenMic | null = null;
   /** the capture of the measurement / the take */
   let active: Capture | null = null;
@@ -172,6 +177,12 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
   let timer: ReturnType<typeof setInterval> | null = null;
   let stall = { now: -1, since: 0 };
   let unsubscribe: (() => void) | null = null;
+
+  function setLevel(v: number) {
+    if (v === level) return;
+    level = v;
+    for (const l of levelListeners) l();
+  }
 
   function publish(patch: Partial<Snapshot>) {
     snap = { ...snap, ...patch };
@@ -210,7 +221,7 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
         void finish(next.end, next.stopSec);
         break;
       case 'closed':
-        gen++;
+        abortActive(); // also drops a buffered take (up to ~58 MB)
         closeMic();
         break;
     }
@@ -223,7 +234,7 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
       m.stopClicks();
       void m.close();
     }
-    if (snap.level !== 0) publish({ level: 0 });
+    setLevel(0);
   }
 
   /** Abandons the measurement / count-in: silence, end the capture, forget it. */
@@ -250,7 +261,7 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
     try {
       const m = await deps.session.open(deviceId, {
         onLevel(peak) {
-          if (box.mic && box.mic === mic) publish({ level: peak });
+          if (box.mic && box.mic === mic) setLevel(peak);
         },
         onInterrupted(reason) {
           if (box.mic && box.mic === mic) interrupt(reason);
@@ -346,8 +357,8 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
     if (!rec) return;
     if (now !== stall.now) stall = { now, since: Date.now() };
     else if (Date.now() - stall.since >= STALL_MS) return interrupt('stalled');
-    // read while the clicks sound (Chromium may report 0 before): the count-in's latest reading is used
-    if (phase === 'countIn' && now >= rec.t0) rec.latency = m.latencyNow();
+    // read while the clicks sound (Chromium may report 0 before); the latest reading is used
+    if (now >= rec.t0) rec.latency = m.latencyNow();
     send({ type: 'tick', sinceCountInSec: now - rec.t0 });
   }
 
@@ -378,7 +389,8 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
       t0Frame,
       limitFrame,
       latency: null,
-      remainderMs: loadMicRemainder(deps.storage, m.deviceId),
+      // the state's, not the storage's: a measurement that could not be stored still counts
+      remainderMs: snap.state.remainderMs,
     };
     void capture.done.then((end) => {
       // the worklet ended it at 10 minutes (exact even when the timers lag)
@@ -425,16 +437,23 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
     const file = new File([encodeWav16(slice.chunks, rate)], TAKE_FILE_NAME, {
       type: 'audio/wav',
     });
+    const info: TakeInfo = { durationSec, bar1Sec, meter: r.meter };
     publish({
       take: {
+        ...info,
         file,
         peaks: peakBuckets(slice.chunks, Math.round(rate * PEAK_BUCKET_SEC)),
       },
     });
-    send({ type: 'finished', take: { durationSec, bar1Sec } });
+    send({ type: 'finished', take: info });
   }
 
   return {
+    subscribeLevel(listener: () => void) {
+      levelListeners.add(listener);
+      return () => void levelListeners.delete(listener);
+    },
+    getLevel: () => level,
     configure(p: EngineProps) {
       props = p;
     },
@@ -463,6 +482,8 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
     stop() {
       const phase = snap.state.phase;
       if (phase !== 'countIn' && phase !== 'recording') return;
+      // a last reading while the clicks still sound, in case the ticks got none
+      if (mic && rec && mic.now() >= rec.t0) rec.latency = mic.latencyNow();
       mic?.stopClicks();
       send({ type: 'stop', atSec: mic?.now() ?? 0 });
     },
@@ -476,7 +497,6 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
 export function useMicRecorder(options: UseMicRecorderOptions): MicRecorder {
   const [snap, setSnap] = useState<Snapshot>({
     state: initialRecorderState,
-    level: 0,
     take: null,
   });
   const [engine] = useState(() =>
@@ -505,16 +525,15 @@ export function useMicRecorder(options: UseMicRecorderOptions): MicRecorder {
     return () => engine.detach();
   }, [engine]);
 
-  const { state, level } = snap;
-  const take =
-    snap.take && (state.phase === 'take' || state.phase === 'confirmRetake')
-      ? { ...state.take, ...snap.take }
-      : null;
+  const { state } = snap;
   return {
     state,
-    devices: state.devices,
-    level,
-    take,
+    take:
+      state.phase === 'take' || state.phase === 'confirmRetake'
+        ? snap.take
+        : null,
+    subscribeLevel: engine.subscribeLevel,
+    getLevel: engine.getLevel,
     open: engine.open,
     chooseMic: engine.chooseMic,
     measure: engine.measure,
@@ -527,4 +546,11 @@ export function useMicRecorder(options: UseMicRecorderOptions): MicRecorder {
     confirmRetake: engine.confirmRetake,
     close: engine.close,
   };
+}
+
+/** The open mic's level (0–1) for the meter; only the component that calls it re-renders. */
+export function useMicLevel(
+  recorder: Pick<MicRecorder, 'subscribeLevel' | 'getLevel'>,
+): number {
+  return useSyncExternalStore(recorder.subscribeLevel, recorder.getLevel);
 }

@@ -10,11 +10,7 @@
  * An interruption outside a recording (M3, M4, M5) reopens the mic and nothing is kept; one during a recording
  * keeps what was recorded (finishing → take, with the reason).
  */
-import type {
-  MicDevice,
-  MicErrorKind,
-  MicInterruption,
-} from '../../audio/micSession';
+import type { MicDevice, MicErrorKind, MicInterruption } from './micTypes';
 import { MAX_DURATION_SEC } from '../import/analysisTypes';
 import type { TimeSig } from '../melody';
 import { barSec, positionAt } from './clickTrack';
@@ -34,16 +30,18 @@ export type ReadyNotice =
   /** the mic stopped working during the count-in (nothing kept) or while waiting (M3 / M4): it was reopened */
   | { kind: 'micStopped'; cause: StopCause; during: 'countIn' | 'idle' };
 
+export interface Meter {
+  tempo: number;
+  ts: TimeSig;
+}
+
 export interface TakeInfo {
   /** the file's length (s); 0 s = the count-in's first beat as heard */
   durationSec: number;
   /** where bar 1 starts in the file (s) = one bar */
   bar1Sec: number;
-}
-
-export interface Meter {
-  tempo: number;
-  ts: TimeSig;
+  /** the tempo / time signature the clicks had (S2's fields may change afterwards: analyze with these) */
+  meter: Meter;
 }
 
 export type RecorderPhase =
@@ -67,10 +65,10 @@ export type RecorderPhase =
       /** 1 = the song's first bar */
       bar: number;
       beat: number;
-      /** whole seconds until the file is 600 s long, from 9 minutes on; else null */
+      /** whole seconds until the file is 600 s long, from 9 minutes on (「残り 1 分」 is announced when it appears); else null */
       remainingSec: number | null;
     }
-  /** after ■ / the limit / an interruption: the hook waits for the tail and makes the file */
+  /** after ■ / the limit / an interruption: the hook waits for the tail and makes the file (`close` waits too, so the take is kept) */
   | {
       phase: 'finishing';
       end: TakeEnd;
@@ -88,8 +86,6 @@ export type RecorderState = RecorderPhase & {
   deviceId: string | null;
   /** the remembered remainder of the open mic (ms); null = not measured */
   remainderMs: number | null;
-  /** 「残り 1 分」 was announced for this recording */
-  oneMinuteAnnounced: boolean;
 };
 
 export type RecorderEvent =
@@ -122,16 +118,15 @@ export type RecorderEvent =
   | { type: 'close' };
 
 /** The file length from which the remaining time is shown and 「残り 1 分」 announced. */
-export const REMAINING_FROM_SEC = MAX_DURATION_SEC - 60;
+const REMAINING_FROM_SEC = MAX_DURATION_SEC - 60;
 /** A take shorter than this cannot be analyzed ('too-short'). */
-export const MIN_TAKE_SEC = 1;
+const MIN_TAKE_SEC = 1;
 
 export const initialRecorderState: RecorderState = {
   phase: 'closed',
   devices: [],
   deviceId: null,
   remainderMs: null,
-  oneMinuteAnnounced: false,
 };
 
 /** Too short to keep: nothing after bar 1, or shorter than the analysis accepts. */
@@ -152,7 +147,6 @@ function common(s: RecorderState) {
     devices: s.devices,
     deviceId: s.deviceId,
     remainderMs: s.remainderMs,
-    oneMinuteAnnounced: s.oneMinuteAnnounced,
   };
 }
 
@@ -211,13 +205,11 @@ function onTick(s: RecorderState, sec: number): RecorderState {
   const elapsedSec = Math.max(0, Math.floor(sec - barSec(tempo, ts)));
   const remainingSec =
     sec >= REMAINING_FROM_SEC ? Math.ceil(MAX_DURATION_SEC - sec) : null;
-  const oneMinuteAnnounced = s.oneMinuteAnnounced || remainingSec !== null;
   if (
     pos.bar === s.bar &&
     pos.beat === s.beat &&
     elapsedSec === s.elapsedSec &&
-    remainingSec === s.remainingSec &&
-    oneMinuteAnnounced === s.oneMinuteAnnounced
+    remainingSec === s.remainingSec
   )
     return s;
   return {
@@ -226,7 +218,6 @@ function onTick(s: RecorderState, sec: number): RecorderState {
     beat: pos.beat,
     elapsedSec,
     remainingSec,
-    oneMinuteAnnounced,
   };
 }
 
@@ -253,9 +244,11 @@ export function recorderReducer(
         : s;
     case 'devices': {
       const next = { ...s, devices: e.devices };
+      // an empty list reads as "unknown" (as in stillThere), not as "every mic is gone"
       if (
         IDLE_OPEN.has(s.phase) &&
         s.deviceId !== null &&
+        e.devices.length > 0 &&
         !e.devices.some((d) => d.deviceId === s.deviceId)
       )
         return reopen(next, null, { kind: 'deviceGone' });
@@ -292,10 +285,7 @@ export function recorderReducer(
         : s;
     case 'record':
       return s.phase === 'ready'
-        ? {
-            ...to(s, { phase: 'countIn', meter: e.meter, beat: 0 }),
-            oneMinuteAnnounced: false,
-          }
+        ? to(s, { phase: 'countIn', meter: e.meter, beat: 0 })
         : s;
     case 'tick':
       return onTick(s, e.sinceCountInSec);
@@ -342,8 +332,10 @@ export function recorderReducer(
     case 'confirmRetake':
       return s.phase === 'confirmRetake' ? reopen(s, stillThere(s), null) : s;
     case 'close':
-      // a take stays on the screen (the mic is already closed); everything else releases the mic
-      return s.phase === 'take' ||
+      // a take stays on the screen (the mic is already closed, or closes once the take is made); everything else
+      // releases the mic
+      return s.phase === 'finishing' ||
+        s.phase === 'take' ||
         s.phase === 'confirmRetake' ||
         s.phase === 'closed'
         ? s

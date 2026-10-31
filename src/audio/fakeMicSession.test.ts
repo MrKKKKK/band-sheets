@@ -44,6 +44,23 @@ describe('createFakeMicSession', () => {
     expect(Math.max(...levels)).toBeCloseTo(0.2, 2);
   });
 
+  it('latencyOnlyWhileClicking: 0 until the first scheduled click has played', async () => {
+    const s = createFakeMicSession({ latencyOnlyWhileClicking: true });
+    const mic = await s.open(null, { onInterrupted() {} });
+    expect(mic.latencyNow()).toEqual({
+      baseLatencySec: 0,
+      outputLatencySec: 0,
+    });
+    mic.scheduleClicks([{ time: 0.5, strong: true }]);
+    s.advance(0.4);
+    expect(mic.latencyNow().outputLatencySec).toBe(0);
+    s.advance(0.2);
+    expect(mic.latencyNow()).toEqual({
+      baseLatencySec: 0.01,
+      outputLatencySec: 0.04,
+    });
+  });
+
   it('a latency measurement on the fake succeeds with its round trip', async () => {
     const s = createFakeMicSession({ clickRoundTripMs: 100 });
     const mic = await s.open(null, { onInterrupted() {} });

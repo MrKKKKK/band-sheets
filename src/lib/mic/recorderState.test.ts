@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { MicDevice } from '../../audio/micSession';
+import type { MicDevice } from './micTypes';
 import {
   initialRecorderState,
   isTakeTooShort,
@@ -14,7 +14,7 @@ const dev = (deviceId: string, isDefault = false): MicDevice => ({
   label: deviceId,
   isDefault,
 });
-const take = { durationSec: 12, bar1Sec: 2 };
+const take = { durationSec: 12, bar1Sec: 2, meter };
 
 function run(...events: RecorderEvent[]): RecorderState {
   return events.reduce(recorderReducer, initialRecorderState);
@@ -173,6 +173,15 @@ describe('recorderReducer: devices', () => {
     expect(s).toMatchObject({ phase: 'ready', devices: [dev('a', true)] });
   });
 
+  it('an empty list means "unknown": the open mic is kept', () => {
+    const r = ready();
+    expect(recorderReducer(r, { type: 'devices', devices: [] })).toMatchObject({
+      phase: 'ready',
+      deviceId: 'a',
+      devices: [],
+    });
+  });
+
   it('while recording a vanished mic is left to the interruption', () => {
     const s = recorderReducer(recording(), { type: 'devices', devices: [] });
     expect(s.phase).toBe('recording');
@@ -271,19 +280,19 @@ describe('recorderReducer: count-in and recording', () => {
     expect(s).toMatchObject({ phase: 'countIn', beat: 6 });
   });
 
-  it('remaining time from 9 minutes (file length), announced once', () => {
+  it('remaining time from 9 minutes (file length)', () => {
     let s = recorderReducer(recording(), {
       type: 'tick',
       sinceCountInSec: 539.9,
     });
-    expect(s).toMatchObject({ remainingSec: null, oneMinuteAnnounced: false });
+    expect(s).toMatchObject({ remainingSec: null });
     s = recorderReducer(s, { type: 'tick', sinceCountInSec: 540 });
-    expect(s).toMatchObject({ remainingSec: 60, oneMinuteAnnounced: true });
+    expect(s).toMatchObject({ remainingSec: 60 });
     s = recorderReducer(s, { type: 'tick', sinceCountInSec: 599.2 });
-    expect(s).toMatchObject({ remainingSec: 1, oneMinuteAnnounced: true });
+    expect(s).toMatchObject({ remainingSec: 1 });
   });
 
-  it('600 s of file → finishing (limit); a new recording resets the 1-minute flag', () => {
+  it('600 s of file → finishing (limit)', () => {
     const s = recorderReducer(recording(), {
       type: 'tick',
       sinceCountInSec: 600,
@@ -293,18 +302,6 @@ describe('recorderReducer: count-in and recording', () => {
       end: 'limit',
       stopSec: null,
     });
-    const again = [
-      { type: 'tick', sinceCountInSec: 550 },
-      { type: 'stop', atSec: 1 },
-      { type: 'finished', take },
-      { type: 'retake' },
-      { type: 'confirmRetake' },
-      { type: 'opened', deviceId: 'a', remainderMs: 48 },
-      { type: 'record', meter },
-    ] satisfies RecorderEvent[];
-    expect(again.reduce(recorderReducer, recording()).oneMinuteAnnounced).toBe(
-      false,
-    );
   });
 
   it('やめる in the count-in → M3, nothing kept', () => {
@@ -439,11 +436,11 @@ describe('recorderReducer: take, retake, close', () => {
     expect(recorderReducer(r, { type: 'confirmRetake' })).toBe(r);
   });
 
-  it('close releases the mic everywhere but keeps a take', () => {
+  it('close releases the mic everywhere but keeps a take (also one being made)', () => {
     for (const [name, make] of Object.entries(PHASES)) {
       const s = make();
       const c = recorderReducer(s, { type: 'close' });
-      if (name === 'take' || name === 'confirmRetake' || name === 'closed')
+      if (['finishing', 'take', 'confirmRetake', 'closed'].includes(name))
         expect(c).toBe(s);
       else expect(c.phase).toBe('closed');
     }

@@ -3,7 +3,7 @@
  * statuses and what the screen's ONE live region says when the recorder's state changes (`announcementFor`).
  * Nothing per beat or per second is announced.
  */
-import type { MicDevice, MicErrorKind } from '../../audio/micSession';
+import type { MicDevice, MicErrorKind } from './micTypes';
 import { formatClock, formatDurationJa } from '../import/format';
 import type {
   ReadyNotice,
@@ -34,9 +34,9 @@ export const MIC_ERROR_TEXTS: Record<MicErrorKind, MicErrorText> = {
     retry: 'もう一度探す',
   },
   busy: {
-    title: 'マイクを使えませんでした。',
-    body: `ほかのアプリがマイクを使っているかもしれません。そのアプリを閉じてから「もう一度探す」を押してください。${USE_FILE}`,
-    retry: 'もう一度探す',
+    title: 'マイクが使用できません。',
+    body: `ほかのアプリがマイクを使っているかもしれません。そのアプリを閉じてから「もう一度試す」を押してください。${USE_FILE}`,
+    retry: 'もう一度試す',
   },
   unsupported: {
     title: 'このブラウザではマイクで録れません。',
@@ -45,7 +45,7 @@ export const MIC_ERROR_TEXTS: Record<MicErrorKind, MicErrorText> = {
   },
   unknown: {
     title: 'マイクを開けませんでした。',
-    body: `もう一度試してください。直らないときは、${USE_FILE}`,
+    body: 'もう一度試してください。直らないときは、録音アプリで録ったファイルを使ってください。',
     retry: 'もう一度試す',
   },
 };
@@ -53,7 +53,7 @@ export const MIC_ERROR_TEXTS: Record<MicErrorKind, MicErrorText> = {
 export const SWITCH_TO_FILE = 'ファイルを選ぶほうに切り替える';
 
 /** Why a mic stopped by itself (M7's notice, M3's notice after a count-in). */
-export const STOP_CAUSE_TEXTS: Record<StopCause, string> = {
+const STOP_CAUSE_TEXTS: Record<StopCause, string> = {
   ended: 'マイクが外れたか、マイクの許可が取り消されました。',
   contextClosed: '音の処理が止まりました。',
   contextInterrupted:
@@ -62,7 +62,7 @@ export const STOP_CAUSE_TEXTS: Record<StopCause, string> = {
   workletError: '録音の処理でエラーが起きました。',
 };
 
-export const LIMIT_TEXT = '10 分になったので止めました。';
+const LIMIT_TEXT = '10 分になったので止めました。';
 
 /** M7: how the recording ended; null for ■ (nothing to explain). */
 export function takeEndText(end: TakeEnd): string | null {
@@ -181,8 +181,9 @@ export function announcementFor(
   if (prev.phase === next.phase) {
     if (
       next.phase === 'recording' &&
-      next.oneMinuteAnnounced &&
-      !prev.oneMinuteAnnounced
+      prev.phase === 'recording' &&
+      prev.remainingSec === null &&
+      next.remainingSec !== null
     )
       return '残り 1 分です。';
     return null;
