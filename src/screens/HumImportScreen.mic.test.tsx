@@ -363,6 +363,10 @@ describe('HumImportScreen: マイクで録る', () => {
     const { session } = setup({}, undefined, 12, save);
     await chooseMic();
     await recordTake(session);
+    // M7's own save goes through the same injected save
+    fireEvent.click(button('録音を保存（wav）'));
+    expect(save).toHaveBeenCalledTimes(1);
+    save.mockClear();
     fireEvent.click(button('下書きを作る'));
     await flush();
     fireEvent.click(button('録音を保存（wav）'));

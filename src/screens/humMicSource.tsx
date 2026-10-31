@@ -25,6 +25,7 @@ export function micHumSource({
   ts,
   onUseFile,
   saveName,
+  save,
   playbackDeps,
   waitForFile,
 }: MicRecorderProps & {
@@ -40,6 +41,7 @@ export function micHumSource({
         ts={ts}
         onUseFile={onUseFile}
         saveName={saveName}
+        save={save}
         playbackDeps={playbackDeps}
       />
     ),

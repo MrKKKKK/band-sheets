@@ -286,6 +286,7 @@ export function HumImportScreen({
           ts,
           onUseFile: switchToFile,
           saveName: () => humTakeFileName(songTitle, value.label, new Date()),
+          save,
           playbackDeps,
           waitForFile: !!pickedFile?.probing,
         })
