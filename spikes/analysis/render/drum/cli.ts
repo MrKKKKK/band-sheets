@@ -18,7 +18,8 @@ import { checkOnsets, ONSET_TOL_SEC, type OnsetCheck } from './check';
 import { KIT_DIRS, SAMPLE_RATE } from './kits';
 import { renderDrum } from './render';
 import { DRUM_SYNTH_VERSION } from './truth';
-import { allDrumVariants, DRUM_LEVELS, DRUM_SETS, SPLITS, TAIL_SEC, type DrumSplit } from './variants';
+import { realParams } from './realistic';
+import { allDrumVariants, levelLabel, DRUM_LEVELS, DRUM_SETS, SPLITS, TAIL_SEC, type DrumSplit } from './variants';
 
 function argOf(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -65,7 +66,8 @@ for (const v of selected) {
   entries.push({
     name: v.name,
     style: v.style,
-    level: `D${v.level}`,
+    level: levelLabel(v),
+    ...(v.real ? { real: realParams(v) } : {}),
     seed: v.seed,
     kit: v.kit,
     split: v.split,

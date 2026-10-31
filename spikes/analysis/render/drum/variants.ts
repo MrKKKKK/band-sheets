@@ -19,6 +19,8 @@
 //       (A and H: the Power kit, program 16; B/C/D: drums shifted 100-250 cents); jitter sigma 12-20 ms.
 // Rooms at D2 / D3: A, H Schroeder reverb; B, D their room mics; C the held-out FDN room.
 // The `ext` style (S-拡張 pieces) is rendered at D1 and D2 only.
+// T12b: the `real` set (tuning only, seeds 31-33, kits A / D / H, the 9 non-ext styles) is rendered at R1 only =
+// D1 + fills + realistic.ts (HH dynamics / level / EQ, shared jitter + drift, low-body SD near T1). Named syn-r1-*.
 
 import { prng } from '../prng';
 import { hashSeed } from '../hum/variants';
@@ -31,11 +33,14 @@ export type DrumSplit = 'tuning' | 'dev' | 'heldOut';
 export const DRUM_LEVELS: DrumLevel[] = [0, 1, 2, 3];
 /** The variant sets: split, seeds, kits (in this order; the order of the variants list). */
 /** `styles` (T12): the set plays only these styles (default: STYLE_IDS). */
-export const DRUM_SETS: { split: DrumSplit; seeds: number[]; kits: KitId[]; styles?: StyleId[] }[] = [
+/** `real` (T12b): the set is rendered at level 1 only, as R1 (realistic.ts). */
+export const DRUM_SETS: { split: DrumSplit; seeds: number[]; kits: KitId[]; styles?: StyleId[]; real?: true }[] = [
   { split: 'tuning', seeds: [1, 2, 3], kits: ['A'] },
   { split: 'tuning', seeds: [11, 12, 13], kits: ['D', 'H'] },
   // T12: more S-拡張 hits (patterns.ts ext2) for kits A / D / H, tuning only, at the EXT_LEVELS
   { split: 'tuning', seeds: [21, 22, 23, 24, 25, 26], kits: ['A', 'D', 'H'], styles: ['ext2'] },
+  // T12b: realistic material (R1), tuning only
+  { split: 'tuning', seeds: [31, 32, 33], kits: ['A', 'D', 'H'], styles: ['rock8', 'pop16', 'half', 'shuffle8', 'shuffle16', 'ballad', 'funk', 'waltz', 'six8'], real: true },
   { split: 'dev', seeds: [4, 5], kits: ['A', 'B'] },
   { split: 'heldOut', seeds: [6, 7], kits: ['C'] },
 ];
@@ -46,7 +51,7 @@ export const TAIL_SEC = 2.5;
 
 /** Seeds and kits per split (union of DRUM_SETS; the manifest records both). */
 export const SPLITS: Record<DrumSplit, { seeds: number[]; kits: KitId[] }> = {
-  tuning: { seeds: [1, 2, 3, 11, 12, 13, 21, 22, 23, 24, 25, 26], kits: ['A', 'D', 'H'] },
+  tuning: { seeds: [1, 2, 3, 11, 12, 13, 21, 22, 23, 24, 25, 26, 31, 32, 33], kits: ['A', 'D', 'H'] },
   dev: { seeds: [4, 5], kits: ['A', 'B'] },
   heldOut: { seeds: [6, 7], kits: ['C'] },
 };
@@ -67,11 +72,16 @@ export interface DrumVariant {
   heldOut: boolean;
   /** The S-拡張 style. */
   ext: boolean;
+  /** T12b realistic set (level 1 rendered as R1). */
+  real: boolean;
 }
 
-export function drumVariantName(style: StyleId, level: DrumLevel, kit: KitId, seed: number): string {
-  return `syn-d${level}-${style}-k${kit}-s${seed}`;
+export function drumVariantName(style: StyleId, level: DrumLevel, kit: KitId, seed: number, real = false): string {
+  return `syn-${real ? 'r' : 'd'}${level}-${style}-k${kit}-s${seed}`;
 }
+
+/** Level label of the manifest / truth: D0..D3, R1 for the realistic set. */
+export const levelLabel = (v: Pick<DrumVariant, 'level' | 'real'>): string => `${v.real ? 'R' : 'D'}${v.level}`;
 
 export function allDrumVariants(): DrumVariant[] {
   const out: DrumVariant[] = [];
@@ -81,9 +91,11 @@ export function allDrumVariants(): DrumVariant[] {
       if ((style === 'ext' || style === 'ext2') && !EXT_LEVELS.includes(level)) continue;
       for (const set of DRUM_SETS) {
         if (!(set.styles ?? (STYLE_IDS as readonly StyleId[])).includes(style)) continue;
+        const real = set.real === true;
+        if (real && level !== 1) continue;
         for (const seed of set.seeds)
           for (const kit of set.kits)
-            out.push({ name: drumVariantName(style, level, kit, seed), style, level, seed, kit, split: set.split, heldOut: set.split === 'heldOut', ext: style === 'ext' || style === 'ext2' });
+            out.push({ name: drumVariantName(style, level, kit, seed, real), style, level, seed, kit, split: set.split, heldOut: set.split === 'heldOut', ext: style === 'ext' || style === 'ext2', real });
       }
     }
   return out;
@@ -169,7 +181,7 @@ export function synthParams(v: DrumVariant): DrumSynthParams {
     noiseSnrDb: L === 2 ? 30 : L === 3 ? 20 : null,
     program: L === 3 && powerKit ? 16 : 0,
     cents,
-    fills: L >= 2,
+    fills: L >= 2 || v.real,
     denseCymbals: L === 3,
     marks: L >= 1,
   };

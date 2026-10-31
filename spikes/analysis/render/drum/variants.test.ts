@@ -6,8 +6,8 @@ describe('drum variants and splits', () => {
   const count = (f: (v: DrumVariant) => boolean) => all.filter(f).length;
 
   it('sizes: 38 variants per seed and kit (9 styles at D0 / D3, 10 with ext at D1 / D2); T12 ext2: 2 per seed and kit', () => {
-    expect(all.length).toBe(570 + 36);
-    const old = (v: DrumVariant) => v.style !== 'ext2';
+    expect(all.length).toBe(570 + 36 + 81);
+    const old = (v: DrumVariant) => v.style !== 'ext2' && !v.real;
     expect(count((v) => old(v) && v.split === 'tuning' && v.kit === 'A')).toBe(114);
     expect(count((v) => old(v) && v.split === 'tuning' && v.kit === 'D')).toBe(114);
     expect(count((v) => old(v) && v.split === 'tuning' && v.kit === 'H')).toBe(114);
@@ -26,7 +26,7 @@ describe('drum variants and splits', () => {
       expect(v.heldOut).toBe(v.split === 'heldOut');
       expect(v.kit === 'C').toBe(v.heldOut);
       if (v.split === 'tuning') expect(v.seed <= 3 ? v.kit === 'A' : v.seed >= 21 || ['D', 'H'].includes(v.kit)).toBe(true);
-      if (v.kit === 'D' || v.kit === 'H') expect([v.split, [11, 12, 13, 21, 22, 23, 24, 25, 26].includes(v.seed)]).toEqual(['tuning', true]);
+      if (v.kit === 'D' || v.kit === 'H') expect([v.split, [11, 12, 13, 21, 22, 23, 24, 25, 26, 31, 32, 33].includes(v.seed)]).toEqual(['tuning', true]);
     }
     expect([...new Set(all.filter((v) => v.split === 'dev').map((v) => v.kit))].sort()).toEqual(['A', 'B']);
   });
@@ -63,7 +63,7 @@ describe('drum variants and splits', () => {
     for (const v of all) {
       const p = synthParams(v);
       if (v.level === 0) expect([p.jitterSigmaSec, p.velocitySigma, p.swingRatio, p.mic, p.room.kind, p.noiseSnrDb]).toEqual([0, 0, 2 / 3, 'close', 'none', null]);
-      if (v.level === 1) {
+      if (v.level === 1 && !v.real) {
         expect(p.jitterSigmaSec).toBeGreaterThanOrEqual(0.005);
         expect(p.jitterSigmaSec).toBeLessThanOrEqual(0.01);
         expect([p.mic, p.room.kind, p.noiseSnrDb]).toEqual(['close', 'none', null]);

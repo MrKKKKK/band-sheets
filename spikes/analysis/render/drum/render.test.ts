@@ -32,7 +32,7 @@ describe('rendered synthetic drums', { timeout: 300_000 }, () => {
     });
   }
 
-  for (const name of ['syn-d0-rock8-kA-s2', 'syn-d2-ballad-kB-s5', 'syn-d3-funk-kC-s7', 'syn-d1-ext-kB-s4', 'syn-d2-funk-kD-s11', 'syn-d3-rock8-kH-s12']) {
+  for (const name of ['syn-d0-rock8-kA-s2', 'syn-d2-ballad-kB-s5', 'syn-d3-funk-kC-s7', 'syn-d1-ext-kB-s4', 'syn-d2-funk-kD-s11', 'syn-d3-rock8-kH-s12', 'syn-r1-funk-kA-s31', 'syn-r1-half-kD-s32', 'syn-r1-shuffle8-kH-s33']) {
     const kit = V(name).kit;
     it.skipIf(!kitAvailable(kit) || !kitAvailable('A'))(`${name}: every truth onset within 1 ms of the rendered sound`, () => {
       const c = checkOnsets(V(name));
@@ -56,6 +56,15 @@ describe('rendered synthetic drums', { timeout: 300_000 }, () => {
     expect(ts[0]).toBeGreaterThan(d.info.startSec - 0.06);
     expect(r.truth.source.audioSec).toBeGreaterThan(d.truth.barStartsSec.at(-1)!);
     expect(d.variant).toMatchObject({ heldOut: false, split: 'dev', kit: 'B', level: 'D2' });
+  });
+
+  it.skipIf(!kitAvailable('D'))('T12b R1: truth score parses back, tuning split, level R1, no clipping', () => {
+    const r = renderDrum(V('syn-r1-rock8-kD-s31'));
+    const d = r.truth.drum;
+    const p = parseDrums(d.score.tex, timeSig(d.score.ts));
+    expect(p.ok && p.events).toEqual(d.score.events);
+    expect(d.variant).toMatchObject({ heldOut: false, split: 'tuning', kit: 'D', level: 'R1' });
+    expect(r.clipped).toBe(0);
   });
 
   it.skipIf(!kitAvailable('D'))('kit D (T10b): truth score parses back, tuning split', () => {

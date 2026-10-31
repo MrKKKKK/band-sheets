@@ -24,6 +24,7 @@ import { barTicksOf, timeSig } from './notation';
 import type { Pattern } from './patterns';
 import type { PlacedHit } from './render';
 import type { DrumSynthParams, DrumVariant } from './variants';
+import { levelLabel } from './variants';
 
 export const DRUM_SYNTH_VERSION = 'drum-synth-1';
 
@@ -92,7 +93,7 @@ export function buildDrumTruth(
         events,
         tex: serializeDrums(events, pattern.shuffle, timeSig(pattern.ts)),
       },
-      variant: { name: v.name, style: v.style, level: `D${v.level}`, seed: v.seed, kit: v.kit, split: v.split, heldOut: v.heldOut, ext: v.ext },
+      variant: { name: v.name, style: v.style, level: levelLabel(v), seed: v.seed, kit: v.kit, split: v.split, heldOut: v.heldOut, ext: v.ext },
       synth: { ...p },
     },
   };

@@ -11,6 +11,7 @@ import { gauss } from '../hum/voice';
 import type { DrumInst } from '../../ts/drum/types';
 import { getKit, KIT_INSTRUMENTS, layerOf, micWeights, onsetIndex, SAMPLE_RATE, type Kit, type OneShot } from './kits';
 import { mixHits, type MixHit } from './mixer';
+import { realGain, realKit, realParams, realTimes } from './realistic';
 import { barTicksOf, hitTimes, toDrumEvents, type TimedHit } from './notation';
 import { generatePattern, type GridHit, type Pattern } from './patterns';
 import { addReverb, fdnRoom, phoneMic } from './room';
@@ -98,11 +99,17 @@ export function chainOnset(voice: OneShot, params: DrumSynthParams, memo: Map<On
 /** Everything up to the placement (shared by render and check). */
 export function placeHits(v: DrumVariant, sr = SAMPLE_RATE) {
   const params = synthParams(v);
-  const kit = getKit(v.kit);
+  // T12b: the realistic set replaces the jitter, adds per-hit gain and changes some voices (realistic.ts)
+  const rp = v.real ? realParams(v) : null;
+  const kit = rp ? realKit(getKit(v.kit), rp, sr) : getKit(v.kit);
   const pattern = drumPattern(v, params);
   const jit = streamOf(v, 'jitter', { perLevel: true, perKit: true });
   const jitter = () => (params.jitterSigmaSec > 0 ? Math.max(-JITTER_CLIP, Math.min(JITTER_CLIP, gauss(jit))) * params.jitterSigmaSec : 0);
-  const timed = hitTimes(pattern, params.bpm, params.startSec, params.swingRatio, jitter);
+  const timed = rp
+    ? realTimes(v, rp, hitTimes(pattern, params.bpm, params.startSec, params.swingRatio, () => 0), params.startSec)
+    : hitTimes(pattern, params.bpm, params.startSec, params.swingRatio, jitter);
+  const realLevel = streamOf(v, 'realLevel', { perKit: true });
+  const beatTicks = 64 / pattern.ts[1];
   const vel = streamOf(v, 'velocity', { perLevel: true, perKit: true });
   const rrs = streamOf(v, 'rr', { perLevel: true, perKit: true });
   const mics = micWeights(v.kit, params.mic, params.room.kind === 'mic' ? params.room.level : 0);
@@ -120,7 +127,8 @@ export function placeHits(v: DrumVariant, sr = SAMPLE_RATE) {
     const residual = kit.exactVelocity(h.inst) ? 1 : Math.max(0.8, Math.min(1.25, velocity / kit.layerVelocity(h.inst, layer)));
     const at = Math.round(h.t * sr);
     placed.push({ ...h, velocity, layer, rr, at });
-    mix.push({ inst: h.inst, at, onset: chainOnset(voice, params, onsets, sr), gain: gain * residual, voice });
+    const extra = rp ? realGain(h, rp, beatTicks, realLevel) : 1;
+    mix.push({ inst: h.inst, at, onset: chainOnset(voice, params, onsets, sr), gain: gain * residual * extra, voice });
   }
   const bars = pattern.bars.length;
   const endSec = params.startSec + (bars * barTicksOf(pattern.ts) * 60) / params.bpm / (64 / pattern.ts[1]);
