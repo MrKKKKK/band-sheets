@@ -331,6 +331,50 @@ export function saveNoteNameMode(
   return write(storage, NOTE_NAMES_KEY, mode);
 }
 
+/**
+ * The input-latency "remainder" (ms) of each microphone, per device: JSON `{v:1, devices: {[deviceId]: ms}}`
+ * (docs/mic-recording-plan.md §2.4). The key is the REAL `deviceId` of the opened track. The remainder may be
+ * negative. Broken values read as "not measured yet".
+ */
+export const MIC_LATENCY_KEY = `${PREFIX}mic-latency`;
+
+function loadMicDevices(
+  storage: KeyValueStorage | null,
+): Record<string, number> {
+  const v = readJson(storage, MIC_LATENCY_KEY);
+  if (!isRecord(v) || v.v !== 1 || !isRecord(v.devices)) return {};
+  const out: [string, number][] = [];
+  for (const [id, ms] of Object.entries(v.devices)) {
+    if (typeof ms === 'number' && Number.isFinite(ms)) out.push([id, ms]);
+  }
+  // fromEntries defines own properties, so an id like "__proto__" is just a key
+  return Object.fromEntries(out);
+}
+
+/** The remembered remainder (ms) of this microphone, or null when not measured / unreadable. */
+export function loadMicRemainder(
+  storage: KeyValueStorage | null,
+  deviceId: string,
+): number | null {
+  if (!deviceId) return null;
+  const devices = loadMicDevices(storage);
+  return Object.hasOwn(devices, deviceId) ? devices[deviceId] : null;
+}
+
+/** Remembers the remainder; other microphones' values are kept. Returns false when it was not stored. */
+export function saveMicRemainder(
+  storage: KeyValueStorage | null,
+  deviceId: string,
+  remainderMs: number,
+): boolean {
+  if (!deviceId || !Number.isFinite(remainderMs)) return false;
+  const devices = Object.fromEntries([
+    ...Object.entries(loadMicDevices(storage)),
+    [deviceId, remainderMs],
+  ]);
+  return write(storage, MIC_LATENCY_KEY, JSON.stringify({ v: 1, devices }));
+}
+
 export function viewerSettingsKey(songId: string): string {
   return `${PREFIX}viewer:${songId}`;
 }
