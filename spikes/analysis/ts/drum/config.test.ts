@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_DRUM_CONFIG, DRUM_CONFIG_GROUPS, drumConfigCanonical, drumConfigHash, drumConfigSummary, resolveDrumConfig } from './config';
 import { EXT_DRUM_INSTRUMENTS, LEVEL_INSTRUMENTS, TICKS_PER_16TH, WHOLE_TICKS, type DrumAnalysisResult, type DrumInst } from './types';
 import type { AnalysisResult } from '../../render/types';
+import { FROZEN_CONFIG_HASH } from './heldout_guard';
 
 function reorder(o: unknown): unknown {
   if (Array.isArray(o)) return o.map(reorder);
@@ -21,6 +22,11 @@ describe('drum config hash', () => {
   it('is 12 hex chars and stable (pinned)', () => {
     expect(drumConfigHash()).toMatch(/^[0-9a-f]{12}$/);
     expect(drumConfigHash()).toBe(PINNED);
+  });
+  it('the held-out guards pin the same hash; the two coupled values agree (T16 should-fix 8)', () => {
+    expect(FROZEN_CONFIG_HASH).toBe(PINNED);
+    // S-9 keeps a non-blooming CR whose SP / CN share >= crKeepSpCn so that S-ext can rename it by the same share (cymVote)
+    expect(DEFAULT_DRUM_CONFIG.cymbals.crKeepSpCn).toBe(DEFAULT_DRUM_CONFIG.ext.cymVote);
   });
   it('does not depend on key order', () => {
     const rev = reorder(DEFAULT_DRUM_CONFIG) as typeof DEFAULT_DRUM_CONFIG;

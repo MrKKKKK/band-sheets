@@ -1,8 +1,8 @@
 /**
  * Spike 5 T14: the ONE entry for look point 3 (held-out recordings, once), like spike 4's ts/hum/heldout_eval.ts.
  *
- *   npx tsx ts/drum/heldout_eval.ts --final-heldout [--commit SHA] [--config x.json]
- *       Checked ONCE at the start (clean working tree, no drum look-3 held-out line in out/results/heldout-log.jsonl,
+ *   npx tsx ts/drum/heldout_eval.ts --final-heldout
+ *       (T16: no --config / --commit here; the config must hash to FROZEN_CONFIG_HASH, the commit is git's HEAD.) Checked ONCE at the start (clean working tree, no drum look-3 held-out line in out/results/heldout-log.jsonl,
  *       otherwise refuses before any audio is read). Then writes ONE look-3 line (before the analysis: recording ids,
  *       levels S-3 / S-9 / S-ext, config hash, commit) and analyzes every held-out recording x all three levels.
  *       Main level of the summary = S-9, S-3 and S-ext alongside.
@@ -17,7 +17,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { drumConfigHash, type DrumConfig } from './config';
 import { UsageError, guardSources, gitCommit, gitPorcelain, loadConfig, runFile } from './cli';
-import { hasDrumLook3, heldOutRefusal, lookPointBlock, parseLog, type GuardSources } from './heldout_guard';
+import { FROZEN_CONFIG_HASH, hasDrumLook3, heldOutRefusal, lookPointBlock, parseLog, type GuardSources } from './heldout_guard';
 import { poolTakes, type PoolItem } from './pool';
 import type { DrumTruth } from './score';
 import type { DrumLevel } from './types';
@@ -47,6 +47,8 @@ export interface EvalDeps {
   now(): string;
   configHash: string;
   commit?: string;
+  /** final: configHash must equal this (default FROZEN_CONFIG_HASH). */
+  frozenConfigHash?: string;
   /** Analyzes + loads the truth of ONE take at one level; called only after the guard has passed. */
   analyze(id: string, level: DrumLevel): PoolItem;
 }
@@ -66,6 +68,8 @@ export function runEval(d: EvalDeps): EvalOutcome {
   if (d.mode === 'selftest') {
     for (const id of takes) if (heldOutRefusal(id, d.sources)) throw new UsageError(`selftest refuses ${id}: held-out or unverifiable`);
   } else {
+    if (d.configHash !== (d.frozenConfigHash ?? FROZEN_CONFIG_HASH)) throw new UsageError(`config ${d.configHash} is not the frozen ${d.frozenConfigHash ?? FROZEN_CONFIG_HASH}: refusing`);
+    if (!d.commit) throw new UsageError('the commit could not be read from git: refusing');
     const logText = d.readLog();
     if (hasDrumLook3(parseLog(logText))) throw new UsageError('a drum look-3 line already exists in the heldout log: refusing to run again');
     const block = lookPointBlock({ lookPoint: 3, logText, porcelain: d.porcelain() });
@@ -115,6 +119,7 @@ function main(argv: string[]): number {
     else throw new UsageError(`unknown option ${k}`);
   }
   if (!mode) throw new UsageError('give --final-heldout (look point 3, once) or --selftest (dev takes)');
+  if (mode === 'final' && (config !== undefined || commit !== undefined)) throw new UsageError('--final-heldout takes no --config / --commit (frozen config, commit from git)');
   const cfg = loadConfig(config);
   const out = runEval(realDeps(mode, cfg, commit ?? gitCommit()));
   const dir = join(ROOT, 'out', 'heldout-eval', mode === 'final' ? 'final' : 'selftest');

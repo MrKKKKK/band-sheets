@@ -17,6 +17,10 @@ const GOLDEN: [string, KitId, string][] = [
   ['syn-d1-shuffle8-kA-s1', 'A', '1bd3ecfd24d33ff8'],
   ['syn-d2-funk-kB-s4', 'B', '01ba152d0129641d'],
   ['syn-d3-six8-kC-s6', 'C', 'f702f44d5187cfa0'],
+  // T16 (review should-fix 9): the tuning kits the T10b-T12b tuning relied on (equal to the wavs in out/drum at T16)
+  ['syn-d2-funk-kD-s11', 'D', '426fd794f19f11b9'],
+  ['syn-d3-rock8-kH-s12', 'H', 'a51224be112d628d'],
+  ['syn-r1-half-kD-s32', 'D', 'abf583b521717633'],
 ];
 
 describe('rendered synthetic drums', { timeout: 300_000 }, () => {

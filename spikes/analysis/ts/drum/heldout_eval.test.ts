@@ -23,6 +23,7 @@ function deps(over: Partial<EvalDeps> = {}) {
     porcelain: () => '',
     now: () => 't',
     configHash: 'abc',
+    frozenConfigHash: 'abc',
     commit: 'c0ffee',
     analyze: (id, level) => {
       calls.push(`${id}@${level}`);
@@ -66,6 +67,14 @@ describe('runEval final', () => {
     for (const porcelain of [' M x\n', null]) {
       const { d, calls, lines } = deps({ porcelain: () => porcelain });
       expect(() => runEval(d)).toThrow(/clean/);
+      expect(calls).toEqual([]);
+      expect(lines).toEqual([]);
+    }
+  });
+  it('refuses a config other than the frozen one, or a missing commit, before logging (T16 should-fix 3)', () => {
+    for (const over of [{ configHash: 'other' }, { commit: undefined }]) {
+      const { d, calls, lines } = deps(over);
+      expect(() => runEval(d)).toThrow(/frozen|commit/);
       expect(calls).toEqual([]);
       expect(lines).toEqual([]);
     }

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubNoNetwork } from '../parity/noNetwork';
 import { DRUM_STAGES, DrumInputError, analyzeDrums, drumScore, validateDrumInfo } from './analyze';
@@ -109,12 +109,18 @@ describe('analyzeDrums', () => {
   });
 
   it('does not read ground truth or render code (plan decision 4), and the Worker graph avoids alphaTab', () => {
-    for (const f of ['analyze.ts', 'onset.ts', 'classify.ts', 'cymbals.ts', 'toms.ts', 'ext.ts', 'quantize.ts', 'strength.ts', 'swing.ts', 'toDrums.ts', 'templates.ts']) {
+    // T16 (review nice 4): every analysis file of ts/drum, i.e. all but tests, evaluation, scoring and CLI entries
+    const notAnalysis = /\.test\.ts$|^(cli|classify_eval|heldout_eval|heldout_guard|synth_heldout_eval|make_templates|onset_eval|pool|report|score|score_check|templates_build)\.ts$/;
+    const files = readdirSync(new URL('./', import.meta.url)).filter((f) => f.endsWith('.ts') && !notAnalysis.test(f));
+    expect(files).toEqual(expect.arrayContaining(['analyze.ts', 'bands.ts', 'config.ts', 'classify.ts', 'ext.ts', 'types.ts']));
+    for (const f of files) {
       const src = readFileSync(new URL(`./${f}`, import.meta.url), 'utf8');
-      const imports = [...src.matchAll(/from '([^']+)'/g)].map((m) => m[1]);
-      for (const i of imports) {
-        expect(i, `${f} imports ${i}`).not.toMatch(/render\/|truth|templates_build|alphatab|node:/i);
-        expect(i, `${f} imports ${i}`).not.toMatch(/score'|report'|recscore/);
+      const imports = [...src.matchAll(/^import (type )?[^;]*?from '([^']+)'/gm)].map((m) => ({ typeOnly: !!m[1], path: m[2] }));
+      expect(imports.length, f).toBeGreaterThan(0);
+      for (const { typeOnly, path: i } of imports) {
+        // types.ts shares the result SHAPE with render/types.ts (type-only, erased): allowed
+        if (!(typeOnly && i === '../../render/types')) expect(i, `${f} imports ${i}`).not.toMatch(/render\/|truth|templates_build|alphatab|node:/i);
+        expect(i, `${f} imports ${i}`).not.toMatch(/\/(score|report|pool|heldout_\w+|cli)$|recscore/);
       }
     }
   });

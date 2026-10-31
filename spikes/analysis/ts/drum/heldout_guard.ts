@@ -22,8 +22,7 @@ export interface GuardSources {
   ids: Record<string, { heldOut?: boolean }> | null;
 }
 
-const isHeld = (v: GuardVariant) => v.heldOut === true || v.split === 'heldOut';
-
+export const isHeld = (v: GuardVariant) => v.heldOut === true || v.split === 'heldOut';
 
 export interface Refusal {
   reason: string;
@@ -58,6 +57,15 @@ export const parseLog = (text: string | null): LogLine[] =>
     .map((l) => JSON.parse(l) as LogLine);
 
 export const hasDrumLook3 = (lines: LogLine[]) => lines.some((d) => d.input === 'drum' && d.lookPoint === 3 && d.kind === 'look' && d.heldOut === true);
+
+/**
+ * T16 (user decision G2-11): the synthetic held-out (kit C) has its OWN one-time guard, separate from the recordings' look-3
+ * line: input 'drum-synth', lookPoint 3, heldOut true. A recordings line does not block it and it does not block the recordings.
+ */
+export const hasDrumSynthLook3 = (lines: LogLine[]) => lines.some((d) => d.input === 'drum-synth' && d.lookPoint === 3 && d.kind === 'look' && d.heldOut === true);
+
+/** The config every held-out run must use (drum-v0 after T12b, frozen since dc0ec5a). */
+export const FROZEN_CONFIG_HASH = 'fb158baf9dfe';
 
 export interface LookPointInput {
   lookPoint: number | undefined;

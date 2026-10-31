@@ -244,7 +244,7 @@ def process_take(base, t, rec_dir, out, scores_dir, reintake=False, reintake_hel
     if again and not (reintake_held_out if held_out else reintake):
         raise DrumError("すでに取り込み済みです（やり直すときは " +
                         ("--reintake-held-out" if held_out else "--reintake") + "）")
-    # registry + log BEFORE anything is analysed (and before the audio is touched)
+    # registry + log BEFORE anything is analysed
     os.makedirs(rec_dir, exist_ok=True)
     ids["recordings"].setdefault(rid, {"letter": letter, "heldOut": held_out, "registeredAt": _now()})
     _save_ids(rec_dir, ids)
