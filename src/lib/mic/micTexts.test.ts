@@ -106,7 +106,7 @@ describe('announcementFor', () => {
       announcements(
         ...OPEN,
         { type: 'measure' },
-        { type: 'measureDone', remainderMs: 47.6, spreadMs: 1 },
+        { type: 'measureDone', remainderMs: 47.6, spreadMs: 1, found: 4 },
         { type: 'closeMeasure' },
         { type: 'measure' },
         { type: 'measureFailed' },
