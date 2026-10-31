@@ -123,6 +123,12 @@ export interface DrumConfig {
     adaptHighMin: number;
     /** T11: an HH seed's part keeps (does not subtract) the BD / SD fit when that class's share is below this (0 = subtract all). */
     adaptSubMin: number;
+    /**
+     * T12b: on an onset with S-3 BD or SD, HH is also present when its share >= hhCoShare (below shareMin[2]) and its
+     * activation is >= hhCoLevelDb re the take's HH reference (a quiet hi-hat under a loud drum). hhCoShare >= 1 = off.
+     */
+    hhCoShare: number;
+    hhCoLevelDb: number;
   };
   toms: {
     /**
@@ -187,6 +193,10 @@ export interface DrumConfig {
     hoCos: number;
     profileFminHz: number;
     profileMinHits: number;
+    /** T12b: CR only on a measured rise (drop > riseDb); a CR that does not bloom becomes HH or RD by the larger vote. */
+    crNeedsRise: boolean;
+    /** ... unless the splash or the china column holds >= crKeepSpCn of the CR vote (they do not bloom either; = ext.cymVote). */
+    crKeepSpCn: number;
   };
   ext: {
     /**
@@ -353,6 +363,9 @@ export const DEFAULT_DRUM_CONFIG: DrumConfig = deepFreeze({
     // hi-hats) .889 / .914 (SD P: kit D hi-hat mids no longer read as SD), LOPO 16 / 24 / 25 .910 / .908, .842 / .844, .798 / .796.
     // Subtracting from every part instead: H .907 but D HH .755 -> .702, LOPO 16 HH .881 -> .821. .3 / .5 within +-.003 of .2.
     adaptSubMin: 0.2,
+    // T12b (tuning incl. the realistic R1 set; docs/audio-spike5-t12b.md): R1 HH .533 -> .556, D HH .823 -> .846, A / H / LOPO +-.003
+    hhCoShare: 0.02,
+    hhCoLevelDb: -15,
   },
   // T11 (S-9, classify-only on tuning A / D / H + LOPO; tables in docs/audio-spike5-t11.md). S-3 output does not use these.
   // toms: shareMin .3 -> .4: H T1 / T2 .85 / .81 -> .88 / .86, LOPO 16 T2 / FT .16 / .16 -> .57 / .65, D .58 / .31 / .15 -> .14 / .06 / 0;
@@ -366,8 +379,12 @@ export const DEFAULT_DRUM_CONFIG: DrumConfig = deepFreeze({
   // nameByColumn (only with 3 columns; always: LOPO 16 FT .70 -> .41): D T1 / T2 / FT .63 / .60 / .61 -> .71 / .72 / .71.
   toms: { groups: 3, shareMin: 0.4, levelMinDb: -25, maxTakeShare: 0.5, sdKeepShare: 0.4, delaySec: 0.01, winSec: 0.08, pitchMinHz: 60, pitchMaxHz: 400, subRatio: 0.3, minGapOct: 0.07,
     adapt: true, adaptSubHz: 70, adaptLowTopHz: 2500, adaptSubMax: 0.1, adaptHighMax: 0.1, adaptBodyMin: 0.4, adaptPitchRatio: 0.85, adaptBdMax: 0.5, adaptMinHits: 4, adaptKeepCos: 0.95, bdKeepShare: 0.4, nameSdRatios: [0.62, 0.52, 0.35], nameByColumn: true },
-  cymbals: { shareMin: 0.05, levelMinDb: -25, fminHz: 5000, dropFrames: 6, dropMinFrames: 3, fastDb: -4.5, riseDb: 0.5, slowDb: -3, crOverHh: 0.5, voteDom: 0.7, hoCos: 0.83, profileFminHz: 1000, profileMinHits: 4 },
+  cymbals: { shareMin: 0.05, levelMinDb: -25, fminHz: 5000, dropFrames: 6, dropMinFrames: 3, fastDb: -4.5, riseDb: 0.5, slowDb: -3, crOverHh: 0.5, voteDom: 0.7, hoCos: 0.83, profileFminHz: 1000, profileMinHits: 4, crNeedsRise: true, crKeepSpCn: 0.8 },
   // T12 S-ext (classify-only on tuning A / D / H incl. the ext2 seeds 21-26, LOPO 16 / 24 / 25; tables in docs/audio-spike5-t12.md).
+  // T12b crNeedsRise (CR needs a measured rise; else HH / RD by vote) + crKeepSpCn .8 (keeps splash / china: without it ext
+  // SP .80 -> .04, CN .35 -> 0; it costs R1 CR .961 -> .847): see docs/audio-spike5-t12b.md for the tables. Rejected: CR level re the take's median
+  // metal / closed HH (killed CR on A / H / LOPO), the rule fallback without CR (false HO: D D2 HO .750 -> .368), the tom seed
+  // pitch condition off (adaptPitchRatio 1.3 / off: D T1 .49 -> .06 / .03; R1 toms also lower).
   ext: { cymVote: 0.8, bellVote: 0.3, bellTonal: 35, bellMinHz: 1500, cbShare: 0.2, cbTonal: 40, cbMinHz: 400, cbMaxHz: 1500, cbMaxDropDb: -8, cbDropsMetal: true, xsShare: 0.3, footShare: 0.4, tonalMinHz: 300, tonalMaxHz: 8000 },
   strength: { refPercentile: 0.9, ghostDb: -10, normalPercentile: 0.25, accentDb: 5, minHits: 4 },
   grid: { subdivision: 16, triplet: false, onsetBias: true, maxBiasSec: 0.08 },

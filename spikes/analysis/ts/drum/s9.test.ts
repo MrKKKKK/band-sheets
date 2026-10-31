@@ -1,6 +1,6 @@
 // Spike 5 T11: unit tests of the S-9 helpers (cymbals.ts, toms.ts, classify.ts s9Evidence).
 import { describe, expect, it } from 'vitest';
-import { s9Evidence, type MelSpec } from './classify';
+import { hhUnderDrum, s9Evidence, type MelSpec } from './classify';
 import { DEFAULT_DRUM_CONFIG } from './config';
 import { cosToProfile, highDrops, metalLabel, type MetalVotes } from './cymbals';
 import { groupNames, groupPitches, tomPitch } from './toms';
@@ -30,6 +30,18 @@ describe('cymbals: highDrops', () => {
   });
 });
 
+describe('classify: hhUnderDrum (T12b)', () => {
+  const c = { hhCoShare: 0.02, hhCoLevelDb: -15 };
+  it('a quiet HH under BD / SD only: share and level re the take HH reference', () => {
+    expect(hhUnderDrum([false, true, false], 0.03, 0.2, 1, c)).toBe(true); // -14 dB
+    expect(hhUnderDrum([true, false, false], 0.03, 0.1, 1, c)).toBe(false); // -20 dB
+    expect(hhUnderDrum([false, true, false], 0.01, 0.9, 1, c)).toBe(false); // share too small
+    expect(hhUnderDrum([false, false, false], 0.03, 0.9, 1, c)).toBe(false); // no BD / SD
+    expect(hhUnderDrum([false, true, true], 0.03, 0.9, 1, c)).toBe(false); // already present
+    expect(hhUnderDrum([false, true, false], 0.5, 0.9, 1, { hhCoShare: 1, hhCoLevelDb: -15 })).toBe(false); // off
+  });
+});
+
 describe('cymbals: cosToProfile', () => {
   const centres = [500, 2000, 6000, 10000];
   it('compares bands >= fminHz with the mean closed-HH profile; NaN without enough profile onsets', () => {
@@ -52,7 +64,18 @@ describe('cymbals: metalLabel', () => {
     const v = votes({ HH: 0.4, HO: 0.2, RD: 0.3, CR: 0.1 });
     expect(metalLabel(v, -2, 0.97, cy).inst).toBe('HO');
     expect(metalLabel(v, -2, 0.8, cy).inst).toBe('RD');
-    expect(metalLabel(votes({ HH: 0.4, RD: 0.1, CR: 0.3, HO: 0.2 }), -2, NaN, cy).inst).toBe('CR');
+    expect(metalLabel(votes({ HH: 0.4, RD: 0.1, CR: 0.3, HO: 0.2 }), -2, NaN, { ...cy, crNeedsRise: false }).inst).toBe('CR');
+  });
+  it('crNeedsRise (T12b): a CR that does not bloom becomes HH or RD by the vote; a rising one stays; NaN drop keeps it', () => {
+    const r = { ...cy, crNeedsRise: true };
+    expect(metalLabel(votes({ CR: 0.9, HH: 0.1 }), -2, NaN, r)).toEqual({ inst: 'HH', alt: 'CR' });
+    expect(metalLabel(votes({ CR: 0.6, HO: 0.3, RD: 0.1 }), -2, NaN, r).inst).toBe('RD');
+    expect(metalLabel(votes({ CR: 0.9, HH: 0.1 }), 2, NaN, r).inst).toBe('CR');
+    expect(metalLabel(votes({ CR: 0.9, HH: 0.1 }), NaN, NaN, r).inst).toBe('CR');
+    expect(metalLabel(votes({ CR: 0.9, HH: 0.1 }), -2, NaN, { ...cy, crNeedsRise: false }).inst).toBe('CR');
+    // a splash / china (its column holds >= crKeepSpCn of the CR vote) does not bloom either: stays CR for S-ext
+    expect(metalLabel(votes({ CR: 0.9, HH: 0.1 }), -2, NaN, r, 0.9).inst).toBe('CR');
+    expect(metalLabel(votes({ CR: 0.9, HH: 0.1 }), -2, NaN, r, 0.5).inst).toBe('HH');
   });
   it('a dominant vote stands in the middle zone; alt = runner-up', () => {
     const r = metalLabel(votes({ HO: 0.8, RD: 0.2 }), -2, 0.5, cy);

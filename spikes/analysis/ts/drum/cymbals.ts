@@ -81,8 +81,13 @@ export function cosToProfile(obs: readonly ArrayLike<number>[], centres: ArrayLi
 
 export type CymbalCfg = DrumConfig['cymbals'];
 
-/** Metal piece of one onset (see the file comment); `alt` = the runner-up of the vote. */
-export function metalLabel(v: MetalVotes, drop: number, cosHh: number, cfg: CymbalCfg): { inst: MetalInst; alt: MetalInst } {
+/**
+ * Metal piece of one onset (see the file comment); `alt` = the runner-up of the vote. cfg.crNeedsRise (T12b): a CR
+ * whose measured drop is not a rise (<= riseDb) becomes HH or RD by the larger vote (alt CR); NaN drop keeps the CR, and
+ * so does `spcnShare` (the splash or the china column's part of the CR vote, the larger) >= crKeepSpCn: a splash /
+ * china does not bloom either (S-ext names it from the S-9 CR by the same share, ext.ts cymVote).
+ */
+export function metalLabel(v: MetalVotes, drop: number, cosHh: number, cfg: CymbalCfg, spcnShare = 0): { inst: MetalInst; alt: MetalInst } {
   const order = [...METAL].sort((a, b) => v[b] - v[a]);
   const total = METAL.reduce((s, m) => s + v[m], 0);
   let inst: MetalInst = order[0];
@@ -92,6 +97,9 @@ export function metalLabel(v: MetalVotes, drop: number, cosHh: number, cfg: Cymb
     else if (drop > cfg.riseDb && v.HO + v.RD + v.CR >= cfg.crOverHh * v.HH) inst = 'CR';
     else if (!dominant && drop > cfg.slowDb) inst = Number.isFinite(cosHh) && cosHh >= cfg.hoCos ? 'HO' : v.CR > v.RD ? 'CR' : 'RD';
   }
+  // T12b: a crash blooms. HO is not offered: it made many false open hats on tuning kits D / R1 (an onset that took CR
+  // without blooming is mostly a closed hat or a ride)
+  if (inst === 'CR' && cfg.crNeedsRise && Number.isFinite(drop) && !(drop > cfg.riseDb) && !(spcnShare >= cfg.crKeepSpCn)) return { inst: v.RD > v.HH ? 'RD' : 'HH', alt: 'CR' };
   const alt = order.find((m) => m !== inst) ?? 'HH';
   return { inst, alt };
 }

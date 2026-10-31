@@ -371,6 +371,14 @@ export function highDecayRates(s: MelSpec, onsets: readonly DrumOnset[], p: Spec
   });
 }
 
+/**
+ * T12b: a quiet hi-hat under a loud BD / SD - HH not present by the usual rule, BD or SD present, HH share >=
+ * hhCoShare (below shareMin[2]) and HH activation >= hhCoLevelDb re the take's HH reference.
+ */
+export function hhUnderDrum(present: readonly boolean[], hhShare: number, hhAct: number, hhRef: number, cfg: Pick<DrumConfig['classify'], 'hhCoShare' | 'hhCoLevelDb'>): boolean {
+  return !present[2] && (present[0] || present[1]) && hhShare >= cfg.hhCoShare && hhRef > 0 && 20 * Math.log10(Math.max(hhAct, 1e-30) / hhRef) >= cfg.hhCoLevelDb;
+}
+
 function decideNmf(onsets: readonly DrumOnset[], acts: Act[], cfg: DrumConfig['classify']): OnsetClass[] {
   const total = acts.map((x) => x.a[0] + x.a[1] + x.a[2] + x.other);
   const shares = acts.map((x, i) => x.a.map((v) => (total[i] > 0 ? v / total[i] : 0)));
@@ -383,6 +391,7 @@ function decideNmf(onsets: readonly DrumOnset[], acts: Act[], cfg: DrumConfig['c
     const share = shares[i];
     const levelOk = a.map((v, c) => refs[c] > 0 && 20 * Math.log10(Math.max(v, 1e-30) / refs[c]) >= cfg.levelMinDb);
     const present = share.map((s, c) => s >= cfg.shareMin[c] && levelOk[c]);
+    if (hhUnderDrum(present, share[2], a[2], refs[2], cfg)) present[2] = true;
     const s3 = share[0] + share[1] + share[2];
     if (!present.some(Boolean) && s3 >= 0.5 && total[i] > 0) present[share.indexOf(Math.max(...share))] = true;
     const confidence = share.map((s, c) => (present[c] ? presentConf(s, cfg.shareMin[c]) : levelOk[c] ? absentConf(s, cfg.shareMin[c]) : Math.min(absentConf(s, cfg.shareMin[c]), 0.25)));
@@ -546,7 +555,7 @@ const TOM_INDEX: Partial<Record<DrumInst, number>> = { T1: 0, T2: 1, FT: 2 };
 const METAL_OF: Partial<Record<DrumInst, keyof MetalVotes>> = { HH: 'HH', HO: 'HO', RD: 'RD', 'RD.bell': 'RD', CR: 'CR', SP: 'CR', CN: 'CR' };
 
 /** Per-onset S-9 evidence from the final fit: tom activation and template vote, metal votes, total. */
-export function s9Evidence(fit: NonNullable<ClassifyResult['fit']>): { total: number; bd: number; sd: number; tom: number; tomVote: number; metal: MetalVotes }[] {
+export function s9Evidence(fit: NonNullable<ClassifyResult['fit']>): { total: number; bd: number; sd: number; tom: number; tomVote: number; metal: MetalVotes; spcn: number }[] {
   return fit.h.map((h) => {
     let total = 0;
     let bd = 0;
@@ -554,6 +563,8 @@ export function s9Evidence(fit: NonNullable<ClassifyResult['fit']>): { total: nu
     let tom = 0;
     let tomIdx = 0;
     const metal: MetalVotes = { HH: 0, HO: 0, RD: 0, CR: 0 };
+    let sp = 0;
+    let cn = 0;
     h.forEach((v, k) => {
       total += v;
       if (fit.group[k] === 'BD') bd += v;
@@ -566,8 +577,10 @@ export function s9Evidence(fit: NonNullable<ClassifyResult['fit']>): { total: nu
       }
       const m = inst ? METAL_OF[inst] : fit.group[k] === 'HH' ? 'HH' : undefined;
       if (m) metal[m] += v;
+      if (inst === 'SP') sp += v;
+      if (inst === 'CN') cn += v;
     });
-    return { total, bd, sd, tom, tomVote: tom > 0 ? tomIdx / tom : NaN, metal };
+    return { total, bd, sd, tom, tomVote: tom > 0 ? tomIdx / tom : NaN, metal, spcn: Math.max(sp, cn) };
   });
 }
 
@@ -702,7 +715,7 @@ export function s9Hits(
       hits.push({ t, inst: tn, strength: ev[i].tom, confidence: presentConf(share, cfg.toms.shareMin), ...(c.candidatesMax > 0 ? { alts: [{ inst: alt, confidence: 0.25 }] } : {}) });
     }
     if (metalOn[i]) {
-      const m = metalLabel(evm[i].metal, drop[i], cosHh[i], cy);
+      const m = metalLabel(evm[i].metal, drop[i], cosHh[i], cy, evm[i].metal.CR > 0 ? evm[i].spcn / evm[i].metal.CR : 0);
       const conf = o.present[2] ? o.confidence[2] : presentConf(cymA[i] / evm[i].total, cy.shareMin);
       const strength = o.present[2] ? o.strength[2] : cymA[i];
       hits.push({ t, inst: m.inst, strength, confidence: conf, ...(c.candidatesMax > 0 ? { alts: [{ inst: m.alt, confidence: Math.min(0.499, conf / 2) }] } : {}) });

@@ -77,7 +77,7 @@ describe.skipIf(!have)('end to end on tuning + dev synthetic (needs out/drum)', 
     const files = readdirSync(dir);
     for (const f of ['summary.md', 'run.json', 'syn-d0-rock8-kA-s1.json', 'syn-d0-rock8-kA-s1.tex', 'syn-d0-rock8-kA-s1.score.json']) expect(files).toContain(f);
     const md = readFileSync(join(dir, 'summary.md'), 'utf8');
-    expect(md).toContain('29e9d1cb07c2');
+    expect(md).toContain('fb158baf9dfe');
     expect(md).toMatch(/tuning D0 kA/);
     const r = JSON.parse(readFileSync(join(dir, 'syn-d0-rock8-kA-s1.json'), 'utf8'));
     expect(r.drum.meta.commit).toBe('abc1234');
