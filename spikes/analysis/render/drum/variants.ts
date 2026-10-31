@@ -30,9 +30,12 @@ export type DrumSplit = 'tuning' | 'dev' | 'heldOut';
 
 export const DRUM_LEVELS: DrumLevel[] = [0, 1, 2, 3];
 /** The variant sets: split, seeds, kits (in this order; the order of the variants list). */
-export const DRUM_SETS: { split: DrumSplit; seeds: number[]; kits: KitId[] }[] = [
+/** `styles` (T12): the set plays only these styles (default: STYLE_IDS). */
+export const DRUM_SETS: { split: DrumSplit; seeds: number[]; kits: KitId[]; styles?: StyleId[] }[] = [
   { split: 'tuning', seeds: [1, 2, 3], kits: ['A'] },
   { split: 'tuning', seeds: [11, 12, 13], kits: ['D', 'H'] },
+  // T12: more S-拡張 hits (patterns.ts ext2) for kits A / D / H, tuning only, at the EXT_LEVELS
+  { split: 'tuning', seeds: [21, 22, 23, 24, 25, 26], kits: ['A', 'D', 'H'], styles: ['ext2'] },
   { split: 'dev', seeds: [4, 5], kits: ['A', 'B'] },
   { split: 'heldOut', seeds: [6, 7], kits: ['C'] },
 ];
@@ -43,7 +46,7 @@ export const TAIL_SEC = 2.5;
 
 /** Seeds and kits per split (union of DRUM_SETS; the manifest records both). */
 export const SPLITS: Record<DrumSplit, { seeds: number[]; kits: KitId[] }> = {
-  tuning: { seeds: [1, 2, 3, 11, 12, 13], kits: ['A', 'D', 'H'] },
+  tuning: { seeds: [1, 2, 3, 11, 12, 13, 21, 22, 23, 24, 25, 26], kits: ['A', 'D', 'H'] },
   dev: { seeds: [4, 5], kits: ['A', 'B'] },
   heldOut: { seeds: [6, 7], kits: ['C'] },
 };
@@ -72,13 +75,16 @@ export function drumVariantName(style: StyleId, level: DrumLevel, kit: KitId, se
 
 export function allDrumVariants(): DrumVariant[] {
   const out: DrumVariant[] = [];
+  const styles: StyleId[] = [...STYLE_IDS, 'ext2'];
   for (const level of DRUM_LEVELS)
-    for (const style of STYLE_IDS) {
-      if (style === 'ext' && !EXT_LEVELS.includes(level)) continue;
-      for (const { split, seeds, kits } of DRUM_SETS)
-        for (const seed of seeds)
-          for (const kit of kits)
-            out.push({ name: drumVariantName(style, level, kit, seed), style, level, seed, kit, split, heldOut: split === 'heldOut', ext: style === 'ext' });
+    for (const style of styles) {
+      if ((style === 'ext' || style === 'ext2') && !EXT_LEVELS.includes(level)) continue;
+      for (const set of DRUM_SETS) {
+        if (!(set.styles ?? (STYLE_IDS as readonly StyleId[])).includes(style)) continue;
+        for (const seed of set.seeds)
+          for (const kit of set.kits)
+            out.push({ name: drumVariantName(style, level, kit, seed), style, level, seed, kit, split: set.split, heldOut: set.split === 'heldOut', ext: style === 'ext' || style === 'ext2' });
+      }
     }
   return out;
 }

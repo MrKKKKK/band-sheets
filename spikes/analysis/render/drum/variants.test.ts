@@ -5,16 +5,19 @@ describe('drum variants and splits', () => {
   const all = allDrumVariants();
   const count = (f: (v: DrumVariant) => boolean) => all.filter(f).length;
 
-  it('sizes: 38 variants per seed and kit (9 styles at D0 / D3, 10 with ext at D1 / D2)', () => {
-    expect(all.length).toBe(570);
-    expect(count((v) => v.split === 'tuning' && v.kit === 'A')).toBe(114);
-    expect(count((v) => v.split === 'tuning' && v.kit === 'D')).toBe(114);
-    expect(count((v) => v.split === 'tuning' && v.kit === 'H')).toBe(114);
+  it('sizes: 38 variants per seed and kit (9 styles at D0 / D3, 10 with ext at D1 / D2); T12 ext2: 2 per seed and kit', () => {
+    expect(all.length).toBe(570 + 36);
+    const old = (v: DrumVariant) => v.style !== 'ext2';
+    expect(count((v) => old(v) && v.split === 'tuning' && v.kit === 'A')).toBe(114);
+    expect(count((v) => old(v) && v.split === 'tuning' && v.kit === 'D')).toBe(114);
+    expect(count((v) => old(v) && v.split === 'tuning' && v.kit === 'H')).toBe(114);
+    expect(all.filter((v) => v.style === 'ext2').every((v) => v.split === 'tuning' && v.seed >= 21 && v.seed <= 26 && (v.level === 1 || v.level === 2))).toBe(true);
+    expect(count((v) => v.style === 'ext2')).toBe(6 * 3 * 2);
     expect(count((v) => v.split === 'dev')).toBe(152);
     expect(count((v) => v.split === 'heldOut')).toBe(76);
-    for (const l of [0, 3]) expect(count((v) => v.level === l && v.split === 'tuning' && v.kit === 'A')).toBe(27);
-    for (const l of [1, 2]) expect(count((v) => v.level === l && v.split === 'tuning' && v.kit === 'A')).toBe(30);
-    expect(count((v) => v.ext)).toBe(2 * 15);
+    for (const l of [0, 3]) expect(count((v) => old(v) && v.level === l && v.split === 'tuning' && v.kit === 'A')).toBe(27);
+    for (const l of [1, 2]) expect(count((v) => old(v) && v.level === l && v.split === 'tuning' && v.kit === 'A')).toBe(30);
+    expect(count((v) => old(v) && v.ext)).toBe(2 * 15);
     expect(new Set(all.map((v) => v.name)).size).toBe(all.length);
   });
 
@@ -22,8 +25,8 @@ describe('drum variants and splits', () => {
     for (const v of all) {
       expect(v.heldOut).toBe(v.split === 'heldOut');
       expect(v.kit === 'C').toBe(v.heldOut);
-      if (v.split === 'tuning') expect(v.seed <= 3 ? v.kit === 'A' : ['D', 'H'].includes(v.kit)).toBe(true);
-      if (v.kit === 'D' || v.kit === 'H') expect([v.split, [11, 12, 13].includes(v.seed)]).toEqual(['tuning', true]);
+      if (v.split === 'tuning') expect(v.seed <= 3 ? v.kit === 'A' : v.seed >= 21 || ['D', 'H'].includes(v.kit)).toBe(true);
+      if (v.kit === 'D' || v.kit === 'H') expect([v.split, [11, 12, 13, 21, 22, 23, 24, 25, 26].includes(v.seed)]).toEqual(['tuning', true]);
     }
     expect([...new Set(all.filter((v) => v.split === 'dev').map((v) => v.kit))].sort()).toEqual(['A', 'B']);
   });

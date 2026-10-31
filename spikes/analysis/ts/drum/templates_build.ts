@@ -24,6 +24,7 @@ export const TEMPLATE_INSTS: [DrumInst, TemplateGroup][] = [
   ['CB', 'ext'],
   ['SP', 'extCym'],
   ['CN', 'extCym'],
+  ['HH.foot', 'extFoot'], // T12: S-ext only
 ];
 export const TEMPLATE_VELOCITIES = [50, 110];
 

@@ -10,7 +10,7 @@
  *
  * No ground truth is read here (plan design decision 4): the only inputs are the audio and DrumInfo. No network, no DOM,
  * no Node APIs: runs in Node, tests and the Worker. Only templates.ts is imported (templates_build.ts needs alphaTab: Node only).
- * Level: S-3 (BD SD HH) or S-9 (T11: the app's 9 pieces); S-ext is analyzed as S-9 until T12 and says so in `warnings`.
+ * Level: S-3 (BD SD HH), S-9 (T11: the app's 9 pieces) or S-ext (T12: + the provisional S-拡張 names, ext.ts).
  */
 import type { DrumEvent, Shuffle } from '../../../../src/lib/drum';
 import { serializeDrums } from '../../../../src/lib/drumTex';
@@ -98,7 +98,6 @@ export function analyzeDrums(input: DrumInput, cfg: DrumConfig = DEFAULT_DRUM_CO
   mark('quantize', q.quantized.hits.length);
 
   const warnings: string[] = [];
-  if (level === 'S-ext') warnings.push('level S-ext is not implemented yet: analyzed as S-9');
   if (cls.hits.length === 0) warnings.push('no drum hits found');
   if (q.dropped.length) warnings.push(`${q.dropped.length} hits dropped by the quantizer`);
 

@@ -59,7 +59,7 @@ describe('templates.ts', () => {
       expect(c.w).toHaveLength(DEFAULT_DRUM_CONFIG.classify.melBands);
       expect(c.w.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 2);
     }
-    expect(new Set(DRUM_TEMPLATES.columns.map((c) => c.group))).toEqual(new Set(['BD', 'SD', 'HH', 'other', 'ext', 'extCym']));
+    expect(new Set(DRUM_TEMPLATES.columns.map((c) => c.group))).toEqual(new Set(['BD', 'SD', 'HH', 'other', 'ext', 'extCym', 'extFoot']));
   });
   it('a config whose spectrum params differ is refused', () => {
     const cfg = resolveDrumConfig({ classify: { melBands: 24 } });

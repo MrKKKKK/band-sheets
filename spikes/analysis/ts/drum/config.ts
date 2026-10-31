@@ -188,6 +188,30 @@ export interface DrumConfig {
     profileFminHz: number;
     profileMinHits: number;
   };
+  ext: {
+    /**
+     * S-ext (T12, ext.ts; read only at level S-ext): SP / CN on a non-blooming S-9 CR by template vote >= cymVote;
+     * RD.bell on an S-9 RD by the RD.bell share of the metal activations >= bellVote, or on an S-9 RD / HH / HO by tonal >= bellTonal at
+     * >= bellMinHz; CB by its share >= cbShare or tonal >= cbTonal at cbMinHz .. cbMaxHz with drop < cbMaxDropDb (an
+     * S-9 HH / HO / RD on that onset removed when cbDropsMetal); SD.xs by its share >= xsShare (not on a CR). tonal =
+     * peak / median magnitude over tonalMinHz .. tonalMaxHz of the tom window.
+     */
+    cymVote: number;
+    bellVote: number;
+    bellTonal: number;
+    bellMinHz: number;
+    cbShare: number;
+    cbTonal: number;
+    cbMinHz: number;
+    cbMaxHz: number;
+    cbMaxDropDb: number;
+    cbDropsMetal: boolean;
+    xsShare: number;
+    /** Pedal HH: share of the foot template columns (0 = off). */
+    footShare: number;
+    tonalMinHz: number;
+    tonalMaxHz: number;
+  };
   strength: {
     /**
      * T7 (strength.ts): levels relative to the take, per instrument, in dB of the strength (treated as an amplitude).
@@ -230,7 +254,7 @@ export interface DrumConfig {
   };
 }
 
-export const DRUM_CONFIG_GROUPS = ['audio', 'onset', 'bands', 'classify', 'toms', 'cymbals', 'strength', 'grid', 'swing', 'score'] as const;
+export const DRUM_CONFIG_GROUPS = ['audio', 'onset', 'bands', 'classify', 'toms', 'cymbals', 'ext', 'strength', 'grid', 'swing', 'score'] as const;
 
 export const DEFAULT_DRUM_CONFIG: DrumConfig = deepFreeze({
   name: 'drum-v0',
@@ -343,6 +367,8 @@ export const DEFAULT_DRUM_CONFIG: DrumConfig = deepFreeze({
   toms: { groups: 3, shareMin: 0.4, levelMinDb: -25, maxTakeShare: 0.5, sdKeepShare: 0.4, delaySec: 0.01, winSec: 0.08, pitchMinHz: 60, pitchMaxHz: 400, subRatio: 0.3, minGapOct: 0.07,
     adapt: true, adaptSubHz: 70, adaptLowTopHz: 2500, adaptSubMax: 0.1, adaptHighMax: 0.1, adaptBodyMin: 0.4, adaptPitchRatio: 0.85, adaptBdMax: 0.5, adaptMinHits: 4, adaptKeepCos: 0.95, bdKeepShare: 0.4, nameSdRatios: [0.62, 0.52, 0.35], nameByColumn: true },
   cymbals: { shareMin: 0.05, levelMinDb: -25, fminHz: 5000, dropFrames: 6, dropMinFrames: 3, fastDb: -4.5, riseDb: 0.5, slowDb: -3, crOverHh: 0.5, voteDom: 0.7, hoCos: 0.83, profileFminHz: 1000, profileMinHits: 4 },
+  // T12 S-ext (classify-only on tuning A / D / H incl. the ext2 seeds 21-26, LOPO 16 / 24 / 25; tables in docs/audio-spike5-t12.md).
+  ext: { cymVote: 0.8, bellVote: 0.3, bellTonal: 35, bellMinHz: 1500, cbShare: 0.2, cbTonal: 40, cbMinHz: 400, cbMaxHz: 1500, cbMaxDropDb: -8, cbDropsMetal: true, xsShare: 0.3, footShare: 0.4, tonalMinHz: 300, tonalMaxHz: 8000 },
   strength: { refPercentile: 0.9, ghostDb: -10, normalPercentile: 0.25, accentDb: 5, minHits: 4 },
   grid: { subdivision: 16, triplet: false, onsetBias: true, maxBiasSec: 0.08 },
   swing: { ratioMin: 0.58, minPairs: 3, innerMin: 0.25, innerMax: 0.8, clusterFrac: 0.1 },

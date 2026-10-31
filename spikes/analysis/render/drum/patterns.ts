@@ -32,7 +32,13 @@ export interface Pattern {
 }
 
 export const STYLE_IDS = ['rock8', 'pop16', 'half', 'shuffle8', 'shuffle16', 'ballad', 'funk', 'waltz', 'six8', 'ext'] as const;
-export type StyleId = (typeof STYLE_IDS)[number];
+/**
+ * T12: `ext2` = more S-拡張 hits for tuning only (variants.ts EXT2 set, its own seeds): every bar is one kind out of
+ * the ones the kit has (cross-stick, pedal HH, ride bell, cowbell, splash, china), cycled from a random start so the
+ * kinds get about the same number of bars (BarFn gets bar + start for ext2). Not part of STYLE_IDS, so the T2 variants are unchanged.
+ */
+export const EXTRA_STYLE_IDS = ['ext2'] as const;
+export type StyleId = (typeof STYLE_IDS)[number] | (typeof EXTRA_STYLE_IDS)[number];
 
 export interface StyleInfo {
   ts: [number, number];
@@ -52,6 +58,7 @@ export const STYLES: Record<StyleId, StyleInfo> = {
   waltz: { ts: [3, 4], shuffle: 'none', bpm: [90, 160] },
   six8: { ts: [6, 8], shuffle: 'none', bpm: [120, 200] },
   ext: { ts: [4, 4], shuffle: 'none', bpm: [80, 120] },
+  ext2: { ts: [4, 4], shuffle: 'none', bpm: [80, 120] },
 };
 
 export const N_BARS = 8;
@@ -137,7 +144,29 @@ const BARS: Record<StyleId, BarFn> = {
       return [...row('RD', 'x.x.x.x.x.x.x.x.'), ...row('HH.fsp', '..x.......x.....'), ...row('SD', '....x.......x...'), ...bd];
     return [...row('HH', 'x.x.x.x.x.x.x.x.'), ...row('SD', '....x.......x...'), ...bd];
   },
+  ext2: (b, rnd, has) => {
+    const kinds = EXT2_KINDS_BY.filter(([inst]) => has(inst)).map(([, f]) => f);
+    const bd = row('BD', pick(rnd, ['x.......x.x.....', 'x......x..x.....', 'x.......x.......']));
+    if (!kinds.length) return [...row('HH', 'x.x.x.x.x.x.x.x.'), ...row('SD', '....x.......x...'), ...bd];
+    return [...kinds[b % kinds.length](rnd), ...bd];
+  },
 };
+
+const SD_BACKBEAT = '....x.......x...';
+/** HH 8ths with a splash / china on some off-beats instead of the HH there. */
+function cymbalAccents(inst: DrumInst, rnd: () => number): GridHit[] {
+  const cym = row(inst, pick(rnd, ['......x.......x.', '......x.........', '..............x.']));
+  return [...row('HH', 'x.x.x.x.x.x.x.x.').filter((h) => !cym.some((c) => c.tick === h.tick)), ...cym, ...row('SD', SD_BACKBEAT)];
+}
+/** ext2 bar kinds, one per S-拡張 piece of the tuning kits (rimshot and foot splash: no tuning kit has them). */
+const EXT2_KINDS_BY: [DrumInst, (rnd: () => number) => GridHit[]][] = [
+  ['SD.xs', (rnd) => [...row('RD', 'x.x.x.x.x.x.x.x.'), ...row('SD.xs', pick(rnd, ['....x.......x...', '....x.....x.x...']))]],
+  ['HH.foot', (rnd) => [...row('RD', 'x...x...x...x...'), ...row('HH.foot', pick(rnd, ['..x...x...x...x.', '....x.......x...'])), ...row('SD', SD_BACKBEAT)]],
+  ['RD.bell', (rnd) => [...row('RD.bell', pick(rnd, ['x...x...x...x...', 'x.x.x.x.x.x.x.x.'])), ...row('SD', SD_BACKBEAT)]],
+  ['CB', (rnd) => [...row('CB', 'x...x...x...x...'), ...row('HH', pick(rnd, ['..x...x...x...x.', '................'])), ...row('SD', SD_BACKBEAT)]],
+  ['SP', (rnd) => cymbalAccents('SP', rnd)],
+  ['CN', (rnd) => cymbalAccents('CN', rnd)],
+];
 
 /** Open HH on slot `s` (the closed HH there is removed; the next HH-group hit closes it). */
 function openOn(s: number): GridHit[] {
@@ -216,11 +245,13 @@ export function generatePattern(style: StyleId, s: PatternStreams, o: PatternOpt
   const bt = barTicksOf(info.ts);
   const toms = (['T1', 'T2', 'FT'] as DrumInst[]).filter(has);
   const fillEvery = s.fill() < 0.5 ? 4 : 8;
-  const headCrash: DrumInst = style === 'ext' ? (has('CN') && s.score() < 0.5 ? 'CN' : has('SP') ? 'SP' : 'CR') : 'CR';
+  const headCrash: DrumInst = style === 'ext' || style === 'ext2' ? (has('CN') && s.score() < 0.5 ? 'CN' : has('SP') ? 'SP' : 'CR') : 'CR';
   const bars: GridHit[][] = [];
   const fillBars: number[] = [];
+  // ext2: the bar kinds start at a seed-drawn kind (only ext2 draws this, so the other styles' streams are unchanged)
+  const rot = style === 'ext2' ? Math.floor(s.score() * 6) : 0;
   for (let b = 0; b < N_BARS; b++) {
-    let hits = BARS[style](b, s.score, has).filter((h) => has(h.inst));
+    let hits = BARS[style](b + rot, s.score, has).filter((h) => has(h.inst));
     if (o.fills && (b + 1) % fillEvery === 0) {
       const f = fill(bt, info.shuffle, toms, s.fill);
       hits = [...hits.filter((h) => h.tick < f.from), ...f.hits];

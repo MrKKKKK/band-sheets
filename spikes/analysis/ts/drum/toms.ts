@@ -22,8 +22,8 @@ const ffts = new Map<number, RealFft>();
 
 type PitchCfg = Pick<TomCfg, 'delaySec' | 'winSec' | 'pitchMinHz' | 'pitchMaxHz' | 'subRatio'>;
 
-/** |X| of the tom window (see the file comment) and its FFT size. */
-function windowMag(y: Float32Array, sr: number, t: number, cfg: Pick<TomCfg, 'delaySec' | 'winSec'>): { mag: Float64Array; size: number } {
+/** |X| of the tom window (see the file comment) and its FFT size (T12: also read by ext.ts). */
+export function windowMag(y: Float32Array, sr: number, t: number, cfg: Pick<TomCfg, 'delaySec' | 'winSec'>): { mag: Float64Array; size: number } {
   const n = Math.max(2, Math.round(cfg.winSec * sr));
   let size = 2;
   while (size < 2 * n) size *= 2;
@@ -78,7 +78,11 @@ export interface TomFeatures {
 }
 
 export function tomFeatures(y: Float32Array, sr: number, t: number, cfg: TomCfg): TomFeatures {
-  const { mag, size } = windowMag(y, sr, t, cfg);
+  return tomFeaturesOf(windowMag(y, sr, t, cfg), sr, cfg);
+}
+
+/** tomFeatures from an already computed tom window (windowMag). */
+export function tomFeaturesOf({ mag, size }: { mag: Float64Array; size: number }, sr: number, cfg: TomCfg): TomFeatures {
   const bin = (hz: number) => Math.min(mag.length, Math.round((hz * size) / sr));
   const pw = (a: number, b: number) => {
     let s = 0;

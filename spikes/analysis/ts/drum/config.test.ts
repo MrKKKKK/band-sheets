@@ -15,7 +15,7 @@ function reorder(o: unknown): unknown {
   return o;
 }
 
-const PINNED = '88d18eb37af0'; // drum-v0 (spike 5 T11b: per-take tom adapt keys; 610eb4f00c26 at T11: S-9 toms / cymbals keys, adaptSubMin; a3e68494763b at T10 (eq / adapt keys and values); 94d5028cad36 at T6 / T9; e5408bc19f5a at T5, a1fbcd60a07e at T7, 9a5aebb7fec0 at T0)
+const PINNED = '29e9d1cb07c2'; // drum-v0 (spike 5 T12: ext group (S-ext); 88d18eb37af0 at T11b: per-take tom adapt keys; 610eb4f00c26 at T11: S-9 toms / cymbals keys, adaptSubMin; a3e68494763b at T10 (eq / adapt keys and values); 94d5028cad36 at T6 / T9; e5408bc19f5a at T5, a1fbcd60a07e at T7, 9a5aebb7fec0 at T0)
 
 describe('drum config hash', () => {
   it('is 12 hex chars and stable (pinned)', () => {

@@ -95,7 +95,7 @@ describe('analyzeDrums', () => {
     expect(() => validateDrumInfo({ ...INFO, startSec: NaN })).toThrow('小節頭');
   });
 
-  it('S-9 (T11) runs without a warning and keeps S-3 BD / SD; S-ext says it is analyzed as S-9', () => {
+  it('S-9 (T11) runs without a warning and keeps S-3 BD / SD; S-ext (T12) runs and keeps the S-9 BD', () => {
     const s3 = analyzeDrums({ ...INFO, samples: pattern(2), sampleRate: SR });
     const r = analyzeDrums({ ...INFO, samples: pattern(2), sampleRate: SR, level: 'S-9' });
     expect(r.drum.meta.level).toBe('S-9');
@@ -103,11 +103,13 @@ describe('analyzeDrums', () => {
     const bdSd = (x: typeof r) => x.drums.filter((h) => h.inst === 'BD' || h.inst === 'SD').map((h) => `${h.t} ${h.inst}`);
     expect(bdSd(r)).toEqual(bdSd(s3));
     const ext = analyzeDrums({ ...INFO, samples: pattern(2), sampleRate: SR, level: 'S-ext' });
-    expect(ext.drum.meta.warnings.some((w) => w.includes('analyzed as S-9'))).toBe(true);
+    expect(ext.drum.meta.level).toBe('S-ext');
+    expect(ext.drum.meta.warnings.some((w) => w.includes('not implemented'))).toBe(false);
+    expect(ext.drums.filter((h) => h.inst === 'BD').map((h) => h.t)).toEqual(r.drums.filter((h) => h.inst === 'BD').map((h) => h.t));
   });
 
   it('does not read ground truth or render code (plan decision 4), and the Worker graph avoids alphaTab', () => {
-    for (const f of ['analyze.ts', 'onset.ts', 'classify.ts', 'cymbals.ts', 'toms.ts', 'quantize.ts', 'strength.ts', 'swing.ts', 'toDrums.ts', 'templates.ts']) {
+    for (const f of ['analyze.ts', 'onset.ts', 'classify.ts', 'cymbals.ts', 'toms.ts', 'ext.ts', 'quantize.ts', 'strength.ts', 'swing.ts', 'toDrums.ts', 'templates.ts']) {
       const src = readFileSync(new URL(`./${f}`, import.meta.url), 'utf8');
       const imports = [...src.matchAll(/from '([^']+)'/g)].map((m) => m[1]);
       for (const i of imports) {

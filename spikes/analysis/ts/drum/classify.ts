@@ -35,6 +35,8 @@
  *  5. adapt (T10): per-take templates from the take's own confident hits (adaptColumns), for an unknown kit.
  *  6. tom adapt (T11b, S-9 only, toms.adapt): per-take tom columns from tom-like onsets (tomAdaptedBasis), refit; the
  *     S-3 decisions are those of step 5, only the S-9 evidence comes from this fit.
+ *  7. S-ext (T12, level S-ext only): ext.ts extHits rewrites the S-9 hits from the S-9 metal fit's S-拡張 columns and the
+ *     tom window's tonal peak.
  * Confidence of class c: share-based, present -> 0.5 .. 1 (0.5 + 0.5 (share - shareMin) / (1 - shareMin)), absent ->
  * 0 .. 0.5 (0.5 share / shareMin, capped below 0.5); rules: the same with fluxRel / rule threshold.
  * `alts` of a hit: the absent S-3 classes by confidence, at most candidatesMax.
@@ -46,12 +48,14 @@ import { DEFAULT_DRUM_CONFIG, type DrumConfig } from './config';
 import type { DrumOnset, OnsetDetection } from './onset';
 import { cosToProfile, highDrops, metalLabel, type MetalVotes } from './cymbals';
 import { DRUM_TEMPLATES } from './templates';
-import { groupNames, groupPitches, ratioVote, tomFeatures, tomSeeds, TOMS, type TomFeatures, type TomInst } from './toms';
+import { extHits, tonalPeak, type ExtEvidence } from './ext';
+import { groupNames, groupPitches, ratioVote, tomFeaturesOf, tomSeeds, TOMS, windowMag, type TomFeatures, type TomInst } from './toms';
 import type { AnalysisDrumHit, DrumInst, DrumLevel } from './types';
 
 export const S3_CLASSES = ['BD', 'SD', 'HH'] as const;
 export type S3Class = (typeof S3_CLASSES)[number];
-export type TemplateGroup = S3Class | 'other' | 'ext' | 'extCym';
+/** extFoot (T12): the pedal HH, never in the S-3 / S-9 basis (it absorbed real HH, T6); only S-ext's foot test reads it. */
+export type TemplateGroup = S3Class | 'other' | 'ext' | 'extCym' | 'extFoot';
 
 /** The spectrum parameters a template table was built with (must equal the config's to be used). */
 export type SpecParams = Pick<DrumConfig['classify'], 'win' | 'hop' | 'melBands' | 'fminHz' | 'fmaxHz' | 'preFrames' | 'postFrom' | 'postCount'> & { sr: number };
@@ -254,7 +258,7 @@ interface Basis {
 }
 
 function basisOf(table: TemplateTable, cfg: DrumConfig['classify']): Basis {
-  const on: Record<TemplateGroup, boolean> = { BD: true, SD: true, HH: true, other: cfg.nmfOthers, ext: cfg.nmfExt, extCym: cfg.nmfExtCymbals };
+  const on: Record<TemplateGroup, boolean> = { BD: true, SD: true, HH: true, other: cfg.nmfOthers, ext: cfg.nmfExt, extCym: cfg.nmfExtCymbals, extFoot: false };
   const cols = table.columns.filter((c) => on[c.group]);
   return { W: cols.map((c) => c.w), group: cols.map((c) => c.group), metal: cols.map((c) => METAL_INSTS.includes(c.inst)), inst: cols.map((c) => c.inst) };
 }
@@ -707,6 +711,41 @@ export function s9Hits(
   return hits;
 }
 
+/** Step 7 evidence (ext.ts ExtEvidence) per onset: activations by kit instrument of `fit`, drop, tonal peak. */
+export function extEvidence(
+  fit: NonNullable<ClassifyResult['fit']>,
+  raw: MelSpec,
+  det: OnsetDetection,
+  p: SpecParams,
+  cfg: DrumConfig,
+  wins: readonly { mag: Float64Array; size: number }[],
+  foot: { W: readonly ArrayLike<number>[]; feet: readonly ArrayLike<number>[]; obs: readonly ArrayLike<number>[] },
+): ExtEvidence[] {
+  const centres = melFrequencies(p.melBands + 2, p.fminHz, Math.min(p.fmaxHz, p.sr / 2)).slice(1, -1);
+  const cy = cfg.cymbals;
+  const drop = highDrops(raw, centres, det.onsets.map((o) => Math.round((o.t * p.sr) / p.hop)), { fminHz: cy.fminHz, dropFrames: cy.dropFrames, dropMinFrames: cy.dropMinFrames });
+  return fit.h.map((h, i) => {
+    const act: ExtEvidence['act'] = {};
+    let total = 0;
+    h.forEach((v, k) => {
+      total += v;
+      const inst = fit.inst[k];
+      if (inst) act[inst] = (act[inst] ?? 0) + v;
+    });
+    const tp = tonalPeak(wins[i].mag, wins[i].size, det.sr, cfg.ext.tonalMinHz, cfg.ext.tonalMaxHz);
+    // pedal HH: share of the foot columns when they join the fit's basis (only when switched on and the table has them)
+    let footShare = 0;
+    if (cfg.ext.footShare > 0 && foot.feet.length) {
+      const hf = solveActivations([...foot.W, ...foot.feet], foot.obs[i], cfg.classify.nmfIterations, cfg.classify.nmfBeta);
+      let all = 0;
+      let ft = 0;
+      hf.forEach((v, k) => ((all += v), k >= foot.W.length && (ft += v)));
+      footShare = all > 0 ? ft / all : 0;
+    }
+    return { act, total, drop: drop[i], tonal: tp.tonal, tonalHz: tp.hz, foot: footShare };
+  });
+}
+
 export function classifyOnsets(det: OnsetDetection, cfg: DrumConfig = DEFAULT_DRUM_CONFIG, table: TemplateTable = DRUM_TEMPLATES, level: DrumLevel = 'S-3'): ClassifyResult {
   const t0 = performance.now();
   const c = cfg.classify;
@@ -778,11 +817,15 @@ export function classifyOnsets(det: OnsetDetection, cfg: DrumConfig = DEFAULT_DR
   let hits: AnalysisDrumHit[];
   if (level === 'S-3') hits = hitsOf(onsets, c.candidatesMax);
   else {
-    // S-ext is analyzed as S-9 until T12
-    const feats = det.onsets.map((o) => tomFeatures(det.y, det.sr, o.t, cfg.toms));
+    const wins = det.onsets.map((o) => windowMag(det.y, det.sr, o.t, cfg.toms));
+    const feats = wins.map((w) => tomFeaturesOf(w, det.sr, cfg.toms));
     const tb = cfg.toms.adapt ? tomAdaptedBasis(last.b, obs, feats, onsets, cfg.toms) : null;
     if (tb) fit = { inst: tb.inst, group: tb.group, h: activations(tb, obs, c).map((x) => x.h) };
     hits = s9Hits(det, onsets, fit, raw, obs, p, cfg, feats, !!tb, s3fit);
+    if (level === 'S-ext') {
+      const foot = { W: last.b.W, feet: table.columns.filter((col) => col.group === 'extFoot').map((col) => col.w), obs };
+      hits = extHits(hits, det.onsets.map((o) => o.t), extEvidence(s3fit, raw, det, p, cfg, wins, foot), cfg.cymbals.riseDb, cfg.ext);
+    }
   }
   return { hits, onsets, columns, refitAdded, adapted, fit, ms: { spec: t1 - t0, nmf: t2 - t1, total: t2 - t0 } };
 }

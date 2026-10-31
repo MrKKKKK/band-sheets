@@ -14,7 +14,7 @@
  *        (git-ignored), stdout gets counts, timings and aggregate tables only. Held-out takes are refused unless
  *        --look-point 3 (clean tree, once); every look-point run is logged to out/results/heldout-log.jsonl BEFORE the analysis.
  *
- * --level S-3 (default) | S-9 (T11) picks the analysis level and the scored instruments, in every mode.
+ * --level S-3 (default) | S-9 (T11) | S-ext (T12) picks the analysis level and the scored instruments, in every mode.
  *
  * Privacy: stdout/stderr never get hits or a score text of a recording. Reads local files only; no network.
  */
@@ -53,7 +53,7 @@ export interface CliArgs {
   only?: string;
   takes: string[];
   lookPoint?: number;
-  /** Analysis and scoring level (T11): S-3 (default) or S-9. */
+  /** Analysis and scoring level (T11 / T12): S-3 (default), S-9 or S-ext. */
   level: DrumLevel;
 }
 
@@ -85,7 +85,7 @@ export function parseArgs(argv: string[]): CliArgs {
     else if (k === '--take') a.takes.push(val());
     else if (k === '--level') {
       const l = val();
-      if (l !== 'S-3' && l !== 'S-9') throw new UsageError('--level must be S-3 or S-9');
+      if (l !== 'S-3' && l !== 'S-9' && l !== 'S-ext') throw new UsageError('--level must be S-3, S-9 or S-ext');
       a.level = l;
     }
     else if (k === '--look-point') {

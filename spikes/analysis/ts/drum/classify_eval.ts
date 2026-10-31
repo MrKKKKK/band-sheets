@@ -3,11 +3,11 @@
  *
  * Run from spikes/analysis (devcontainer):
  *   npx tsx ts/drum/classify_eval.ts [--split tuning,dev] [--only GLOB] [--config '<json overrides>']
- *        [--sweep sweep.json] [--detail] [--templates-program N] [--level S-3|S-9] [--json out/drum-results/classify/summary.json]
+ *        [--sweep sweep.json] [--detail] [--templates-program N] [--level S-3|S-9|S-ext] [--json out/drum-results/classify/summary.json]
  *   sweep.json = [{ "name": "...", "config": { classify: {...} } }, ...]: every entry is scored on the same onsets
  *   (onset values must not differ between entries; they come from --config).
  * Truth: render/drum truth hits mapped to the level (score.ts mapInst; S-3: HO -> HH, the rest dropped; S-9 (T11): the
- * app's 9 pieces, extensions dropped); estimates the same.
+ * app's 9 pieces, extensions dropped; S-ext (T12): all names kept); estimates the same.
  * Scores: score.ts instrumentOnsets (per instrument 1:1 matching, mir_eval) at 50 and 25 ms, micro-summed per group
  * (split x level x kit x instrument), confusion (truth x est, 'none' = missed / extra) per split x level.
  * --ceiling adds a row where every onset is labelled BD + SD + HH: its recall is what the onsets allow.
@@ -153,7 +153,7 @@ export function run(argv: string[]): void {
     cfgs.push(baseCfg);
   }
   const level = (argOf(argv, '--level') ?? 'S-3') as DrumLevel;
-  if (level !== 'S-3' && level !== 'S-9') throw new Error('--level must be S-3 or S-9');
+  if (level !== 'S-3' && level !== 'S-9' && level !== 'S-ext') throw new Error('--level must be S-3, S-9 or S-ext');
   const insts = LEVEL_INSTRUMENTS[level];
   const states: EvalState[] = cfgs.map(() => ({ level, insts, counts: new Map(), confusion: new Map(), ms: { onset: 0, classify: 0, audioSec: 0 } }));
   for (const v of vs) {
