@@ -20,19 +20,19 @@ export interface HumSetupValue {
  * Where the singing comes from: everything in S2 that depends on it. HumSetup only lays these out, so the
  * screen decides what the first card holds (today: a picked file).
  */
+// T6 extends this for the mic source (summary row label, primary button text, hiding 「やめて戻る」 while
+// recording, optional 録り方).
 export interface HumSource {
   /** The first card's heading (numbered, e.g. 「1. 録音ファイル」). */
   heading: string;
   /** The first card's body. */
   field: ReactNode;
-  /** Something is chosen (decides the hint under 「解析する」). */
-  chosen: boolean;
   /** 「解析する」 may start: chosen and fully read (not still probing). */
   ready: boolean;
   /** The summary card's 「ファイル」 row. */
   summary: string;
-  /** Under 「解析する」 while nothing is chosen yet. */
-  startHint: string;
+  /** The text under 「解析する」 when idle. */
+  hint: string;
   /** The error's action to choose again (e.g. 「別のファイルを選ぶ」). */
   retake: { label: string; onClick: () => void };
   /** The `<li>`s of the 「録り方」 card. */
@@ -396,11 +396,7 @@ export function HumSetup({
             {busy ? '解析しています…' : '解析する'}
           </Button>
           <p className={styles.note}>
-            {busy
-              ? '解析中は、設定を変えられません。'
-              : source.chosen
-                ? '数秒かかります。'
-                : source.startHint}
+            {busy ? '解析中は、設定を変えられません。' : source.hint}
           </p>
           <Button className={styles.wide} onClick={onBack}>
             やめて戻る

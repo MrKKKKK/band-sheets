@@ -12,16 +12,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { probeDuration } from '../analysis/probeDuration';
 import type { AnalysisClient, HumRequest } from '../analysis/types';
-import { AudioFileField } from '../components/AudioFileField/AudioFileField';
 import {
   HumReview,
   type HumReviewProps,
 } from '../components/HumReview/HumReview';
-import {
-  HumSetup,
-  type HumSetupValue,
-  type HumSource,
-} from '../components/HumSetup/HumSetup';
+import { HumSetup, type HumSetupValue } from '../components/HumSetup/HumSetup';
 import { ImportFrame } from '../components/ImportFrame/ImportFrame';
 import { ImportProgress } from '../components/ImportProgress/ImportProgress';
 import { useAnalysisRun } from '../hooks/useAnalysisRun';
@@ -42,6 +37,7 @@ import {
   saveNoteNameMode,
   type KeyValueStorage,
 } from '../lib/storage';
+import { fileHumSource } from './humFileSource';
 import styles from './ImportScreen.module.css';
 
 export type HumImportScreenProps = {
@@ -197,46 +193,13 @@ export function HumImportScreen({
         probing: phase.kind === 'pick' ? phase.probing : false,
       }
     : null;
-  // Today S2's source is always a picked file.
-  const source: HumSource = {
-    heading: '1. 録音ファイル',
-    field: (
-      <AudioFileField
-        file={pickedFile}
-        onPick={(f) => void pick(f)}
-        inputRef={fileInputRef}
-        hint="wav・mp3・m4a など、ブラウザで開ける形式。10 分まで。"
-      />
-    ),
-    chosen: !!pickedFile,
-    ready: !!pickedFile && !pickedFile.probing,
-    summary: pickedFile ? pickedFile.name : 'まだ選んでいません',
-    startHint: '先に録音ファイルを選んでください。',
-    retake: {
-      label: '別のファイルを選ぶ',
-      onClick: () => fileInputRef.current?.click(),
-    },
-    how: (
-      <>
-        <li>
-          <strong>ヘッドホンをつけます。</strong>
-          クリック（メトロノーム）の音が、マイクに入らないようにするためです。
-        </li>
-        <li>
-          録音アプリで録音を始め、曲のテンポ（♩= {value.tempo}）で
-          <strong>クリックを鳴らします</strong>。
-        </li>
-        <li>
-          <strong>1 小節（{ts.num} 拍）数えてから</strong>
-          歌い始めます。最初の数えの 1 小節は、小節の数に入れません。
-        </li>
-        <li>
-          「ラ」や「ん〜」で、1
-          つの音をはっきり歌います。録れたファイルを上で選んでください。
-        </li>
-      </>
-    ),
-  };
+  const source = fileHumSource({
+    pickedFile,
+    onPick: (f) => void pick(f),
+    inputRef: fileInputRef,
+    tempo: value.tempo,
+    beats: ts.num,
+  });
   return (
     <ImportFrame
       backLabel="‹ やめて戻る"

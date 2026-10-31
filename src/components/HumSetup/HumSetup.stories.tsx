@@ -7,50 +7,19 @@ import {
 } from '../../lib/import/importErrors';
 import { ImportProgress } from '../ImportProgress/ImportProgress';
 import { HUM_STEPS } from '../../lib/import/humImport';
-import { AudioFileField } from '../AudioFileField/AudioFileField';
-import { HumSetup, type HumSource } from './HumSetup';
+import { fileHumSource } from '../../screens/humFileSource';
+import { HumSetup } from './HumSetup';
 
-/** The file-based source HumImportScreen builds (tempo 96, 4/4 as in the args below). */
-function fileSource(
+const fileSource = (
   file: { name: string; size: number; duration: number } | null,
-): HumSource {
-  return {
-    heading: '1. 録音ファイル',
-    field: (
-      <AudioFileField
-        file={file && { ...file, probing: false }}
-        onPick={fn()}
-        inputRef={createRef()}
-        hint="wav・mp3・m4a など、ブラウザで開ける形式。10 分まで。"
-      />
-    ),
-    chosen: !!file,
-    ready: !!file,
-    summary: file ? file.name : 'まだ選んでいません',
-    startHint: '先に録音ファイルを選んでください。',
-    retake: { label: '別のファイルを選ぶ', onClick: fn() },
-    how: (
-      <>
-        <li>
-          <strong>ヘッドホンをつけます。</strong>
-          クリック（メトロノーム）の音が、マイクに入らないようにするためです。
-        </li>
-        <li>
-          録音アプリで録音を始め、曲のテンポ（♩= 96）で
-          <strong>クリックを鳴らします</strong>。
-        </li>
-        <li>
-          <strong>1 小節（4 拍）数えてから</strong>
-          歌い始めます。最初の数えの 1 小節は、小節の数に入れません。
-        </li>
-        <li>
-          「ラ」や「ん〜」で、1
-          つの音をはっきり歌います。録れたファイルを上で選んでください。
-        </li>
-      </>
-    ),
-  };
-}
+) =>
+  fileHumSource({
+    pickedFile: file && { ...file, probing: false },
+    onPick: fn(),
+    inputRef: createRef(),
+    tempo: 96,
+    beats: 4,
+  });
 
 const meta = {
   title: 'Import/HumSetup',
