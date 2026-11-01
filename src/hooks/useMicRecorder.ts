@@ -22,19 +22,16 @@ import {
 } from '../audio/micSession.types';
 import { MAX_DURATION_SEC } from '../lib/import/analysisTypes';
 import type { TimeSig } from '../lib/melody';
-import { barSec, clickBeats } from '../lib/mic/clickTrack';
+import { clickBeats } from '../lib/mic/clickTrack';
+import { MEASURE_CLICKS, type ReportedLatency } from '../lib/mic/latency';
 import {
-  compensationFrames,
-  compensationSec,
-  detectClicks,
-  judgeLatency,
-  MEASURE_CLICKS,
-  type ReportedLatency,
-} from '../lib/mic/latency';
+  evaluateMeasurement,
+  MEASURE_GAP_SEC,
+  measurementPlan,
+} from '../lib/mic/measurement';
 import { announcementFor } from '../lib/mic/micTexts';
 import {
   initialRecorderState,
-  isTakeTooShort,
   recorderReducer,
   type Meter,
   type RecorderEvent,
@@ -42,10 +39,8 @@ import {
   type RecorderState,
   type StopCause,
   type TakeEnd,
-  type TakeInfo,
 } from '../lib/mic/recorderState';
-import { peakBuckets } from '../lib/mic/takeBuffer';
-import { encodeWav16 } from '../lib/mic/wav';
+import { makeTake, takeFrames, type MicTake } from '../lib/mic/take';
 import {
   loadMicRemainder,
   saveMicRemainder,
@@ -62,22 +57,7 @@ export const COUNT_IN_LEAD_SEC = 0.2;
 export const TAIL_WAIT_MS = 1500;
 /** … and after an interruption (the context may never deliver it). */
 export const INTERRUPTED_WAIT_MS = 500;
-/** The measurement: first click this far after 遅れを測る, then one click every MEASURE_GAP_SEC. */
-const MEASURE_LEAD_SEC = 0.3;
-const MEASURE_GAP_SEC = 0.5;
-/** Waveform bucket of the take's peaks (s). */
-const PEAK_BUCKET_SEC = 0.01;
-const TAKE_FILE_NAME = '録音.wav';
-
-/**
- * A finished take (M7). `file` is a 16-bit mono WAV; 0 s = the count-in's first beat as heard. `meter` = the clicks'
- * tempo / time signature (analyze with these, not with S2's fields, which stay editable).
- */
-export interface MicTake extends TakeInfo {
-  file: File;
-  /** the largest |sample| (0–1) of every 10 ms, for the waveform */
-  peaks: Float32Array;
-}
+export type { MicTake };
 
 export interface UseMicRecorderOptions {
   /** Fixed for the hook's life. */
@@ -295,31 +275,19 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
     const m = mic;
     if (!m) return send({ type: 'measureFailed' });
     const my = ++gen;
-    const rate = m.sampleRate;
-    const first = m.now() + MEASURE_LEAD_SEC;
-    const clicks = Array.from({ length: MEASURE_CLICKS }, (_, i) => ({
-      time: first + i * MEASURE_GAP_SEC,
-      strong: false,
-    }));
-    const fromFrame = Math.round((first - 0.1) * rate);
-    const endSec = clicks[clicks.length - 1].time + 0.45;
-    const endFrame = Math.round(endSec * rate);
-    measureFirstClick = first;
-    m.scheduleClicks(clicks);
+    const plan = measurementPlan(m.now(), m.sampleRate);
+    const { fromFrame, endFrame, endSec } = plan;
+    measureFirstClick = plan.first;
+    m.scheduleClicks(plan.clicks);
     const capture = m.startCapture(fromFrame, endFrame);
     active = capture;
     await waitAtMost(capture.done, (endSec - m.now()) * 1000 + TAIL_WAIT_MS);
     if (my !== gen) return;
     active = null;
-    const reported = m.latencyNow();
-    const samples = capture.buffer.sliceFloat(fromFrame, endFrame);
-    const verdict = judgeLatency(
-      detectClicks(
-        samples,
-        rate,
-        clicks.map((c) => c.time * rate - fromFrame),
-      ),
-      reported,
+    const verdict = evaluateMeasurement(
+      capture.buffer.sliceFloat(fromFrame, endFrame),
+      plan,
+      m.latencyNow(),
     );
     if (!verdict.ok) return send({ type: 'measureFailed' });
     saveMicRemainder(deps.storage, m.deviceId, verdict.remainderMs);
@@ -412,16 +380,18 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
     if (!m || !capture || !r) return send({ type: 'finished', take: null });
     m.stopClicks();
     const rate = m.sampleRate;
-    const comp = compensationFrames(
-      compensationSec({
-        ...(r.latency ?? m.latencyNow()),
-        remainderMs: r.remainderMs,
-      }),
-      rate,
-    );
-    const startFrame = r.t0Frame + comp;
-    const endFrame =
-      stopSec === null ? r.limitFrame : Math.round(stopSec * rate) + comp;
+    const {
+      compensationFrames: comp,
+      startFrame,
+      endFrame,
+    } = takeFrames({
+      sampleRate: rate,
+      t0Frame: r.t0Frame,
+      limitFrame: r.limitFrame,
+      stopSec,
+      reported: r.latency ?? m.latencyNow(),
+      remainderMs: r.remainderMs,
+    });
     capture.stop(endFrame);
     const interrupted = end !== 'user' && end !== 'limit';
     await waitAtMost(
@@ -434,22 +404,17 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
     // on a timeout: whatever reached the buffer (slice stops at the last captured frame)
     const slice = capture.buffer.slice(startFrame, endFrame);
     closeMic();
-    const durationSec = slice.frames / rate;
-    const bar1Sec = barSec(r.meter.tempo, r.meter.ts);
-    if (isTakeTooShort(durationSec, bar1Sec))
-      return send({ type: 'finished', take: null });
-    const file = new File([encodeWav16(slice.chunks, rate)], TAKE_FILE_NAME, {
-      type: 'audio/wav',
-    });
-    const info: TakeInfo = { durationSec, bar1Sec, meter: r.meter };
-    publish({
+    const take = makeTake(slice, rate, r.meter);
+    if (!take) return send({ type: 'finished', take: null });
+    publish({ take });
+    send({
+      type: 'finished',
       take: {
-        ...info,
-        file,
-        peaks: peakBuckets(slice.chunks, Math.round(rate * PEAK_BUCKET_SEC)),
+        durationSec: take.durationSec,
+        bar1Sec: take.bar1Sec,
+        meter: take.meter,
       },
     });
-    send({ type: 'finished', take: info });
   }
 
   return {
