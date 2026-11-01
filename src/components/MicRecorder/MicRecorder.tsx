@@ -1,5 +1,4 @@
 import { useEffect, useId, useMemo, useRef, type Ref } from 'react';
-import { saveFile } from '../../audio/saveFile';
 import { useHumPlayback, type HumPlayback } from '../../hooks/useHumPlayback';
 import type { AudioPlayerDeps } from '../../hooks/useAudioPlayer';
 import type { TonePlayer } from '../../hooks/tonePlayer.types';
@@ -90,8 +89,8 @@ export type MicRecorderProps = {
   onUseFile: () => void;
   /** The file name for 「録音を保存（wav）」 (`humTakeFileName`), made at the click (it holds the time). */
   saveName: () => string;
-  /** Writes the take to the PC. Default: `saveFile`. */
-  save?: (blob: Blob, name: string) => void;
+  /** Writes the take to the PC (the screen passes `saveFile`). */
+  save: (blob: Blob, name: string) => void;
   /** Injected player parts for M7's listening (tests / stories). */
   playbackDeps?: { audio?: AudioPlayerDeps; createTone?: () => TonePlayer };
 };
@@ -175,7 +174,7 @@ export function MicRecorder({
   ts,
   onUseFile,
   saveName,
-  save = saveFile,
+  save,
   playbackDeps,
 }: MicRecorderProps) {
   const { state } = recorder;

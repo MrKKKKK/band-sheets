@@ -40,6 +40,7 @@ const build = (recorder: MicRecorderView) =>
     ts: meter.ts,
     onUseFile: vi.fn(),
     saveName: () => 'x.wav',
+    save: vi.fn(),
   });
 
 describe('micHumSource', () => {
