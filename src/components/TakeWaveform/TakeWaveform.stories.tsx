@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within } from 'storybook/test';
-import { makeTake } from '../MicRecorder/micStoryFixtures';
+import { fixtureTake } from '../MicRecorder/micStoryFixtures';
 import { TakeWaveform } from './TakeWaveform';
 
-const take = makeTake();
+const take = fixtureTake();
 
 const meta = {
   title: 'Mic/TakeWaveform',

@@ -5,16 +5,7 @@ import {
 import type { HumSource } from '../components/HumSetup/HumSetup';
 import { formatClock } from '../lib/import/format';
 import { latencyText } from '../lib/mic/micTexts';
-import type { RecorderState } from '../lib/mic/recorderState';
-
-/** Count-in, recording and making the file: S2 cannot be left or switched to the file meanwhile. */
-export function isRecording(state: RecorderState): boolean {
-  return (
-    state.phase === 'countIn' ||
-    state.phase === 'recording' ||
-    state.phase === 'finishing'
-  );
-}
+import { isRecording } from '../lib/mic/recorderState';
 
 /**
  * S2's source when the singing is recorded with the mic (docs/mic-recording-plan.md §2.7, canvas M1–M8): the

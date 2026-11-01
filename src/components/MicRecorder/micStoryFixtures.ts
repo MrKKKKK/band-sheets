@@ -29,7 +29,7 @@ export function stateOf(
 }
 
 /** A 24 s take at ♩=96 in 4/4 (bar = 2.5 s): a quiet count-in, then a swelling hum. */
-export function makeTake(durationSec = 24): MicTake {
+export function fixtureTake(durationSec = 24): MicTake {
   const rate = 8000;
   const bar1Sec = 2.5;
   const n = Math.round(durationSec * rate);

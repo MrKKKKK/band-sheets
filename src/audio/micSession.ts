@@ -10,172 +10,25 @@
  *
  * Nothing leaves the page: the samples go to the caller's TakeBuffer only.
  */
-import type { TakeBuffer } from '../lib/mic/takeBuffer';
-import { softClickSamples } from '../lib/mic/clickTrack';
-import type { ReportedLatency } from '../lib/mic/latency';
+import { foldDevices, realIdOf, VIRTUAL_IDS } from '../lib/mic/devices';
+import { softClickSamples } from '../lib/mic/clickSound';
 import { CAPTURE_PROCESSOR, type CaptureMessage } from './captureCore';
 import { createCaptureRouter } from './captureRouter';
-import type {
-  MicDevice,
-  MicErrorKind,
-  MicInterruption,
-} from '../lib/mic/micTypes';
+import {
+  MicError,
+  isMicError,
+  type Capture,
+  type MicHandlers,
+  type MicInterruption,
+  type MicSession,
+  type OpenMic,
+} from './micSession.types';
 
-export type { MicDevice, MicErrorKind, MicInterruption };
+export * from './micSession.types';
 import captureWorkletUrl from './capture.worklet.ts?worker&url';
 
 /** The worklet module's URL: dev `/src/audio/capture.worklet.ts?worker_file&type=module`, build `assets/capture.worklet-*.js` (same origin either way). */
 export const CAPTURE_WORKLET_URL = captureWorkletUrl;
-
-export class MicError extends Error {
-  readonly kind: MicErrorKind;
-  constructor(kind: MicErrorKind, cause?: unknown) {
-    super(`mic: ${kind}`, { cause });
-    this.name = 'MicError';
-    this.kind = kind;
-  }
-}
-
-export function isMicError(e: unknown): e is MicError {
-  return e instanceof MicError;
-}
-
-export interface MicHandlers {
-  /** Peak |sample| (0…1) of the last ~43 ms, about 23 times a second, while the mic is open. */
-  onLevel?(peak: number): void;
-  /** At most once per open mic. */
-  onInterrupted(reason: MicInterruption): void;
-}
-
-/** One click on the context clock. */
-export interface ScheduledClick {
-  /** AudioContext time (seconds) */
-  time: number;
-  /** the downbeat (higher click) */
-  strong: boolean;
-}
-
-export interface CaptureEnd {
-  /** the end (exclusive) of the frames that reached `buffer` */
-  frame: number;
-  /** `limit` = reached the end frame given to startCapture (10 minutes); `closed` = the mic closed / broke first */
-  reason: 'stopped' | 'limit' | 'closed';
-}
-
-export interface Capture {
-  /** The captured frames, on the context's frame axis. Filled as chunks arrive. */
-  readonly buffer: TakeBuffer;
-  /**
-   * Ends the capture at context frame `atFrame` (e.g. ■'s frame + the compensation, so the last sung note is kept);
-   * a frame that has passed ends it at once. Ignored after the end.
-   */
-  stop(atFrame: number): void;
-  /**
-   * Resolves once the capture has ended and every frame before `frame` is in `buffer`. Never rejects. If the
-   * context stops running without being closed (`contextInterrupted`) it may never resolve: wait with a time limit. After `workletError` (the worklet is dead: no chunks, level or end) it never resolves either.
-   */
-  readonly done: Promise<CaptureEnd>;
-}
-
-export interface OpenMic {
-  /**
-   * The device id of the opened track (`getSettings().deviceId`): the REAL device, never Chromium's virtual
-   * `default` / `communications` when they have a real twin (a request for one is re-opened `{exact}` on the twin).
-   */
-  readonly deviceId: string;
-  readonly label: string;
-  readonly sampleRate: number;
-  /** Resumes the context: call it in a click handler too (● 録音, 遅れを測る), the open's own call may come too late for the autoplay rule. */
-  resume(): Promise<void>;
-  /** The context clock (seconds). */
-  now(): number;
-  /** `baseLatency` + `outputLatency` as reported NOW: read it while clicks sound (Chromium may report 0 before). */
-  latencyNow(): ReportedLatency;
-  /** Schedules every click at once (all of a take, ~1200 at 120 bpm for 10 minutes). Adds to earlier ones. */
-  scheduleClicks(clicks: readonly ScheduledClick[]): void;
-  /** Silences every scheduled click (■, やめる, an interruption). */
-  stopClicks(): void;
-  /** Starts capturing frames [fromFrame, endFrame). One capture at a time: a new one ends the previous. */
-  startCapture(fromFrame: number, endFrame: number): Capture;
-  /** Stops the track and closes the context; pending captures resolve with `closed`. No interruption is reported. */
-  close(): Promise<void>;
-}
-
-export interface MicSession {
-  /** Audio inputs (Chromium's virtual entries folded); [] when the browser has none or cannot list them. */
-  listDevices(): Promise<MicDevice[]>;
-  /** `devicechange`; returns the unsubscribe. */
-  onDeviceChange(listener: () => void): () => void;
-  /** Asks for the permission if needed. `deviceId` null = the default input. Throws MicError. */
-  open(deviceId: string | null, handlers: MicHandlers): Promise<OpenMic>;
-}
-
-// --- device ids ---------------------------------------------------------------------------------------------
-
-const VIRTUAL_IDS = new Set(['default', 'communications']);
-
-type DeviceLike = Pick<MediaDeviceInfo, 'deviceId' | 'groupId' | 'label'>;
-
-/**
- * The real input behind a virtual entry: the only real input with its `groupId`, else the only one whose label ends
- * the virtual label after " - " (Windows: 「既定 - USB Mic」 / "Default - USB Mic"). Chromium's fake device has a
- * `default` of its own (no twin).
- */
-function twinOf(
-  v: Pick<DeviceLike, 'groupId' | 'label'>,
-  inputs: readonly DeviceLike[],
-): DeviceLike | undefined {
-  const real = inputs.filter((d) => !VIRTUAL_IDS.has(d.deviceId));
-  const byGroup = v.groupId ? real.filter((d) => d.groupId === v.groupId) : [];
-  if (byGroup.length === 1) return byGroup[0];
-  const byLabel = real.filter(
-    (d) => d.label && v.label.endsWith(` - ${d.label}`),
-  );
-  return byLabel.length === 1 ? byLabel[0] : undefined;
-}
-
-const audioInputs = (devices: readonly MediaDeviceInfo[]) =>
-  devices.filter((d) => d.kind === 'audioinput');
-
-/**
- * Folds Chromium's virtual `default` / `communications` entries into their real twins (`twinOf`); the twin of
- * `default` gets `isDefault`. A `default` with no twin is kept as it is (a device of its own); a lonely
- * `communications` is dropped.
- */
-export function foldDevices(devices: readonly MediaDeviceInfo[]): MicDevice[] {
-  const inputs = audioInputs(devices);
-  const def = inputs.find((d) => d.deviceId === 'default');
-  const defaultId = def ? (twinOf(def, inputs)?.deviceId ?? 'default') : null;
-  const out: MicDevice[] = [];
-  for (const d of inputs) {
-    if (VIRTUAL_IDS.has(d.deviceId) && twinOf(d, inputs)) continue;
-    if (d.deviceId === 'communications') continue;
-    out.push({
-      deviceId: d.deviceId,
-      label: d.label,
-      isDefault:
-        defaultId !== null ? d.deviceId === defaultId : out.length === 0,
-    });
-  }
-  return out;
-}
-
-/** The real device behind `id` (a virtual id → its twin); `id` itself when it is real or has no twin. */
-function realIdOf(
-  id: string,
-  groupId: string | undefined,
-  devices: readonly MediaDeviceInfo[],
-): string {
-  if (!VIRTUAL_IDS.has(id)) return id;
-  const inputs = audioInputs(devices);
-  const v = inputs.find((d) => d.deviceId === id);
-  return (
-    twinOf(
-      { groupId: groupId || v?.groupId || '', label: v?.label ?? '' },
-      inputs,
-    )?.deviceId ?? id
-  );
-}
 
 /** Classifies a getUserMedia failure (only those: an AbortError elsewhere, e.g. addModule's, is not "busy"). */
 export function micErrorOf(e: unknown): MicError {

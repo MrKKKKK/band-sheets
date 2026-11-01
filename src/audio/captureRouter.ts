@@ -5,7 +5,7 @@
  */
 import { createTakeBuffer, type TakeBuffer } from '../lib/mic/takeBuffer';
 import type { CaptureCommand, CaptureMessage } from './captureCore';
-import type { Capture, CaptureEnd } from './micSession';
+import type { Capture, CaptureEnd } from './micSession.types';
 
 export interface CaptureRouter {
   receive(msg: CaptureMessage): void;

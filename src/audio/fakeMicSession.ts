@@ -7,7 +7,7 @@
  * Differences from the real session: `stopClicks` cuts the heard clicks at once (the real ones may ring out);
  * `resume()` always succeeds at once; core messages arrive by microtask, not through a MessagePort (timing differs).
  */
-import { softClickSamples } from '../lib/mic/clickTrack';
+import { softClickSamples } from '../lib/mic/clickSound';
 import type { ReportedLatency } from '../lib/mic/latency';
 import { CaptureCore } from './captureCore';
 import { createCaptureRouter } from './captureRouter';
@@ -20,7 +20,7 @@ import {
   type MicSession,
   type OpenMic,
   type ScheduledClick,
-} from './micSession';
+} from './micSession.types';
 
 export interface FakeMicOptions {
   /** Default: one mic `fake-mic` 「テスト用マイク」. [] = no mic (open fails with notFound). */

@@ -6,6 +6,7 @@
 import type { MicDevice, MicErrorKind } from './micTypes';
 import { formatClock, formatDurationJa } from '../import/format';
 import type {
+  Meter,
   ReadyNotice,
   RecorderState,
   StopCause,
@@ -248,3 +249,8 @@ export function announcementFor(
 
 /** M6 → M7: between ■ and the take (the tail is awaited, the file is made). */
 export const FINISHING_STATUS = '録音をまとめています…';
+
+/** The clicks' tempo and time signature, e.g. 「♩= 96 ・ 4/4」. */
+export function meterText(m: Meter): string {
+  return `♩= ${m.tempo} ・ ${m.ts.num}/${m.ts.den}`;
+}

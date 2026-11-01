@@ -1,16 +1,10 @@
-import { useEffect, useId, useMemo, useRef, type Ref } from 'react';
-import { saveFile } from '../../audio/saveFile';
-import { useHumPlayback, type HumPlayback } from '../../hooks/useHumPlayback';
-import type { AudioPlayerDeps } from '../../hooks/useAudioPlayer';
-import type { TonePlayer } from '../../hooks/tonePlayer.types';
+import { useEffect, useId, useRef } from 'react';
 import {
   useMicLevel,
   type MicRecorder as Recorder,
-  type MicTake,
 } from '../../hooks/useMicRecorder';
-import { formatClock, formatFileSize } from '../../lib/import/format';
+import { formatClock } from '../../lib/import/format';
 import type { TimeSig } from '../../lib/melody';
-import { clickBeats, clickNotes } from '../../lib/mic/clickTrack';
 import {
   BAR_SUFFIX,
   CANCEL_COUNT_IN,
@@ -27,18 +21,11 @@ import {
   measureButtonText,
   MIC_ERROR_TEXTS,
   METER_HINT,
+  meterText,
   micLabel,
-  PAUSE_LABEL,
-  PLAY_FAILED,
-  PLAY_LABEL,
   RETAKE_BUTTON,
-  RETAKE_HINT,
-  SAVE_WAV_BUTTON,
-  TAKE_HEADING,
-  TAKE_PLAY_HINT,
   WAITING_MIC_OPTION,
   WAITING_NOTE,
-  WITH_CLICK_LABEL,
   readyNoticeText,
   RECORDING_NOTE,
   RECORDING_STATUS,
@@ -48,19 +35,13 @@ import {
   RETAKE_NOTE,
   RETAKE_TITLE,
   SWITCH_TO_FILE,
-  takeEndText,
-  TAKE_STATUS,
 } from '../../lib/mic/micTexts';
-import type {
-  Meter,
-  RecorderState,
-  TakeEnd,
-} from '../../lib/mic/recorderState';
+import type { RecorderState } from '../../lib/mic/recorderState';
 import { Button } from '../Button/Button';
 import { ConfirmDialog } from '../ConfirmDialog/ConfirmDialog';
 import { LatencyDialog } from '../LatencyDialog/LatencyDialog';
 import { LevelMeter } from '../LevelMeter/LevelMeter';
-import { TakeWaveform } from '../TakeWaveform/TakeWaveform';
+import { TakeCard, type TakePlaybackDeps } from '../TakeCard/TakeCard';
 import styles from './MicRecorder.module.css';
 
 /** What the component reads and calls of `useMicRecorder`'s result (stories may pass a hand-made one). */
@@ -90,10 +71,10 @@ export type MicRecorderProps = {
   onUseFile: () => void;
   /** The file name for 「録音を保存（wav）」 (`humTakeFileName`), made at the click (it holds the time). */
   saveName: () => string;
-  /** Writes the take to the PC. Default: `saveFile`. */
-  save?: (blob: Blob, name: string) => void;
+  /** Writes the take to the PC (the screen passes `saveFile`). */
+  save: (blob: Blob, name: string) => void;
   /** Injected player parts for M7's listening (tests / stories). */
-  playbackDeps?: { audio?: AudioPlayerDeps; createTone?: () => TonePlayer };
+  playbackDeps?: TakePlaybackDeps;
 };
 
 type Group = 'wait' | 'error' | 'ready' | 'count' | 'rec' | 'finish' | 'take';
@@ -123,11 +104,11 @@ function groupOf(state: RecorderState): Group {
   }
 }
 
-function meterText(m: Meter): string {
-  return `♩= ${m.tempo} ・ ${m.ts.num}/${m.ts.den}`;
-}
-
-function MeterRow({ recorder }: { recorder: MicRecorderView }) {
+function MeterRow({
+  recorder,
+}: {
+  recorder: Pick<MicRecorderView, 'subscribeLevel' | 'getLevel'>;
+}) {
   const level = useMicLevel(recorder);
   return <LevelMeter level={level} label="音の大きさ" />;
 }
@@ -175,7 +156,7 @@ export function MicRecorder({
   ts,
   onUseFile,
   saveName,
-  save = saveFile,
+  save,
   playbackDeps,
 }: MicRecorderProps) {
   const { state } = recorder;
@@ -361,7 +342,7 @@ export function MicRecorder({
           <TakeCard
             take={recorder.take}
             end={state.end}
-            recorder={recorder}
+            onRetake={recorder.retake}
             saveName={saveName}
             save={save}
             playbackDeps={playbackDeps}
@@ -464,100 +445,5 @@ export function MicRecorder({
         onMeasure={recorder.measure}
       />
     </div>
-  );
-}
-
-function TakeCard({
-  take,
-  end,
-  recorder,
-  saveName,
-  save,
-  playbackDeps,
-  headingRef,
-}: {
-  take: MicTake;
-  end: TakeEnd;
-  recorder: MicRecorderView;
-  saveName: () => string;
-  save: (blob: Blob, name: string) => void;
-  playbackDeps?: MicRecorderProps['playbackDeps'];
-  headingRef: Ref<HTMLHeadingElement>;
-}) {
-  const sounding = useMemo(
-    () =>
-      clickNotes(clickBeats(take.meter.tempo, take.meter.ts, take.durationSec)),
-    [take],
-  );
-  const pb: HumPlayback = useHumPlayback(take.file, sounding, playbackDeps);
-  const { player } = pb;
-  const clickId = useId();
-  const bars = Math.max(
-    0,
-    Math.round((take.durationSec - take.bar1Sec) / take.bar1Sec),
-  );
-  const endText = takeEndText(end);
-  return (
-    <>
-      <div className={styles.head}>
-        <strong className={styles.status}>{TAKE_STATUS}</strong>
-        <span className={styles.meterText}>{meterText(take.meter)}</span>
-      </div>
-      {endText ? (
-        <div className={styles.notice} data-testid="take-end-notice">
-          {endText}
-        </div>
-      ) : null}
-      <div className={styles.takeCard}>
-        <div className={styles.takeHead}>
-          <h3 ref={headingRef} tabIndex={-1} className={styles.takeTitle}>
-            {TAKE_HEADING}
-          </h3>
-          <span className={styles.takeInfo} data-testid="take-info">
-            長さ {formatClock(take.durationSec)}（約 {bars} 小節）・{' '}
-            {formatFileSize(take.file.size)}（この端末の中だけ）
-          </span>
-        </div>
-        <TakeWaveform
-          peaks={take.peaks}
-          durationSec={take.durationSec}
-          bar1Sec={take.bar1Sec}
-          playheadSec={
-            player.playing || player.currentTime > 0 ? player.currentTime : null
-          }
-          label="録音の波形"
-        />
-        <div className={styles.row}>
-          <Button
-            variant="primary"
-            onClick={() => (player.playing ? pb.pause() : pb.play())}
-            disabled={player.failed}
-          >
-            {player.playing ? PAUSE_LABEL : PLAY_LABEL}
-          </Button>
-          <label className={styles.check} htmlFor={clickId}>
-            <input
-              id={clickId}
-              type="checkbox"
-              checked={pb.mode !== 'recording'}
-              onChange={(e) => {
-                pb.setMode(e.target.checked ? 'both' : 'recording');
-              }}
-            />
-            {WITH_CLICK_LABEL}
-          </label>
-          <span className={styles.note}>
-            {player.failed ? PLAY_FAILED : TAKE_PLAY_HINT}
-          </span>
-        </div>
-      </div>
-      <div className={styles.row}>
-        <Button onClick={recorder.retake}>{RETAKE_BUTTON}</Button>
-        <Button onClick={() => save(take.file, saveName())}>
-          {SAVE_WAV_BUTTON}
-        </Button>
-        <span className={styles.note}>{RETAKE_HINT}</span>
-      </div>
-    </>
   );
 }

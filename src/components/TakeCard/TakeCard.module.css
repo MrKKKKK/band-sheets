@@ -1,0 +1,70 @@
+/* the shared look of the mic panel's rows, notes and headline comes from MicRecorder's module */
+.row {
+  composes: row from '../MicRecorder/MicRecorder.module.css';
+}
+
+.note {
+  composes: note from '../MicRecorder/MicRecorder.module.css';
+}
+
+.head {
+  composes: head from '../MicRecorder/MicRecorder.module.css';
+}
+
+.status {
+  composes: status from '../MicRecorder/MicRecorder.module.css';
+}
+
+.meterText {
+  composes: meterText from '../MicRecorder/MicRecorder.module.css';
+}
+
+.notice {
+  composes: notice from '../MicRecorder/MicRecorder.module.css';
+}
+
+.takeCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.takeHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.takeTitle {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 700;
+}
+
+.takeTitle:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.takeInfo {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.9375rem;
+}
+
+.check input {
+  width: 20px;
+  height: 20px;
+}
