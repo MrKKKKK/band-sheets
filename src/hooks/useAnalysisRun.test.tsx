@@ -266,3 +266,41 @@ describe('useAnalysisRun.startFile', () => {
     expect(hook.result.current.phase.kind).toBe('review');
   });
 });
+
+describe('useAnalysisRun: the length probe has its own generation', () => {
+  it('startFile during a probe does not discard it: the result lands on the picked file', async () => {
+    let finish: (sec: number) => void = () => {};
+    const client = createFakeAnalysisClient({ error: 'empty' });
+    const hook = renderHook(() =>
+      useAnalysisRun<HumRequest>({
+        client,
+        probe: () => new Promise<number>((r) => (finish = r)),
+        steps: HUM_STEPS,
+        doneMessage: '終わりました',
+      }),
+    );
+    const picked = file('a.wav');
+    const take = file('take.wav');
+    await act(async () => {
+      void hook.result.current.pick(picked);
+    });
+    await act(async () => {
+      await hook.result.current.startFile(take, 12, {
+        kind: 'hum',
+        source: { file: take },
+        info: { bpm: 100, ts: [4, 4], startSec: 2.4 },
+      });
+    });
+    // the analysis failed: back on the picked file, whose length is still being read
+    expect(hook.result.current.phase).toMatchObject({
+      kind: 'pick',
+      file: picked,
+      probing: true,
+    });
+    await act(async () => finish(30));
+    const ph = hook.result.current.phase;
+    expect(ph).toMatchObject({ kind: 'pick', file: picked, duration: 30 });
+    expect(ph.kind === 'pick' && ph.probing).toBeFalsy();
+    expect(ph.kind === 'pick' && ph.notice).not.toBeNull();
+  });
+});

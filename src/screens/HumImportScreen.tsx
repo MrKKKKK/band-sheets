@@ -200,7 +200,7 @@ export function HumImportScreen({
     setNoticeFrom(sourceKind);
     if (sourceKind === 'mic') {
       const take = recorder.take;
-      if (!take || (phase.kind === 'pick' && phase.probing)) return;
+      if (!take) return;
       void startFile(take.file, take.durationSec, {
         kind: 'hum',
         source: { file: take.file },
@@ -288,7 +288,6 @@ export function HumImportScreen({
           saveName: () => humTakeFileName(songTitle, value.label, new Date()),
           save,
           playbackDeps,
-          waitForFile: !!pickedFile?.probing,
         })
       : fileHumSource({
           pickedFile,
@@ -333,7 +332,10 @@ export function HumImportScreen({
         onChange={setValue}
         source={sourceWithSwitch}
         notice={
-          phase.kind === 'pick' && noticeFrom === sourceKind
+          phase.kind === 'pick' &&
+          noticeFrom === sourceKind &&
+          // a mic notice offers 「録り直す」, which only works while the recorder holds a take
+          (sourceKind !== 'mic' || recorder.take)
             ? phase.notice
             : null
         }
