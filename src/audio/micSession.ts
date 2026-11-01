@@ -16,7 +16,7 @@ import { CAPTURE_PROCESSOR, type CaptureMessage } from './captureCore';
 import { createCaptureRouter } from './captureRouter';
 import {
   MicError,
-  micErrorOf,
+  isMicError,
   type Capture,
   type MicHandlers,
   type MicInterruption,
@@ -25,11 +25,33 @@ import {
 } from './micSession.types';
 
 export * from './micSession.types';
-export { foldDevices };
 import captureWorkletUrl from './capture.worklet.ts?worker&url';
 
 /** The worklet module's URL: dev `/src/audio/capture.worklet.ts?worker_file&type=module`, build `assets/capture.worklet-*.js` (same origin either way). */
 export const CAPTURE_WORKLET_URL = captureWorkletUrl;
+
+/** Classifies a getUserMedia failure (only those: an AbortError elsewhere, e.g. addModule's, is not "busy"). */
+export function micErrorOf(e: unknown): MicError {
+  if (isMicError(e)) return e;
+  // by name: OverconstrainedError is not an Error / DOMException in every browser
+  const name =
+    typeof e === 'object' && e !== null
+      ? String((e as { name?: unknown }).name ?? '')
+      : '';
+  switch (name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return new MicError('denied', e);
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return new MicError('notFound', e);
+    case 'NotReadableError':
+    case 'AbortError':
+      return new MicError('busy', e);
+    default:
+      return new MicError('unknown', e);
+  }
+}
 
 // --- the capture graph ----------------------------------------------------------------------------------------
 

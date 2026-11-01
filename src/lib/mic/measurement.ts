@@ -11,7 +11,7 @@ import {
 } from './latency';
 
 /** The first click is this far after 遅れを測る, then one click every MEASURE_GAP_SEC. */
-export const MEASURE_LEAD_SEC = 0.3;
+const MEASURE_LEAD_SEC = 0.3;
 export const MEASURE_GAP_SEC = 0.5;
 /** The capture starts this long before the first click … */
 const CAPTURE_PRE_SEC = 0.1;

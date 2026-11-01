@@ -14,7 +14,7 @@ import {
 } from '../../lib/mic/micTexts';
 import { fakeAudio } from '../../hooks/testing/fakeAudio';
 import { MicRecorder, type MicRecorderProps } from './MicRecorder';
-import { makeTake, stateOf, viewOf } from './micStoryFixtures';
+import { fixtureTake, stateOf, viewOf } from './micStoryFixtures';
 
 /** Stands in for S2's first card, so headings keep their order and the panel sits where it will. */
 function Card({ children }: { children: ReactNode }) {
@@ -334,7 +334,7 @@ export const M6Finishing: Story = {
 
 // --- M7 / M8 ---
 
-const take = makeTake();
+const take = fixtureTake();
 const takeState = (end: 'user' | 'limit' | 'ended' | 'stalled' = 'user') =>
   stateOf({ phase: 'take', take, end }, { remainderMs: 48 });
 

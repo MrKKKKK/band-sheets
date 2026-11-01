@@ -284,10 +284,11 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
     await waitAtMost(capture.done, (endSec - m.now()) * 1000 + TAIL_WAIT_MS);
     if (my !== gen) return;
     active = null;
+    const reported = m.latencyNow();
     const verdict = evaluateMeasurement(
       capture.buffer.sliceFloat(fromFrame, endFrame),
       plan,
-      m.latencyNow(),
+      reported,
     );
     if (!verdict.ok) return send({ type: 'measureFailed' });
     saveMicRemainder(deps.storage, m.deviceId, verdict.remainderMs);

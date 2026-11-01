@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, userEvent, waitFor, within } from 'storybook/test';
 import { fakeAudio } from '../../hooks/testing/fakeAudio';
-import { makeTake } from '../MicRecorder/micStoryFixtures';
+import { fixtureTake } from '../MicRecorder/micStoryFixtures';
 import { TakeCard, type TakePlaybackDeps } from './TakeCard';
 
-const take = makeTake();
+const take = fixtureTake();
 
 /** A fake <audio> so ▶ works without a sound device. */
 const fakeDeps: TakePlaybackDeps = {

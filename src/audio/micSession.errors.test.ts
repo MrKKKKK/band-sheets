@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isMicError, micErrorOf } from './micSession.types';
+import { isMicError, micErrorOf } from './micSession';
 
 describe('micErrorOf', () => {
   it('classifies by name, also a plain object (OverconstrainedError is not an Error everywhere)', () => {

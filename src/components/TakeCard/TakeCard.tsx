@@ -2,7 +2,6 @@ import { useId, useMemo, type Ref } from 'react';
 import type { AudioPlayerDeps } from '../../hooks/useAudioPlayer';
 import { useHumPlayback, type HumPlayback } from '../../hooks/useHumPlayback';
 import type { TonePlayer } from '../../hooks/tonePlayer.types';
-import type { MicTake } from '../../hooks/useMicRecorder';
 import { formatClock, formatFileSize } from '../../lib/import/format';
 import {
   meterText,
@@ -19,6 +18,7 @@ import {
   WITH_CLICK_LABEL,
 } from '../../lib/mic/micTexts';
 import type { TakeEnd } from '../../lib/mic/recorderState';
+import type { MicTake } from '../../lib/mic/take';
 import { takeBars, takeClickNotes } from '../../lib/mic/takeView';
 import { Button } from '../Button/Button';
 import { TakeWaveform } from '../TakeWaveform/TakeWaveform';
