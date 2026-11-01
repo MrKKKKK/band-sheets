@@ -3,6 +3,7 @@ import {
   announcementFor,
   latencyText,
   measureButtonText,
+  meterText,
   micLabel,
   MIC_ERROR_TEXTS,
   readyNoticeText,
@@ -201,5 +202,13 @@ describe('texts', () => {
       'USB',
     );
     expect(remainingText(59)).toBe('残り 0:59');
+  });
+});
+
+describe('meterText', () => {
+  it('shows the tempo and the time signature', () => {
+    expect(meterText({ tempo: 96, ts: { num: 6, den: 8 } })).toBe(
+      '♩= 96 ・ 6/8',
+    );
   });
 });
