@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { MicRecorderView } from '../components/MicRecorder/MicRecorder';
 import type { MicTake } from '../hooks/useMicRecorder';
 import type { RecorderPhase } from '../lib/mic/recorderState';
-import { isRecording, micHumSource } from './humMicSource';
+import { isRecording } from '../lib/mic/recorderState';
+import { micHumSource } from './humMicSource';
 
 const meter = { tempo: 96, ts: { num: 4, den: 4 } };
 const take: MicTake = {

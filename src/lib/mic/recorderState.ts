@@ -140,6 +140,15 @@ export function isTakeTooShort(durationSec: number, bar1Sec: number): boolean {
   return !(durationSec > bar1Sec && durationSec >= MIN_TAKE_SEC);
 }
 
+/** Count-in, recording and making the file: S2 cannot be left or switched to the file meanwhile. */
+export function isRecording(state: RecorderState): boolean {
+  return (
+    state.phase === 'countIn' ||
+    state.phase === 'recording' ||
+    state.phase === 'finishing'
+  );
+}
+
 /** The phases in which an open mic waits (M3, M4): a vanished device or an interruption reopens it. */
 const IDLE_OPEN = new Set<RecorderPhase['phase']>([
   'ready',

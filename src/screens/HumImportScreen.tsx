@@ -44,7 +44,8 @@ import {
   type KeyValueStorage,
 } from '../lib/storage';
 import { fileHumSource } from './humFileSource';
-import { isRecording, micHumSource } from './humMicSource';
+import { isRecording } from '../lib/mic/recorderState';
+import { micHumSource } from './humMicSource';
 import styles from './ImportScreen.module.css';
 
 export type HumImportScreenProps = {
