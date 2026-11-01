@@ -8,7 +8,7 @@ import {
   stats,
   type ClickDetection,
 } from './latency';
-import { softClickSamples } from './clickTrack';
+import { softClickSamples } from './clickSound';
 
 const SR = 48000;
 

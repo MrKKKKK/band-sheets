@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CaptureCommand, CaptureMessage } from './captureCore';
-import { softClickSamples } from '../lib/mic/clickTrack';
+import { softClickSamples } from '../lib/mic/clickSound';
 import {
   connectCapture,
   createMicSession,

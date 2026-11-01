@@ -10,7 +10,7 @@
  *
  * Nothing leaves the page: the samples go to the caller's TakeBuffer only.
  */
-import { softClickSamples } from '../lib/mic/clickTrack';
+import { softClickSamples } from '../lib/mic/clickSound';
 import { CAPTURE_PROCESSOR, type CaptureMessage } from './captureCore';
 import { createCaptureRouter } from './captureRouter';
 import {

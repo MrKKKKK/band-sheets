@@ -1,7 +1,7 @@
 /**
  * The metronome of the microphone recording (docs/mic-recording-plan.md §2.4): when every click
  * sounds, which one is the downbeat, where the recording is "now" (bar / beat) and the click as
- * samples / as notes for the review screen's playback.
+ * notes for the review screen's playback.
  *
  * Clock: second 0 = the first beat of the one-bar count-in = the file's 0 s. Bar 0 is the count-in,
  * bar 1 is the song's first bar (it starts at `barSec`). The tempo is ♩ per minute (the song's
@@ -86,37 +86,6 @@ export function positionAt(
   // the epsilon keeps a time that is exactly on a beat (up to float error) on that beat
   const n = Math.floor(t / step + 1e-9);
   return { bar: Math.floor(n / ts.num), beat: (n % ts.num) + 1 };
-}
-
-const SOFT_HZ = 1000;
-const SOFT_STRONG_HZ = 1500;
-const SOFT_ATTACK_SEC = 0.0015;
-const SOFT_DECAY_TAU_SEC = 0.015; // e^-(0.06/0.015) ~ 1.8% at the end
-const SOFT_TOTAL_SEC = 0.06;
-
-/**
- * The click of the count-in, the recording and the latency measurement: a sine (1 kHz, the downbeat
- * 1.5 kHz) with a 1.5 ms linear attack and an exponential decay, 60 ms long, peak 0.5. Gentle to the
- * ears; `detectClicks` finds its onset ~0.7 ms after the true start (latency.ts).
- */
-export function softClickSamples(
-  sampleRate: number,
-  strong = false,
-  amplitude = 0.5,
-): Float32Array<ArrayBuffer> {
-  const n = Math.max(8, Math.round(sampleRate * SOFT_TOTAL_SEC));
-  const attack = Math.max(1, Math.round(sampleRate * SOFT_ATTACK_SEC));
-  const hz = strong ? SOFT_STRONG_HZ : SOFT_HZ;
-  const out = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const env =
-      i < attack
-        ? (i + 1) / attack
-        : Math.exp(-(i - attack) / (sampleRate * SOFT_DECAY_TAU_SEC));
-    // sin(0) = 0 would make the first sample silent; the attack ramp already starts near 0
-    out[i] = amplitude * env * Math.sin((2 * Math.PI * hz * i) / sampleRate);
-  }
-  return out;
 }
 
 const CLICK_NOTE_SEC = 0.05;
