@@ -78,6 +78,9 @@ async function record(page: Page) {
 test('mic: meter, latency dialog, record, take, wav download, switch, draft, insert, mic closes', async ({
   page,
 }) => {
+  // ~15 s normally, but its own waits (recording, analysis up to 60 s) need more than the default 30 s test timeout
+  // on a loaded machine
+  test.setTimeout(120_000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   const { offOrigin, panel } = await openMic(page);

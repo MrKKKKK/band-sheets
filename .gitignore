@@ -37,3 +37,6 @@ storybook-static
 __screenshots__/
 
 /out/
+
+# Nested git worktrees (also keeps Prettier, which reads .gitignore, out of them)
+/.worktrees/
