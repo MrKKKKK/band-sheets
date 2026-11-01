@@ -156,8 +156,8 @@ describe('detectClicks on the soft click (what the app plays)', () => {
   };
   const D = [40, 40, 40, 40];
 
-  // Calibration and the take use the same click, so this delay is in both: what is left in the take
-  // is this constant, under the 10 ms target by far. See the numbers in the report of the change.
+  // Without noise ~0.69 ms (16-96 kHz), up to ~4 ms near the detection limit. The take is shifted
+  // early by that much, far below the 10 ms target.
   it('finds the onset a constant ~0.7 ms after the start', () => {
     for (const strong of [false, true])
       for (const b of bias({ delaysMs: D, noiseAmp: 0, click: soft(strong) })) {

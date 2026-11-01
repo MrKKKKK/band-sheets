@@ -84,7 +84,7 @@ export function highPass(
 }
 
 /** First-order low-pass (RC), a new array. */
-export function lowPass(
+function lowPass(
   x: Float32Array,
   sampleRate: number,
   cornerHz: number,
