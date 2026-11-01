@@ -11,7 +11,7 @@
  * Nothing leaves the page: the samples go to the caller's TakeBuffer only.
  */
 import type { TakeBuffer } from '../lib/mic/takeBuffer';
-import { clickSamples } from '../lib/mic/clickTrack';
+import { clickSamples, softClickSamples } from '../lib/mic/clickTrack';
 import type { ReportedLatency } from '../lib/mic/latency';
 import { CAPTURE_PROCESSOR, type CaptureMessage } from './captureCore';
 import { createCaptureRouter } from './captureRouter';
@@ -53,7 +53,11 @@ export interface ScheduledClick {
   time: number;
   /** the downbeat (higher click) */
   strong: boolean;
+  /** `'measure'` (default): the sharp click of the latency measurement; `'soft'`: the gentle count-in / recording click */
+  sound?: ClickSound;
 }
+
+export type ClickSound = 'soft' | 'measure';
 
 export interface CaptureEnd {
   /** the end (exclusive) of the frames that reached `buffer` */
@@ -393,13 +397,16 @@ export function createMicSession(deps: MicSessionDeps = {}): MicSession {
     checkState();
 
     const clicks = new Set<AudioBufferSourceNode>();
-    const clickBuffer = (strong: boolean) => {
-      const samples = clickSamples(ctx.sampleRate, strong);
+    const clickBuffer = (sound: ClickSound, strong: boolean) => {
+      const samples = (sound === 'soft' ? softClickSamples : clickSamples)(
+        ctx.sampleRate,
+        strong,
+      );
       const b = ctx.createBuffer(1, samples.length, ctx.sampleRate);
       b.copyToChannel(samples, 0);
       return b;
     };
-    let buffers: { weak: AudioBuffer; strong: AudioBuffer } | null = null;
+    const buffers = new Map<string, AudioBuffer>();
 
     function stopClicks(): void {
       for (const s of clicks) {
@@ -425,10 +432,16 @@ export function createMicSession(deps: MicSessionDeps = {}): MicSession {
         outputLatencySec: ctx.outputLatency ?? 0,
       }),
       scheduleClicks(list) {
-        buffers ??= { weak: clickBuffer(false), strong: clickBuffer(true) };
         for (const c of list) {
+          const sound = c.sound ?? 'measure';
+          const key = `${sound}-${c.strong}`;
+          let buffer = buffers.get(key);
+          if (!buffer) {
+            buffer = clickBuffer(sound, c.strong);
+            buffers.set(key, buffer);
+          }
           const s = ctx.createBufferSource();
-          s.buffer = c.strong ? buffers.strong : buffers.weak;
+          s.buffer = buffer;
           s.connect(ctx.destination);
           s.onended = () => {
             clicks.delete(s);

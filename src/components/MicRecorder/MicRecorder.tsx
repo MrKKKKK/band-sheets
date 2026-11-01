@@ -20,6 +20,7 @@ import {
   ELAPSED_LABEL,
   FINISHING_STATUS,
   HEADPHONES_NOTE,
+  VOICE_ONLY_NOTE,
   LATENCY_HINT_LEAD,
   LATENCY_HINT_REST,
   latencyText,
@@ -453,6 +454,7 @@ export function MicRecorder({
         </Button>
         <span className={styles.note}>
           <strong className={styles.strong}>{HEADPHONES_NOTE}</strong>
+          <strong className={styles.strong}>{VOICE_ONLY_NOTE}</strong>
           {recordNote(ts.num)}
         </span>
       </div>

@@ -113,6 +113,37 @@ export function clickSamples(
   return out;
 }
 
+const SOFT_HZ = 1000;
+const SOFT_STRONG_HZ = 1500;
+const SOFT_ATTACK_SEC = 0.0015;
+const SOFT_DECAY_TAU_SEC = 0.015; // e^-(0.06/0.015) ~ 1.8% at the end
+const SOFT_TOTAL_SEC = 0.06;
+
+/**
+ * The gentle click of the count-in and the recording: a sine (1 kHz, the downbeat 1.5 kHz) with a
+ * 1.5 ms linear attack and an exponential decay, 60 ms long, peak 0.5. The sharp `clickSamples`
+ * stays for the latency measurement, which needs a precise onset.
+ */
+export function softClickSamples(
+  sampleRate: number,
+  strong = false,
+  amplitude = 0.5,
+): Float32Array<ArrayBuffer> {
+  const n = Math.max(8, Math.round(sampleRate * SOFT_TOTAL_SEC));
+  const attack = Math.max(1, Math.round(sampleRate * SOFT_ATTACK_SEC));
+  const hz = strong ? SOFT_STRONG_HZ : SOFT_HZ;
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const env =
+      i < attack
+        ? (i + 1) / attack
+        : Math.exp(-(i - attack) / (sampleRate * SOFT_DECAY_TAU_SEC));
+    // sin(0) = 0 would make the first sample silent; the attack ramp already starts near 0
+    out[i] = amplitude * env * Math.sin((2 * Math.PI * hz * i) / sampleRate);
+  }
+  return out;
+}
+
 const CLICK_NOTE_SEC = 0.05;
 const STRONG_MIDI = 88;
 const WEAK_MIDI = 81;
