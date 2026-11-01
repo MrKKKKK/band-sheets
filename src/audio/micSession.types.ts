@@ -94,3 +94,26 @@ export interface MicSession {
   /** Asks for the permission if needed. `deviceId` null = the default input. Throws MicError. */
   open(deviceId: string | null, handlers: MicHandlers): Promise<OpenMic>;
 }
+
+/** Classifies a getUserMedia failure (only those: an AbortError elsewhere, e.g. addModule's, is not "busy"). */
+export function micErrorOf(e: unknown): MicError {
+  if (isMicError(e)) return e;
+  // by name: OverconstrainedError is not an Error / DOMException in every browser
+  const name =
+    typeof e === 'object' && e !== null
+      ? String((e as { name?: unknown }).name ?? '')
+      : '';
+  switch (name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return new MicError('denied', e);
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return new MicError('notFound', e);
+    case 'NotReadableError':
+    case 'AbortError':
+      return new MicError('busy', e);
+    default:
+      return new MicError('unknown', e);
+  }
+}

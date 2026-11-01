@@ -10,14 +10,14 @@
  *
  * Nothing leaves the page: the samples go to the caller's TakeBuffer only.
  */
+import { foldDevices, realIdOf, VIRTUAL_IDS } from '../lib/mic/devices';
 import { softClickSamples } from '../lib/mic/clickSound';
 import { CAPTURE_PROCESSOR, type CaptureMessage } from './captureCore';
 import { createCaptureRouter } from './captureRouter';
 import {
   MicError,
-  isMicError,
+  micErrorOf,
   type Capture,
-  type MicDevice,
   type MicHandlers,
   type MicInterruption,
   type MicSession,
@@ -25,100 +25,11 @@ import {
 } from './micSession.types';
 
 export * from './micSession.types';
+export { foldDevices };
 import captureWorkletUrl from './capture.worklet.ts?worker&url';
 
 /** The worklet module's URL: dev `/src/audio/capture.worklet.ts?worker_file&type=module`, build `assets/capture.worklet-*.js` (same origin either way). */
 export const CAPTURE_WORKLET_URL = captureWorkletUrl;
-
-// --- device ids ---------------------------------------------------------------------------------------------
-
-const VIRTUAL_IDS = new Set(['default', 'communications']);
-
-type DeviceLike = Pick<MediaDeviceInfo, 'deviceId' | 'groupId' | 'label'>;
-
-/**
- * The real input behind a virtual entry: the only real input with its `groupId`, else the only one whose label ends
- * the virtual label after " - " (Windows: 「既定 - USB Mic」 / "Default - USB Mic"). Chromium's fake device has a
- * `default` of its own (no twin).
- */
-function twinOf(
-  v: Pick<DeviceLike, 'groupId' | 'label'>,
-  inputs: readonly DeviceLike[],
-): DeviceLike | undefined {
-  const real = inputs.filter((d) => !VIRTUAL_IDS.has(d.deviceId));
-  const byGroup = v.groupId ? real.filter((d) => d.groupId === v.groupId) : [];
-  if (byGroup.length === 1) return byGroup[0];
-  const byLabel = real.filter(
-    (d) => d.label && v.label.endsWith(` - ${d.label}`),
-  );
-  return byLabel.length === 1 ? byLabel[0] : undefined;
-}
-
-const audioInputs = (devices: readonly MediaDeviceInfo[]) =>
-  devices.filter((d) => d.kind === 'audioinput');
-
-/**
- * Folds Chromium's virtual `default` / `communications` entries into their real twins (`twinOf`); the twin of
- * `default` gets `isDefault`. A `default` with no twin is kept as it is (a device of its own); a lonely
- * `communications` is dropped.
- */
-export function foldDevices(devices: readonly MediaDeviceInfo[]): MicDevice[] {
-  const inputs = audioInputs(devices);
-  const def = inputs.find((d) => d.deviceId === 'default');
-  const defaultId = def ? (twinOf(def, inputs)?.deviceId ?? 'default') : null;
-  const out: MicDevice[] = [];
-  for (const d of inputs) {
-    if (VIRTUAL_IDS.has(d.deviceId) && twinOf(d, inputs)) continue;
-    if (d.deviceId === 'communications') continue;
-    out.push({
-      deviceId: d.deviceId,
-      label: d.label,
-      isDefault:
-        defaultId !== null ? d.deviceId === defaultId : out.length === 0,
-    });
-  }
-  return out;
-}
-
-/** The real device behind `id` (a virtual id → its twin); `id` itself when it is real or has no twin. */
-function realIdOf(
-  id: string,
-  groupId: string | undefined,
-  devices: readonly MediaDeviceInfo[],
-): string {
-  if (!VIRTUAL_IDS.has(id)) return id;
-  const inputs = audioInputs(devices);
-  const v = inputs.find((d) => d.deviceId === id);
-  return (
-    twinOf(
-      { groupId: groupId || v?.groupId || '', label: v?.label ?? '' },
-      inputs,
-    )?.deviceId ?? id
-  );
-}
-
-/** Classifies a getUserMedia failure (only those: an AbortError elsewhere, e.g. addModule's, is not "busy"). */
-export function micErrorOf(e: unknown): MicError {
-  if (isMicError(e)) return e;
-  // by name: OverconstrainedError is not an Error / DOMException in every browser
-  const name =
-    typeof e === 'object' && e !== null
-      ? String((e as { name?: unknown }).name ?? '')
-      : '';
-  switch (name) {
-    case 'NotAllowedError':
-    case 'SecurityError':
-      return new MicError('denied', e);
-    case 'NotFoundError':
-    case 'OverconstrainedError':
-      return new MicError('notFound', e);
-    case 'NotReadableError':
-    case 'AbortError':
-      return new MicError('busy', e);
-    default:
-      return new MicError('unknown', e);
-  }
-}
 
 // --- the capture graph ----------------------------------------------------------------------------------------
 
