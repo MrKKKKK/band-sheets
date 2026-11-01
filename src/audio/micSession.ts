@@ -11,7 +11,7 @@
  * Nothing leaves the page: the samples go to the caller's TakeBuffer only.
  */
 import type { TakeBuffer } from '../lib/mic/takeBuffer';
-import { clickSamples, softClickSamples } from '../lib/mic/clickTrack';
+import { softClickSamples } from '../lib/mic/clickTrack';
 import type { ReportedLatency } from '../lib/mic/latency';
 import { CAPTURE_PROCESSOR, type CaptureMessage } from './captureCore';
 import { createCaptureRouter } from './captureRouter';
@@ -53,11 +53,7 @@ export interface ScheduledClick {
   time: number;
   /** the downbeat (higher click) */
   strong: boolean;
-  /** `'measure'` (default): the sharp click of the latency measurement; `'soft'`: the gentle count-in / recording click */
-  sound?: ClickSound;
 }
-
-export type ClickSound = 'soft' | 'measure';
 
 export interface CaptureEnd {
   /** the end (exclusive) of the frames that reached `buffer` */
@@ -397,16 +393,13 @@ export function createMicSession(deps: MicSessionDeps = {}): MicSession {
     checkState();
 
     const clicks = new Set<AudioBufferSourceNode>();
-    const clickBuffer = (sound: ClickSound, strong: boolean) => {
-      const samples = (sound === 'soft' ? softClickSamples : clickSamples)(
-        ctx.sampleRate,
-        strong,
-      );
+    const clickBuffer = (strong: boolean) => {
+      const samples = softClickSamples(ctx.sampleRate, strong);
       const b = ctx.createBuffer(1, samples.length, ctx.sampleRate);
       b.copyToChannel(samples, 0);
       return b;
     };
-    const buffers = new Map<string, AudioBuffer>();
+    const buffers = new Map<boolean, AudioBuffer>();
 
     function stopClicks(): void {
       for (const s of clicks) {
@@ -433,12 +426,10 @@ export function createMicSession(deps: MicSessionDeps = {}): MicSession {
       }),
       scheduleClicks(list) {
         for (const c of list) {
-          const sound = c.sound ?? 'measure';
-          const key = `${sound}-${c.strong}`;
-          let buffer = buffers.get(key);
+          let buffer = buffers.get(c.strong);
           if (!buffer) {
-            buffer = clickBuffer(sound, c.strong);
-            buffers.set(key, buffer);
+            buffer = clickBuffer(c.strong);
+            buffers.set(c.strong, buffer);
           }
           const s = ctx.createBufferSource();
           s.buffer = buffer;

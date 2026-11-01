@@ -10,9 +10,14 @@
  * remember. The remainder can be negative (a device that over-reports `outputLatency`, Bluetooth…).
  *
  * Onset detection per click (never throws, a click it cannot see is `missing`):
- * - a first-order high-pass (~1 kHz) removes DC and mains hum; the click is a short burst at a few
- *   kHz, so it survives;
- * - search window = [expected - before, expected + after] on the high-passed signal;
+ * - a band-pass around the click (`softClickSamples`, a 1 kHz sine): two first-order high-passes
+ *   (~1 kHz) remove DC, mains hum and low room noise, two first-order low-passes (~2 kHz) leave out
+ *   broadband noise. (The spike's sharp 4 kHz click needed only one high-pass; with the soft click
+ *   that missed clicks the sharp one was found at, so the app added the rest.) The detected onset is
+ *   a near-constant ~0.7 ms after the click's true start (attack ramp + filters; up to ~1 ms with
+ *   noise or hum, more only near the detection limit). Calibration and the take use the same click,
+ *   so in the take only that constant is left (latency.test.ts);
+ * - search window = [expected - before, expected + after] on the filtered signal;
  * - noise = median |x| of the window (the click covers a few ms of hundreds, so the median is the
  *   floor), peak = max |x|; the click counts only if peak >= minSnr * noise and >= minPeak;
  * - onset = the first sample with |x| >= max(thresholdRatio * peak, minSnr * noise) (clipping does
@@ -24,8 +29,10 @@ export interface DetectOptions {
   beforeMs: number;
   /** ... and ends this long after it (ms); keep below the click spacing */
   afterMs: number;
-  /** high-pass corner (Hz) */
+  /** corner of the two high-pass sections (Hz) */
   highPassHz: number;
+  /** corner of the two low-pass sections (Hz) */
+  lowPassHz: number;
   thresholdRatio: number;
   minSnr: number;
   /** absolute floor for the peak (full scale = 1) */
@@ -36,6 +43,7 @@ export const DEFAULT_DETECT: DetectOptions = {
   beforeMs: 5,
   afterMs: 400,
   highPassHz: 1000,
+  lowPassHz: 2000,
   thresholdRatio: 0.3,
   minSnr: 8,
   minPeak: 0.002,
@@ -75,6 +83,23 @@ export function highPass(
   return y;
 }
 
+/** First-order low-pass (RC), a new array. */
+export function lowPass(
+  x: Float32Array,
+  sampleRate: number,
+  cornerHz: number,
+): Float32Array {
+  const y = new Float32Array(x.length);
+  const rc = 1 / (2 * Math.PI * cornerHz);
+  const a = 1 / sampleRate / (rc + 1 / sampleRate);
+  let prev = 0;
+  for (let i = 0; i < x.length; i++) {
+    prev += a * (x[i] - prev);
+    y[i] = prev;
+  }
+  return y;
+}
+
 function median(values: Float32Array): number {
   if (values.length === 0) return 0;
   const s = Float32Array.from(values).sort();
@@ -94,7 +119,19 @@ export function detectClicks(
 ): ClickDetection[] {
   const o = { ...DEFAULT_DETECT, ...options };
   const clean = samples.map((v) => (Number.isFinite(v) ? v : 0));
-  const hp = highPass(clean, sampleRate, o.highPassHz);
+  const band = lowPass(
+    lowPass(
+      highPass(
+        highPass(clean, sampleRate, o.highPassHz),
+        sampleRate,
+        o.highPassHz,
+      ),
+      sampleRate,
+      o.lowPassHz,
+    ),
+    sampleRate,
+    o.lowPassHz,
+  );
   return expected.map((exp, index) => {
     const missing: ClickDetection = {
       index,
@@ -109,11 +146,11 @@ export function detectClicks(
       Math.floor(exp - (o.beforeMs / 1000) * sampleRate),
     );
     const to = Math.min(
-      hp.length,
+      band.length,
       Math.ceil(exp + (o.afterMs / 1000) * sampleRate),
     );
     if (!Number.isFinite(exp) || to - from < 16) return missing;
-    const win = hp.subarray(from, to).map(Math.abs);
+    const win = band.subarray(from, to).map(Math.abs);
     let peak = 0;
     for (const v of win) if (v > peak) peak = v;
     const noise = median(win);

@@ -88,31 +88,6 @@ export function positionAt(
   return { bar: Math.floor(n / ts.num), beat: (n % ts.num) + 1 };
 }
 
-const CLICK_HZ = 4000;
-const STRONG_CLICK_HZ = 6000;
-
-/**
- * The click: a 2 ms burst of a square wave with a short fade; the downbeat is higher. The normal
- * click is also what the latency measurement plays.
- */
-export function clickSamples(
-  sampleRate: number,
-  strong = false,
-  amplitude = 0.9,
-): Float32Array<ArrayBuffer> {
-  const n = Math.max(8, Math.round(sampleRate * 0.002));
-  const period = Math.max(
-    2,
-    Math.round(sampleRate / (strong ? STRONG_CLICK_HZ : CLICK_HZ)),
-  );
-  const out = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const fade = Math.min(1, (n - i) / (n * 0.3));
-    out[i] = (Math.floor((2 * i) / period) % 2 ? -1 : 1) * amplitude * fade;
-  }
-  return out;
-}
-
 const SOFT_HZ = 1000;
 const SOFT_STRONG_HZ = 1500;
 const SOFT_ATTACK_SEC = 0.0015;
@@ -120,9 +95,9 @@ const SOFT_DECAY_TAU_SEC = 0.015; // e^-(0.06/0.015) ~ 1.8% at the end
 const SOFT_TOTAL_SEC = 0.06;
 
 /**
- * The gentle click of the count-in and the recording: a sine (1 kHz, the downbeat 1.5 kHz) with a
- * 1.5 ms linear attack and an exponential decay, 60 ms long, peak 0.5. The sharp `clickSamples`
- * stays for the latency measurement, which needs a precise onset.
+ * The click of the count-in, the recording and the latency measurement: a sine (1 kHz, the downbeat
+ * 1.5 kHz) with a 1.5 ms linear attack and an exponential decay, 60 ms long, peak 0.5. Gentle to the
+ * ears; `detectClicks` finds its onset ~0.7 ms after the true start (latency.ts).
  */
 export function softClickSamples(
   sampleRate: number,

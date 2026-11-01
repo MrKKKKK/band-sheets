@@ -300,7 +300,6 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
     const clicks = Array.from({ length: MEASURE_CLICKS }, (_, i) => ({
       time: first + i * MEASURE_GAP_SEC,
       strong: false,
-      sound: 'measure' as const, // the sharp click: the measurement needs a precise onset
     }));
     const fromFrame = Math.round((first - 0.1) * rate);
     const endSec = clicks[clicks.length - 1].time + 0.45;
@@ -381,7 +380,6 @@ function createEngine(deps: EngineDeps, initial: EngineProps) {
       beats.map((b) => ({
         time: t0 + b.sec,
         strong: b.strong,
-        sound: 'soft' as const,
       })),
     );
     const t0Frame = Math.round(t0 * rate);

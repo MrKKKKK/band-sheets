@@ -4,7 +4,6 @@ import {
   beatSec,
   clickBeats,
   clickNotes,
-  clickSamples,
   softClickSamples,
   positionAt,
 } from './clickTrack';
@@ -93,31 +92,6 @@ describe('positionAt', () => {
   it('treats negative / non-finite as the start', () => {
     expect(positionAt(-1, 120, T44)).toEqual({ bar: 0, beat: 1 });
     expect(positionAt(NaN, 120, T44)).toEqual({ bar: 0, beat: 1 });
-  });
-});
-
-describe('clickSamples', () => {
-  it('is a 2 ms burst that fades out', () => {
-    const c = clickSamples(48000);
-    expect(c).toHaveLength(96);
-    expect(Math.abs(c[0])).toBeCloseTo(0.9, 6);
-    expect(Math.abs(c[95])).toBeLessThan(0.1);
-  });
-
-  it('the downbeat click is higher than the others', () => {
-    const crossings = (a: Float32Array) => {
-      let n = 0;
-      for (let i = 1; i < a.length; i++) if (a[i] * a[i - 1] < 0) n++;
-      return n;
-    };
-    expect(crossings(clickSamples(48000, true))).toBeGreaterThan(
-      crossings(clickSamples(48000, false)),
-    );
-  });
-
-  it('honours the amplitude and stays valid at low sample rates', () => {
-    expect(Math.abs(clickSamples(48000, false, 0.5)[0])).toBeCloseTo(0.5, 6);
-    expect(clickSamples(8000).length).toBeGreaterThanOrEqual(8);
   });
 });
 
