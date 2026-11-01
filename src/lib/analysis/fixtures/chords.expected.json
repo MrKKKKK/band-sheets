@@ -1,0 +1,300 @@
+{
+ "format": "band-sheets-analysis",
+ "version": 1,
+ "source": {
+  "kind": "recording",
+  "durationSec": 7,
+  "click": false
+ },
+ "analyzer": {
+  "name": "dsp-v1",
+  "version": "adec583eb3c6",
+  "methods": [
+   "beats:ellis",
+   "chroma:cqt",
+   "chords:template+viterbi",
+   "downbeat:chord+bass+onset",
+   "sections:novelty",
+   "key:krumhansl-schmuckler",
+   "config:adec583eb3c6"
+  ],
+  "configHash": "adec583eb3c6",
+  "config": {}
+ },
+ "beats": [
+  {
+   "t": 0.0033106575963718823,
+   "downbeat": true,
+   "bar": 0,
+   "beat": 0
+  },
+  {
+   "t": 0.42662131519274377,
+   "downbeat": false,
+   "bar": 0,
+   "beat": 1
+  },
+  {
+   "t": 0.8819954648526077,
+   "downbeat": false,
+   "bar": 0,
+   "beat": 2
+  },
+  {
+   "t": 1.2827210884353741,
+   "downbeat": false,
+   "bar": 0,
+   "beat": 3
+  },
+  {
+   "t": 1.7301587301587302,
+   "downbeat": true,
+   "bar": 1,
+   "beat": 0
+  },
+  {
+   "t": 2.1501133786848072,
+   "downbeat": false,
+   "bar": 1,
+   "beat": 1
+  },
+  {
+   "t": 2.5864399092970523,
+   "downbeat": false,
+   "bar": 1,
+   "beat": 2
+  },
+  {
+   "t": 3.0080272108843538,
+   "downbeat": false,
+   "bar": 1,
+   "beat": 3
+  },
+  {
+   "t": 3.4436734693877553,
+   "downbeat": true,
+   "bar": 2,
+   "beat": 0
+  },
+  {
+   "t": 3.8724716553287983,
+   "downbeat": false,
+   "bar": 2,
+   "beat": 1
+  },
+  {
+   "t": 4.30108843537415,
+   "downbeat": false,
+   "bar": 2,
+   "beat": 2
+  },
+  {
+   "t": 4.730204081632653,
+   "downbeat": false,
+   "bar": 2,
+   "beat": 3
+  },
+  {
+   "t": 5.156734693877551,
+   "downbeat": true,
+   "bar": 3,
+   "beat": 0
+  },
+  {
+   "t": 5.580770975056689,
+   "downbeat": false,
+   "bar": 3,
+   "beat": 1
+  },
+  {
+   "t": 6.014421768707483,
+   "downbeat": false,
+   "bar": 3,
+   "beat": 2
+  },
+  {
+   "t": 6.436734693877551,
+   "downbeat": false,
+   "bar": 3,
+   "beat": 3
+  },
+  {
+   "t": 6.873832199546485,
+   "downbeat": true,
+   "bar": 4,
+   "beat": 0
+  }
+ ],
+ "timeSignature": {
+  "num": 4,
+  "den": 4,
+  "confidence": 0.2772729346859082
+ },
+ "sections": [
+  {
+   "start": 0.0033106575963718823,
+   "end": 7,
+   "label": "A"
+  }
+ ],
+ "chords": [
+  {
+   "start": 0.0033106575963718823,
+   "end": 1.7301587301587302,
+   "root": "B",
+   "quality": "min",
+   "bass": null,
+   "text": "Bm",
+   "confidence": 0.999627838481967,
+   "candidates": [
+    {
+     "name": "Bm",
+     "root": "B",
+     "quality": "min",
+     "prob": 0.999627838481967
+    },
+    {
+     "name": "B",
+     "root": "B",
+     "quality": "maj",
+     "prob": 0.0002557930918275585
+    },
+    {
+     "name": "G",
+     "root": "G",
+     "quality": "maj",
+     "prob": 0.00008175241840606301
+    }
+   ]
+  },
+  {
+   "start": 1.7301587301587302,
+   "end": 2.5864399092970523,
+   "root": "G#",
+   "quality": "maj",
+   "bass": null,
+   "text": "G#",
+   "confidence": 0.9948909981649758,
+   "candidates": [
+    {
+     "name": "G#",
+     "root": "G#",
+     "quality": "maj",
+     "prob": 0.9948909981649758
+    },
+    {
+     "name": "Fm",
+     "root": "F",
+     "quality": "min",
+     "prob": 0.004667567845681625
+    },
+    {
+     "name": "G#m",
+     "root": "G#",
+     "quality": "min",
+     "prob": 0.00029140341121940036
+    }
+   ]
+  },
+  {
+   "start": 2.5864399092970523,
+   "end": 3.4436734693877553,
+   "root": "G",
+   "quality": "min",
+   "bass": null,
+   "text": "Gm",
+   "confidence": 0.9965322608003992,
+   "candidates": [
+    {
+     "name": "Gm",
+     "root": "G",
+     "quality": "min",
+     "prob": 0.9965322608003992
+    },
+    {
+     "name": "D#",
+     "root": "D#",
+     "quality": "maj",
+     "prob": 0.002126983191227466
+    },
+    {
+     "name": "G",
+     "root": "G",
+     "quality": "maj",
+     "prob": 0.0011130145991808116
+    }
+   ]
+  },
+  {
+   "start": 3.4436734693877553,
+   "end": 5.156734693877551,
+   "root": "A",
+   "quality": "min",
+   "bass": null,
+   "text": "Am",
+   "confidence": 0.9996292741601318,
+   "candidates": [
+    {
+     "name": "Am",
+     "root": "A",
+     "quality": "min",
+     "prob": 0.9996292741601318
+    },
+    {
+     "name": "A",
+     "root": "A",
+     "quality": "maj",
+     "prob": 0.00025570992101154656
+    },
+    {
+     "name": "F",
+     "root": "F",
+     "quality": "maj",
+     "prob": 0.00008083446907564075
+    }
+   ]
+  },
+  {
+   "start": 5.156734693877551,
+   "end": 7,
+   "root": "A#",
+   "quality": "maj",
+   "bass": null,
+   "text": "A#",
+   "confidence": 0.9814118476877087,
+   "candidates": [
+    {
+     "name": "A#",
+     "root": "A#",
+     "quality": "maj",
+     "prob": 0.9814118476877087
+    },
+    {
+     "name": "F#",
+     "root": "F#",
+     "quality": "maj",
+     "prob": 0.007543933860468423
+    },
+    {
+     "name": "F#maj7",
+     "root": "F#",
+     "quality": "maj7",
+     "prob": 0.006927154924947628
+    }
+   ]
+  }
+ ],
+ "key": {
+  "tonic": "G",
+  "mode": "minor",
+  "confidence": 0.007191844183013385
+ },
+ "keys": [
+  {
+   "startBar": 0,
+   "tonic": "F",
+   "mode": "major",
+   "confidence": 0.5335458325008934
+  }
+ ]
+}

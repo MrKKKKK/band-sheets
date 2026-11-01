@@ -1,5 +1,7 @@
 import {
+  lazy,
   type ReactNode,
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -12,7 +14,10 @@ import { Button } from './components/Button/Button';
 import { DrumEditor } from './components/DrumEditor/DrumEditor';
 import { EditorErrorBoundary } from './components/EditorErrorBoundary/EditorErrorBoundary';
 import { EasyEditor, type Step } from './components/EasyEditor/EasyEditor';
-import { MelodyEditor } from './components/MelodyEditor/MelodyEditor';
+import {
+  MelodyEditor,
+  type HumImportRequest,
+} from './components/MelodyEditor/MelodyEditor';
 import { SegmentedControl } from './components/SegmentedControl/SegmentedControl';
 import { SongInfoPopover } from './components/SongInfoPopover/SongInfoPopover';
 import { Tabs } from './components/Tabs/Tabs';
@@ -23,7 +28,9 @@ import { lyricsText } from './lib/lyrics';
 import { clearStaleMetaLines, type MetaField } from './lib/meta';
 import { parseSong } from './lib/parseSong';
 import { newSongText, serializeSong, UNTITLED } from './lib/serializeSong';
-import type { SongMeta } from './lib/song';
+import type { AnalysisClient } from './analysis/types';
+import type { MicSession } from './audio/micSession';
+import type { Song, SongMeta } from './lib/song';
 import {
   LOCAL_SONG_ID,
   getLocalStorage,
@@ -33,6 +40,13 @@ import {
   type EditorMode,
   type KeyValueStorage,
 } from './lib/storage';
+
+// 「鼻歌から下書き」 (S2 → S4) is its own chunk with the analysis client: the editor loads it on first use only.
+const HumImportScreen = lazy(() =>
+  import('./screens/HumImportScreen').then((m) => ({
+    default: m.HumImportScreen,
+  })),
+);
 
 export type AppProps = {
   /** Defaults to `window.localStorage`; stories / tests pass their own. */
@@ -50,6 +64,12 @@ export type AppProps = {
   initialText?: string;
   /** Drive version editing started from (null: not on Drive). Saved with drafts. */
   baseVersion?: string | null;
+  /** Touch-only device (Root computes it once): no humming import entry (plan §4: PC only). */
+  touchOnly?: boolean;
+  /** The humming import's analysis client. Default: the real one, made on the first run. */
+  analysisClient?: AnalysisClient;
+  /** The humming import's mic (「マイクで録る」). Default: the real one, made when the screen opens. */
+  micSession?: MicSession;
   /** Header slots: left of the song info (e.g. 「‹ 曲の一覧」) / right (save UI). */
   headerStart?: ReactNode;
   headerEnd?: ReactNode;
@@ -103,6 +123,9 @@ function App({
   songId = LOCAL_SONG_ID,
   initialText,
   baseVersion,
+  touchOnly = false,
+  analysisClient,
+  micSession,
   headerStart,
   headerEnd,
   onTextChange,
@@ -205,6 +228,66 @@ function App({
 
   useAutosave(text, songId, store, openedBase);
 
+  // The humming import screens replace the editor (which stays mounted, hidden) until inserted / cancelled.
+  // Opening them pushes ONE history entry (same URL, so Root's hash routing does not see it): browser back acts
+  // like 「やめて戻る」, and leaving by a button consumes the entry, so back from the editor still goes to the list.
+  const [hum, setHum] = useState<HumImportRequest | null>(null);
+  const humEntry = !touchOnly;
+  const [shownSection, setShownSection] = useState<{
+    label: string;
+    seq: number;
+  } | null>(null);
+  /** A new value = focus the 「鼻歌から下書き」 button again (after 「やめて戻る」). */
+  const [entryFocus, setEntryFocus] = useState(0);
+  /** A new value = the browser's back button was pressed on the humming screens. */
+  const [humBack, setHumBack] = useState(0);
+  /** The entry was already popped by the browser (do not consume it again). */
+  const humPopped = useRef(false);
+  /** Our own history.back() (consuming the entry) must not count as the user's back. */
+  const ignorePop = useRef(false);
+
+  const openHum = (req: HumImportRequest) => {
+    window.history.pushState({ bandSheetsHum: true }, '', window.location.href);
+    humPopped.current = false;
+    ignorePop.current = false;
+    setHum(req);
+  };
+  const closeHum = () => {
+    if (!humPopped.current) {
+      ignorePop.current = true;
+      window.history.back();
+    }
+    humPopped.current = false;
+    setHum(null);
+  };
+  useEffect(() => {
+    if (!hum) return;
+    const onPop = () => {
+      if (ignorePop.current) {
+        ignorePop.current = false;
+        return;
+      }
+      humPopped.current = true;
+      setHumBack((n) => n + 1);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [hum]);
+  // Browser back cancelled on the confirmation: stay, with the entry back in place.
+  const stayOnHum = () => {
+    window.history.pushState({ bandSheetsHum: true }, '', window.location.href);
+    humPopped.current = false;
+  };
+  const leaveHum = () => {
+    closeHum();
+    setEntryFocus((n) => n + 1);
+  };
+  const insertHum = (next: Song, label: string) => {
+    setText(serializeSong(next));
+    closeHum();
+    setShownSection((s) => ({ label, seq: (s?.seq ?? 0) + 1 }));
+  };
+
   const title = song.meta.title.trim() || UNTITLED;
   useEffect(() => {
     document.title = viewing
@@ -283,7 +366,32 @@ function App({
           </EditorErrorBoundary>
         </div>
       )}
-      <div className={styles.app} hidden={viewing}>
+      {hum && !viewing && (
+        <Suspense
+          fallback={
+            <p role="status" className={styles.hint}>
+              読み込んでいます…
+            </p>
+          }
+        >
+          <HumImportScreen
+            song={song}
+            partIndex={hum.partIndex}
+            partName={hum.partName}
+            initialLabel={hum.label}
+            ts={hum.ts}
+            keySig={hum.keySig}
+            client={analysisClient}
+            micSession={micSession}
+            storage={store}
+            onInsert={insertHum}
+            onBack={leaveHum}
+            backRequest={humBack}
+            onStay={stayOnHum}
+          />
+        </Suspense>
+      )}
+      <div className={styles.app} hidden={viewing || hum !== null}>
         <header className={styles.header}>
           <div className={styles.headerInner}>
             <div className={styles.headerLead}>
@@ -335,6 +443,10 @@ function App({
                     song={song}
                     onChange={(next) => setText(serializeSong(next))}
                     onRequestTextEdit={requestTextEdit}
+                    onHumImport={humEntry ? openHum : undefined}
+                    focusHumEntry={entryFocus}
+                    showSection={shownSection}
+                    active={instrument === 'melody' && !viewing && hum === null}
                   />
                 </EditorErrorBoundary>
               ),

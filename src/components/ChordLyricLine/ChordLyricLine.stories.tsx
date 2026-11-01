@@ -145,3 +145,38 @@ export const ChordOnlyEditable: Story = {
       ).toBeVisible();
   },
 };
+
+/** Dash notation (docs/audio-integration-plan.md §3.6): chords over `-` / `=`. */
+export const DashLine: Story = {
+  args: {
+    line: {
+      segments: parseChordLine(
+        '|[C]--------|[C]----[F]----|[G]--------|[G]----[G7]----|',
+      ),
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.queryAllByRole('button')).toHaveLength(0);
+    expect(canvas.getAllByTestId(/^chord-/)).toHaveLength(6);
+  },
+};
+
+export const DashLinesStacked: Story = {
+  render: () => (
+    <div>
+      {[
+        '|[C]--------|[C]----[F]----|[G]--------|[G]----[G7]----|',
+        '|[Dm]---[Am7]- --[Abm7]--|[Cmaj7(9,13)]----[F#m7b5]----|[G]--------|[N.C.]--------|',
+        '|[C]=-------[G]=-------|[Am]----[F]----|[G]----[C]----|[C]--------|',
+        '| [C][G] |[F]--------|--------|[Am?]----[G]----|',
+      ].map((t, i) => (
+        <ChordLyricLine
+          key={i}
+          line={{ segments: parseChordLine(t) }}
+          lineKey={`d-${i}`}
+        />
+      ))}
+    </div>
+  ),
+};

@@ -8,6 +8,7 @@ import {
 import bravuraOtf from '@coderline/alphatab/font/Bravura.otf?url';
 import bravuraWoff2 from '@coderline/alphatab/font/Bravura.woff2?url';
 import { useEffect, useRef, useState } from 'react';
+import { disambiguateChordCase, restoreChordNames } from '../../lib/chordCase';
 import { partsToAlphaTex } from '../../lib/partsToAlphaTex';
 import type { Song } from '../../lib/song';
 import { injectBravuraFontFace } from './bravuraFont';
@@ -103,7 +104,10 @@ export function PartScore({ song, partNames, debounceMs = 0 }: PartScoreProps) {
     queueMicrotask(() => setApiCreateCount((c) => c + 1));
     // Drum staves: all stems/beams up (render time only, the tex is
     // untouched). scoreLoaded fires after import and before layout.
-    api.scoreLoaded.on(percussionStemsUp);
+    api.scoreLoaded.on((score) => {
+      restoreChordNames(score);
+      percussionStemsUp(score);
+    });
     api.renderFinished.on(() => setState('rendered'));
     api.error.on((e) => {
       setError(e.message);
@@ -156,11 +160,11 @@ export function PartScore({ song, partNames, debounceMs = 0 }: PartScoreProps) {
     const trackIndexes = Array.from({ length: trackCount }, (_, i) => i);
     setState('loading');
     if (debounceMs <= 0) {
-      api.tex(tex, trackIndexes);
+      api.tex(disambiguateChordCase(tex), trackIndexes);
       return;
     }
     const timer = setTimeout(() => {
-      api.tex(tex, trackIndexes);
+      api.tex(disambiguateChordCase(tex), trackIndexes);
     }, debounceMs);
     return () => clearTimeout(timer);
   }, [tex, trackCount, debounceMs]);

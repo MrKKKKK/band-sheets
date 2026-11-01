@@ -102,3 +102,9 @@
   flex: 1 1 280px;
   min-width: 0;
 }
+
+.humRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: calc(-1 * var(--space-2));
+}

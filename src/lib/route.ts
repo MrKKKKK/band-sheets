@@ -1,6 +1,8 @@
 export type Route =
   | { screen: 'list' }
   | { screen: 'new' }
+  /** 「録音から新しい曲」 (S1 → S3, PC only; docs/audio-integration-plan.md §4). */
+  | { screen: 'import' }
   | { screen: 'edit'; songId: string }
   | { screen: 'view'; songId: string };
 
@@ -12,6 +14,7 @@ export function parseRoute(hash: string): Route {
   const parts = body.split('/');
   if (parts[0] !== '') return LIST;
   if (parts[1] === 'new' && parts.length === 2) return { screen: 'new' };
+  if (parts[1] === 'import' && parts.length === 2) return { screen: 'import' };
   if ((parts[1] === 'edit' || parts[1] === 'view') && parts.length === 3) {
     let songId: string;
     try {
@@ -31,6 +34,8 @@ export function routeHash(route: Route): string {
       return '#/';
     case 'new':
       return '#/new';
+    case 'import':
+      return '#/import';
     case 'edit':
       return `#/edit/${encodeURIComponent(route.songId)}`;
     case 'view':

@@ -3,6 +3,7 @@ import {
   SONG_FILE_EXT,
   copyTitle,
   fileNameForTitle,
+  humTakeFileName,
   localCopyTitle,
 } from './fileName';
 
@@ -59,6 +60,29 @@ describe('copyTitle / localCopyTitle', () => {
     );
     expect(localCopyTitle('S', new Date(2026, 0, 12, 3, 4))).toBe(
       'S（手元の版 1/12 03:04）',
+    );
+  });
+});
+
+describe('humTakeFileName', () => {
+  const at = new Date(2026, 9, 5, 7, 3);
+  it('joins title, section and local time', () => {
+    expect(humTakeFileName('きらきら星', 'Aメロ', at)).toBe(
+      '鼻歌_きらきら星_Aメロ_20261005-0703.wav',
+    );
+  });
+  it('replaces forbidden characters and limits each part to 80 code points', () => {
+    expect(humTakeFileName('a/b', 'x:y', at)).toBe(
+      '鼻歌_a_b_x_y_20261005-0703.wav',
+    );
+    const long = '😀'.repeat(100);
+    expect(humTakeFileName(long, '', at)).toBe(
+      `鼻歌_${'😀'.repeat(80)}_20261005-0703.wav`,
+    );
+  });
+  it('falls back for an empty title and drops an empty section', () => {
+    expect(humTakeFileName('  ', '', at)).toBe(
+      '鼻歌_無題の曲_20261005-0703.wav',
     );
   });
 });

@@ -112,3 +112,26 @@ export const ChordOnlyAndRaw: Story = {
     expect(canvasElement.querySelectorAll('[data-unit]')).toHaveLength(1);
   },
 };
+
+/** Dash lines are monospace and never show validation warnings in the viewer. */
+export const DashLines: Story = {
+  args: {
+    section: parseSong(
+      [
+        '{start_of_verse: A}',
+        '|[C]--------|[C]----[F]----|[G]--------|[G]----[G7]----|',
+        '|[C]--------|[C]---[F]----|[G]---------|[N.C.]--------|',
+        '[C]きらきら[F]ひかる',
+        '{end_of_verse}',
+        '',
+      ].join('\n'),
+    ).chart[0],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(canvas.queryByText(/小節目/)).toBeNull();
+    expect(getComputedStyle(canvas.getByTestId('line-0-0')).fontFamily).toMatch(
+      /mono/i,
+    );
+  },
+};

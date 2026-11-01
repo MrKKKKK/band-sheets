@@ -11,6 +11,7 @@ import bravuraWoff2 from '@coderline/alphatab/font/Bravura.woff2?url';
 import { useEffect, useRef, useState } from 'react';
 import type { ShuffleMarkAt } from '../../lib/viewerSections';
 import { injectBravuraFontFace } from '../PartScore/bravuraFont';
+import { disambiguateChordCase, restoreChordNames } from '../../lib/chordCase';
 import { transposeScore } from '../../lib/transposeScore';
 import { percussionStemsUp } from '../PartScore/percussionStems';
 import styles from './SectionScore.module.css';
@@ -301,6 +302,7 @@ export function SectionScore({
     }
     apiRef.current = api;
     api.scoreLoaded.on((score) => {
+      restoreChordNames(score);
       transposeScore(score, live.current.transpose);
       percussionStemsUp(score);
       for (const t of live.current.markTracks) reserveMarkBand(score, t);
@@ -360,7 +362,7 @@ export function SectionScore({
     live.current.markTracks = markKey ? markKey.split(',').map(Number) : [];
     setState('loading');
     api.tex(
-      tex,
+      disambiguateChordCase(tex),
       Array.from({ length: trackCount }, (_, i) => i),
     );
   }, [tex, trackCount, markKey, transpose]);

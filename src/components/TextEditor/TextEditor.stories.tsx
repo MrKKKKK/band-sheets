@@ -204,3 +204,56 @@ export const AddPaletteChord: Story = {
     expect(chips.getByRole('button', { name: 'Am7' })).toBeVisible();
   },
 };
+
+const fullWidthText = [
+  '{title: t}',
+  '{time: 4/4}',
+  '{start_of_verse: A}',
+  '｜[C]ーーーーーーーー｜[G]ーーーーーーーー｜',
+  '[C]ひかるー[G]ほしー',
+  '{end_of_verse}',
+  '',
+].join('\n');
+
+/** 「半角に直す」 replaces only that line, with ONE onTextChange. */
+export const FullWidthFix: Story = {
+  args: { initial: fullWidthText },
+  play: async ({ canvasElement, args }) => {
+    const { canvas, textarea, preview } = setup(canvasElement);
+    const warning = preview.getByTestId('fullwidth-warning-0-0');
+    expect(warning).toBeVisible();
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    (args.onTextChange as ReturnType<typeof fn>).mockClear();
+    await userEvent.click(
+      within(warning).getByRole('button', { name: '半角に直す' }),
+    );
+    const fixed = fullWidthText.replace(
+      '｜[C]ーーーーーーーー｜[G]ーーーーーーーー｜',
+      '|[C]--------|[G]--------|',
+    );
+    expect(textarea).toHaveValue(fixed);
+    expect(args.onTextChange).toHaveBeenCalledTimes(1);
+    expect(args.onTextChange).toHaveBeenCalledWith(fixed);
+    expect(preview.queryByTestId('fullwidth-warning-0-0')).toBeNull();
+    expect(textarea).toHaveFocus();
+    expect(textarea.selectionStart).toBe(fixed.length);
+    expect(canvas.queryByRole('alert')).toBeNull();
+  },
+};
+
+/** 「? 書き方」 sits in the toolbar; Esc closes and returns focus. */
+export const DashHelpOpens: Story = {
+  play: async ({ canvasElement }) => {
+    const { canvas } = setup(canvasElement);
+    const button = canvas.getByRole('button', { name: '? 書き方' });
+    await userEvent.click(button);
+    const dialog = await canvas.findByRole('dialog', {
+      name: 'コードだけの行の書き方',
+    });
+    expect(dialog).toHaveTextContent('十六分音符');
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(canvas.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(button).toHaveFocus());
+  },
+};

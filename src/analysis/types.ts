@@ -1,0 +1,115 @@
+/**
+ * Public types of the browser side of audio analysis (docs/audio-integration-plan.md sections 2.2, 3.5, 6).
+ *
+ * TYPE-ONLY imports from `src/lib/analysis/` here: this module (and everything the main thread imports from
+ * `src/analysis/`) must never pull analyzer code into a main-thread chunk; the analyzers run only inside the
+ * Workers (`*.worker.ts`). `scripts/check-bundle.mjs` checks the built entry chunk for analyzer markers.
+ */
+import type { TsAnalysisResult } from '../lib/analysis/chords/result';
+import type { HumAnalysisResult, HumInput } from '../lib/analysis/hum/types';
+import { MAX_DURATION_SEC } from '../lib/import/analysisTypes';
+import type {
+  AnalysisErrorCode,
+  AnalysisKind,
+  AnalysisProgress,
+} from '../lib/import/analysisTypes';
+
+export type { AnalysisKind };
+export { MAX_DURATION_SEC };
+
+/** Mono samples at the file's own rate (decodeFile's output). */
+export interface DecodedAudio {
+  samples: Float32Array;
+  sampleRate: number;
+  /** Channels in the file before the mixdown. */
+  channels: number;
+  durationSec: number;
+}
+
+/**
+ * Where the audio comes from: a file the user picked (decoded on the main thread first) or audio that is already
+ * decoded. In both cases the samples' buffer is TRANSFERRED to the Worker: after `run`, `audio.samples` is detached.
+ */
+export type AnalysisSource = { file: Blob } | { audio: DecodedAudio };
+
+export interface ChordsRequest {
+  kind: 'chords';
+  source: AnalysisSource;
+}
+
+export interface HumRequest {
+  kind: 'hum';
+  source: AnalysisSource;
+  /** What the user knows (bpm, time signature, start). Checked in the Worker (`invalid-info`). */
+  info: HumInput;
+  /** Include the frame f0 track (`hum.f0`) in the result, e.g. for drawing it next to the notes. */
+  f0Track?: boolean;
+  /**
+   * The user knows only where the first sung note is in the bars (`info.firstNoteTick`, S2), not its second: the
+   * Worker takes the start of the first detected note as `firstNoteSec` (pass `firstNoteSec: 0` as a placeholder).
+   */
+  firstNoteAuto?: boolean;
+}
+
+export type AnalysisRequest = ChordsRequest | HumRequest;
+
+export interface AnalysisResultMap {
+  chords: TsAnalysisResult;
+  hum: HumAnalysisResult;
+}
+
+/**
+ * Stage names per kind, in order, including the main-thread `decode`. Literal copies of the analyzers' `STAGES` /
+ * `HUM_STAGES` (importing those would pull analyzer code into the main thread); `types.test.ts` checks they match.
+ */
+export const ANALYSIS_STAGES = {
+  chords: [
+    'decode',
+    'resample',
+    'load',
+    'beats',
+    'chroma',
+    'chords',
+    'downbeat',
+    'merge',
+    'sections',
+    'key',
+    'keytrack',
+    'chords2',
+    'merge2',
+  ],
+  hum: ['decode', 'validate', 'resample', 'f0', 'level', 'notes', 'quantize'],
+} as const satisfies Record<AnalysisKind, readonly string[]>;
+
+export type { AnalysisProgress, AnalysisErrorCode };
+
+export class AnalysisError extends Error {
+  readonly code: AnalysisErrorCode;
+  /** Japanese text for the user, only for the analyzer's input codes and `invalid-info`. */
+  readonly userMessage?: string;
+  constructor(code: AnalysisErrorCode, userMessage?: string) {
+    super(userMessage ?? code);
+    this.name = 'AnalysisError';
+    this.code = code;
+    this.userMessage = userMessage;
+  }
+}
+
+export function isAnalysisError(e: unknown): e is AnalysisError {
+  return e instanceof AnalysisError;
+}
+
+export interface AnalysisClient {
+  /**
+   * Decode (when given a file) and analyse in a NEW Worker, which is terminated when the run ends. Starting a run
+   * while another is active cancels the earlier one (its promise rejects with `cancelled`).
+   * Rejects with an AnalysisError. `onProgress` may be called synchronously inside run() (the first `decode`
+   * stage of an already-decoded `{audio}` source), so a caller must be ready for it before calling.
+   */
+  run<R extends AnalysisRequest>(
+    request: R,
+    onProgress?: (p: AnalysisProgress) => void,
+  ): Promise<AnalysisResultMap[R['kind']]>;
+  /** Stops the active run at once (`worker.terminate()`; a decode in progress is discarded). No-op when idle. */
+  cancel(): void;
+}

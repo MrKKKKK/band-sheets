@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import App from '../App';
+import type { AnalysisClient } from '../analysis/types';
 import { Button } from '../components/Button/Button';
 import { ConfirmDialog } from '../components/ConfirmDialog/ConfirmDialog';
 import { ConflictDialog } from '../components/ConflictDialog/ConflictDialog';
@@ -33,6 +34,10 @@ export type EditorScreenProps = {
   onBackToList: () => void;
   /** 'Ctrl+S' or '⌘S'. */
   shortcutLabel: string;
+  /** Touch-only device (Root's check): passed on to App. */
+  touchOnly?: boolean;
+  /** Passed on to App (the humming import's analysis client). */
+  analysisClient?: AnalysisClient;
   /** Tests / stories. */
   now?: () => Date;
   newId?: () => string;
@@ -59,6 +64,8 @@ export function EditorScreen({
   onExitView,
   onBackToList,
   shortcutLabel,
+  touchOnly,
+  analysisClient,
   now,
   newId,
 }: EditorScreenProps) {
@@ -214,6 +221,8 @@ export function EditorScreen({
         baseVersion={doc.baseVersion}
         onTextChange={onTextChange}
         viewing={viewing}
+        touchOnly={touchOnly}
+        analysisClient={analysisClient}
         onEnterView={onEnterView}
         onExitView={onExitView}
         headerStart={back}

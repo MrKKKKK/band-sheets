@@ -143,6 +143,10 @@ export const PartLayout: Story = {
     const lastLine = aUnits.filter((u) => u.id.startsWith('line:')).at(-1)!;
     expect(lastLine.keepWithNext).toBe(true);
     expect(aUnits[aUnits.indexOf(lastLine) + 1].id).toMatch(/^score:/);
+    // A's first system carries the top of A's chart lines (auto-scroll, #62).
+    const aTimed = l.timedUnits.filter((u) => u.section === l.units[1].section);
+    expect(aTimed[0].leadTop).toBe(aUnits[0].top);
+    expect(aTimed.slice(1).every((u) => u.leadTop === undefined)).toBe(true);
 
     // Fill has no Vocal and no chart: a placeholder carries its bar.
     const fill = block(canvasElement, 'Fill');

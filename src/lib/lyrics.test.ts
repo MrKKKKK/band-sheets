@@ -311,3 +311,27 @@ describe('applyLyrics', () => {
     expect(applyLyrics(song, text.replace(/\n/g, '\r\n'))).toEqual(song);
   });
 });
+
+describe('dash lines in lyrics editing', () => {
+  const song = parseSong(
+    [
+      '{start_of_verse: A}',
+      '|[C]--------|[C]----[F]----|',
+      '[C]きら[G]きら',
+      '{end_of_verse}',
+      '',
+    ].join('\n'),
+  );
+  it('are not part of the lyrics text', () => {
+    expect(lyricsText(song)).toBe('きらきら');
+  });
+  it('keep their chords when the lyrics are edited', () => {
+    const next = applyLyrics(song, 'きらきらひかる');
+    expect(serializeSong(next)).toContain('|[C]--------|[C]----[F]----|');
+  });
+  it('keep their chords when the lyrics are untouched', () => {
+    expect(serializeSong(applyLyrics(song, 'きらきら'))).toBe(
+      serializeSong(song),
+    );
+  });
+});

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseSong } from './parseSong';
 import { sampleSong } from './fixtures/sampleSong';
 import { chartSyllables, splitSyllables } from './syllables';
 
@@ -145,5 +146,24 @@ describe('chartSyllables', () => {
 
   it('returns [] when the label has no chart section', () => {
     expect(chartSyllables(sampleSong, 'Z')).toEqual([]);
+  });
+});
+
+describe('dash lines', () => {
+  const text = [
+    '{start_of_verse: A}',
+    '|[C]--------|[C]----[F]----|',
+    '[C]きら[G]きら',
+    '| [C][G] |',
+    '{end_of_verse}',
+    '',
+  ].join('\n');
+  it('contribute no syllables to chartSyllables', () => {
+    expect(chartSyllables(parseSong(text), 'A')).toEqual([
+      'き',
+      'ら',
+      'き',
+      'ら',
+    ]);
   });
 });
