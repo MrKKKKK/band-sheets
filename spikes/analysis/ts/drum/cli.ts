@@ -9,23 +9,23 @@
  *        Held-out variants are skipped; asking for one (--only, --split heldOut) is refused.
  *   npx tsx ts/drum/cli.ts <wav> --bpm N [--ts 4/4] --start S [-o out.json] [--commit SHA] [--config x.json]
  *        one file; --start is the second of bar 1 beat 1 (may be negative). Refuses held-out files (heldout_guard.ts).
- *   npx tsx ts/drum/cli.ts --take drm-NN-x [--take ...] [--look-point N] [--commit SHA] [--config x.json]
- *        recordings by take id (out/rec/manifest.drum.json, recordings/): result and score go to recordings/drum-results
- *        (git-ignored), stdout gets counts, timings and aggregate tables only. Held-out takes are refused unless
- *        --look-point 3 (clean tree, once); every look-point run is logged to out/results/heldout-log.jsonl BEFORE the analysis.
+ *   npx tsx ts/drum/cli.ts --take drm-NN-x [--take ...] [--commit SHA] [--config x.json]
+ *        dev recordings by take id (out/rec/manifest.drum.json, recordings/): result and score go to recordings/drum-results
+ *        (git-ignored), stdout gets counts, timings and aggregate tables only. Held-out takes are always refused (the one
+ *        held-out entry is heldout_eval.ts; T16 removed --look-point, review nice 2).
  *
  * --level S-3 (default) | S-9 (T11) | S-ext (T12) picks the analysis level and the scored instruments, in every mode.
  *
  * Privacy: stdout/stderr never get hits or a score text of a recording. Reads local files only; no network.
  */
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readAudioFile, toMono } from '../../render/drum/audioFile';
 import { DrumInputError, analyzeDrums, drumScore, type DrumScoreText } from './analyze';
 import { drumConfigHash, resolveDrumConfig, type DrumConfig } from './config';
-import { heldOutRefusal, lookLogLine, lookPointBlock, type GuardVariant } from './heldout_guard';
+import { heldOutRefusal, type GuardVariant } from './heldout_guard';
 import { assertNoHeldOut, selectVariants, type EvalVariant } from './onset_eval';
 import { renderDrumReport, type DrumReportRow } from './report';
 import { scoreTake, type DrumTruth, type TakeScore } from './score';
@@ -35,7 +35,6 @@ const ROOT = join(import.meta.dirname, '..', '..');
 const OUT = join(ROOT, 'out', 'drum');
 const REC_MANIFEST = join(ROOT, 'out', 'rec', 'manifest.drum.json');
 const IDS = join(ROOT, 'recordings', 'drm-ids.local.json');
-const LOG = join(ROOT, 'out', 'results', 'heldout-log.jsonl');
 
 export class UsageError extends Error {}
 
@@ -52,7 +51,6 @@ export interface CliArgs {
   splits: string[];
   only?: string;
   takes: string[];
-  lookPoint?: number;
   /** Analysis and scoring level (T11 / T12): S-3 (default), S-9 or S-ext. */
   level: DrumLevel;
 }
@@ -88,10 +86,7 @@ export function parseArgs(argv: string[]): CliArgs {
       if (l !== 'S-3' && l !== 'S-9' && l !== 'S-ext') throw new UsageError('--level must be S-3, S-9 or S-ext');
       a.level = l;
     }
-    else if (k === '--look-point') {
-      a.lookPoint = Number(val());
-      if (![1, 2, 3].includes(a.lookPoint)) throw new UsageError('--look-point must be 1, 2 or 3');
-    } else if (k.startsWith('-')) throw new UsageError(`unknown option ${k}`);
+    else if (k.startsWith('-')) throw new UsageError(`unknown option ${k}`);
     else if (a.input === undefined) a.input = k;
     else throw new UsageError(`unexpected argument ${k}`);
   }
@@ -141,20 +136,10 @@ export function guardSources() {
   };
 }
 
-/** Throws UsageError when `input` (path or take id) may not be analyzed; returns true when it is held-out and the look point lifted that. */
-export function gate(input: string, a: Pick<CliArgs, 'lookPoint'>, cfgHash: string, commit: string | undefined): boolean {
+/** Throws UsageError when `input` (path or take id) is held-out or cannot be verified. */
+export function gate(input: string): void {
   const refusal = heldOutRefusal(input, guardSources());
-  if (!refusal) return false;
-  if (!refusal.heldOut) throw new UsageError(refusal.reason);
-  const block = lookPointBlock({ lookPoint: a.lookPoint, logText: existsSync(LOG) ? readFileSync(LOG, 'utf8') : null, porcelain: gitPorcelain() });
-  if (block) throw new UsageError(`${refusal.reason}: ${block}`);
-  logLook(a.lookPoint!, basename(input).replace(/\.(wav|json)$/i, ''), true, cfgHash, commit);
-  return true;
-}
-
-function logLook(lookPoint: number, take: string, heldOut: boolean, configHash: string, commit?: string): void {
-  mkdirSync(join(ROOT, 'out', 'results'), { recursive: true });
-  appendFileSync(LOG, lookLogLine({ time: new Date().toISOString(), lookPoint, take, heldOut, configHash, commit }) + '\n', 'utf8');
+  if (refusal) throw new UsageError(refusal.reason);
 }
 
 export interface FileRun {
@@ -205,7 +190,6 @@ export function runAll(a: Pick<CliArgs, 'splits' | 'only' | 'results' | 'config'
   const manifest = JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8')) as { variants: SynVariant[] };
   const vs = selectVariants(manifest.variants, a.splits, a.only) as SynVariant[];
   if (a.only && manifest.variants.some((v) => v.heldOut && (a.only === v.name))) throw new UsageError('held-out variants are never analyzed by --all');
-  assertNoHeldOut(vs);
   const cfg = loadConfig(a.config);
   const level = a.level ?? 'S-3';
   const outDir = a.results ? resolve(a.results) : join(ROOT, 'out', 'drum-results', 'analyze');
@@ -283,15 +267,14 @@ function runTakes(a: CliArgs, commit: string | undefined): void {
   for (const id of a.takes) {
     const v = man.find((x) => x.name === id);
     if (!v) throw new UsageError(`unknown take ${id}`);
-    const held = gate(id, a, cfgHash, commit);
-    if (!held && a.lookPoint !== undefined) logLook(a.lookPoint, id, false, cfgHash, commit);
+    gate(id);
     const run = runFile(join(ROOT, v.wav as string), { bpm: v.bpm, ts: v.ts, startSec: v.startSec }, cfg, commit, 'recording', a.level);
     const truth = JSON.parse(readFileSync(join(ROOT, v.truth), 'utf8')) as DrumTruth & { excludedBars?: number[] };
     const take = scoreTake({ truth, result: run.result, level: a.level, cfg, excludedBars: truth.excludedBars ?? v.excludedBars ?? [], align: true });
     writeFileSync(join(outDir, `${id}.json`), JSON.stringify(run.result) + '\n', 'utf8');
     writeFileSync(join(outDir, `${id}.score.json`), JSON.stringify(take.scores) + '\n', 'utf8');
     if (!('error' in run.text)) writeFileSync(join(outDir, `${id}.tex`), run.text.tex + '\n', 'utf8');
-    rows.push({ id: '', kind: 'recording', level: held ? 'held-out' : 'dev', drumLevel: a.level, heldOut: held, take });
+    rows.push({ id: '', kind: 'recording', level: 'dev', drumLevel: a.level, heldOut: false, take });
     const m = run.result.drum.meta.timings;
     process.stderr.write(`${id}: ${run.result.drums.length} hits, ${(m.totalMs / 1000).toFixed(2)} s, round trip ${roundTripOk(run.text) ? 'ok' : 'FAILED'}, config ${cfgHash}\n`);
   }
@@ -300,7 +283,7 @@ function runTakes(a: CliArgs, commit: string | undefined): void {
 
 function runSingle(a: CliArgs, commit: string | undefined): void {
   const cfg = loadConfig(a.config);
-  gate(a.input!, a, drumConfigHash(cfg), commit);
+  gate(a.input!);
   if (a.bpm === undefined || !Number.isFinite(a.bpm)) throw new UsageError('--bpm is needed');
   if (a.start === undefined || !Number.isFinite(a.start)) throw new UsageError('--start (second of bar 1 beat 1) is needed');
   const run = runFile(a.input!, { bpm: a.bpm, ts: a.ts ?? [4, 4], startSec: a.start }, cfg, commit, 'recording', a.level);
@@ -338,7 +321,7 @@ export function run(argv: string[]): void {
       process.exit(1);
     }
     if (e instanceof UsageError) {
-      process.stderr.write(`error: ${e.message}\nusage: npx tsx ts/drum/cli.ts <wav> --bpm N [--ts 4/4] --start S [-o out.json] | --all [--split tuning,dev] [--only GLOB] | --take drm-NN-x [--look-point 3]\n`);
+      process.stderr.write(`error: ${e.message}\nusage: npx tsx ts/drum/cli.ts <wav> --bpm N [--ts 4/4] --start S [-o out.json] | --all [--split tuning,dev] [--only GLOB] | --take drm-NN-x\n`);
       process.exit(2);
     }
     if (e instanceof Error && /^(bpm|拍子|小節頭)/.test(e.message)) {

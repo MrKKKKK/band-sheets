@@ -1,7 +1,7 @@
 # スパイク 5 の合成ドラムのサンプル（T1）
 
 想定読者: スパイク 5 の T2（合成のドラム・ミキサー）以降を受けるエージェントとユーザー。
-目的: 合成に使うキット A・B・C・D の出どころ・ライセンス（原文で確認）・入っている楽器・取得方法を決め、`ts/THIRD_PARTY.md` への追記の案を示す。キット D は T10b（2026-10-25）で足した調整用だけのキット。
+目的: 合成に使うキット A・B・C・D の出どころ・ライセンス（原文で確認）・入っている楽器・取得方法を決める（表示の文は `ts/THIRD_PARTY.md`）。キット D は T10b（2026-10-25）で足した調整用だけのキット。
 
 2026-10-25 調査。ダウンロード 1.85 GB、展開後 2.1 GB（T10b のキット D で +0.35 GB・+0.34 GB）（`--keep-zip` で zip も残すと `drumkits/` は 3.9 GB）。取得: `bash spikes/analysis/fetch-drum-samples.sh`（キット A は `fetch-soundfont.sh` を呼ぶ）。置き場所は gitignore の `soundfonts/`・`drumkits/`。サンプルは git・アプリに入れない。
 
@@ -67,33 +67,7 @@
 | Naked Drums（Wilkinson Audio）         | CC-BY 4.0                  | 表示が要る。B・C で足りる                                                                                        |
 | Salamander Drumkit・Sam's Sonor        | CC-BY-SA                   | 継承の条件付き。計画のライセンスの規則（CC0・PD・MIT/BSD 系）の外                                                |
 
-## キット A のワンショットの取り出し方（T2 向けの推奨）
+## キットのワンショットの作り方
 
-**推奨: 今の alphaTab の描画の道（`render/renderAudio.ts` の `musescore` = `soundfonts/MuseScore_General.sf2`）で、1 音だけの MIDI を楽器ごと・強さごとに描いて wav にする。** sf2 のサンプルの塊を直接読むのはやめる。
+キット A は alphaTab の描画（`MuseScore_General.sf2`）で 1 音ずつ描き、B・C・D は sfz のワンショットをファイル名から表にする。やり方は `render/drum/kits.ts`。表示とライセンスの文は `ts/THIRD_PARTY.md` を見る。
 
-- 理由: 鳴る音は sample だけでなく、zone の generator（BD・SD の強さごとの `initialFilterFc`、エンベロープ、減衰、音量 `initialAttenuation`、パン、チューニング）で決まる。直接読むとこれを全部自分で書き直すことになり、今の合成（スパイク 0〜4 の伴奏）とも音が合わなくなる。描画なら A のドラムの鳴り方が alphaTab の再生そのもので、手間も小さい（`renderAudio.ts` の関数に MIDI を渡すだけ）。
-- やり方: チャンネル 10（bank 128、program 0。別チューニングは 16）で、鍵盤 35〜59 の使う音ごとに、強さ 32・56・80・104・127 などの数段で 1 音を描く。長さは音が消えるまで（シンバル 6 s、ほか 2 s 程度。末尾は −90 dB で切る）。最初のサンプルが 0 でない位置を「音の始まり」として記録し、ミキサーはそこを打点に合わせる（正解 ±1 ms の条件）。ステレオはモノに下ろす（今の `downmixStereo`）。描いた wav は `drumkits/musescore/` に置き、キャッシュとして扱う（毎回作り直してよい）。
-- リスク: ① alphaTab の強さ → 音量の曲線は GM の既定（sf2 の modulator）で、強さの層が無いので音色の差は小さい（上の確認のとおり）。② HH の 42/44/46 は sf2 の `exclusiveClass` で互いに止め合う。1 音ずつ描くとその効果は出ないので、ミキサー側で「次の HH の打点で前の HH を短くフェードアウト」を自分で書く（B・C も同じ処理が要る）。③ 描画の始まりに無音や遅れがあれば、始まりの検出で吸収する（固定の値を仮定しない）。④ sf3 → sf2 の変換（`sf3ToSf2.py`）が前提。osuosl に公式の `MuseScore_General.sf2`（215,614,036 B、2020-07-10）もあるが、今の pin は sf3 なので変えない。
-
-B・C は sfz のサンプルが FLAC/WAV のワンショットそのもの（層 `vlN`・ラウンドロビン `rrN`・マイクがファイル名とフォルダで分かれる）なので、sfz を解釈せずファイル名から表を作れる。FLAC の読み込みと B の 48 kHz → 44.1 kHz の変換は T2 で決める（例: 取得後に Python の画像で 44.1 kHz の WAV に一度だけ変換して `drumkits/` に置く）。
-
-## `ts/THIRD_PARTY.md` への追記の案
-
-T2 でサンプルを使い始めるときに入れる（今は案だけ）。
-
-```markdown
-## Drum samples for spike 5's synthetic data (not shipped, not in git)
-
-Downloaded by `spikes/analysis/fetch-drum-samples.sh` (SHA-256 pinned) into the gitignored
-`spikes/analysis/soundfonts/` and `spikes/analysis/drumkits/`. Used only to render local test
-audio; never committed, never bundled into the app. Details: `spikes/analysis/DRUM_SAMPLES.md`.
-
-- MuseScore_General 0.2 (MIT; drum kit = FluidR3Mono samples). Notice required in derivative
-  works: "FluidR3 (original version) by Frank Wen Copyright (c) 2000-02; Mono conversion
-  (FluidR3Mono) by Michael Cowgill Copyright (c) 2014-17; Adaptation for MuseScore_General.sf2 by
-  S. Christian Collins Copyright (c) 2018-19." Full text: `soundfonts/MuseScore_General_License.md`.
-- Virtuosity Drums v0.925 by Versilian Studios and Karoryfer Samples (CC0 1.0 Universal).
-  https://github.com/sfzinstruments/virtuosity_drums
-- Big Rusty Drums v1.100 by Karoryfer Samples (CC0 1.0 Universal).
-  https://github.com/sfzinstruments/karoryfer.big-rusty-drums
-```

@@ -13,7 +13,7 @@
 
 **結論: 正解が 1 小節遅れていた**（「1 小節目の前の音」は 1 小節目そのもの）。繰り返しの型なので 1 小節ずれても多くの打点が合い、R3 ではずれが見えなかった。
 
-直したこと（すべて gitignore の中。`out/t12b/fix_start.py`、元は `out/t12b/backup/`）:
+直したこと（すべて gitignore の中。元は `out/t12b/backup/`。同じことは `py/drum_intake.py --reparse` でできる。開発用で一致を確かめた: T15）:
 
 - 6 本すべて `開始: 0秒` にした（`recordings/drm-originals/*.txt`、正解 JSON の秒を `-開始` だけずらす、manifest の `startSec`）。小節・tick は変えていない。
 - **ホールドアウト（e・f）**: ユーザーの確認で同じ書き出し方なので、`.txt` の値だけから同じく 0 秒に直した。音は読んでいない。ログに 1 行（`kind: note`）残した。
@@ -135,27 +135,13 @@ BD・SD は既知のキットの合成なみになった。残る課題は HH �
 - 設定 `drum-v0` **`fb158baf9dfe`**（コミット `dc0ec5a` 以降、`ts/drum` を変えていないこと）。録音 drm-05-e・drm-06-f、`開始: 0秒`（1 の直し）。
 - 採点: 今までどおり楽器ごとの ±50 ms（録音ごとに 1 つのずらし ±100 ms）、格子、直す手数。**1 小節目の前を外す規則は無し**（ずれを直したので要らない）。
 
-### T14 の実行方法（ガードの直し済み）
-
-- 専用の入口 `ts/drum/heldout_eval.ts` を足した（`cli.ts --take` の経路は T14 には使わない。1 録音ごとに look-3 の行を書くので 2 本目で止まるため）。
-- コマンド（ワーキングツリーがきれいで、`dc0ec5a` 以降 `ts/drum` の解析を変えていないこと。1 回だけ）:
-
-```
-docker exec -u node -w /workspaces/band-sheets/.worktrees/spike5/spikes/analysis band-sheets \
-  npx tsx ts/drum/heldout_eval.ts --final-heldout
-```
-
-- 最初に 1 回だけ確かめる: ワーキングツリーがきれい、`out/results/heldout-log.jsonl` にドラムの look-3（heldOut）の行が無い。どちらかが違えば音を読む前に断る。
-- 通ったら look-3 の行を **1 行だけ**、解析の前に書く（`take "heldout"`、録音 id = マニフェストのホールドアウト 2 本、`levels` S-9 / S-3 / S-ext、設定のハッシュ、コミット、`task T14`）。その後 2 本 × 3 段階を全部走らせる。
-- 出力は合計のみ（楽器ごとの合算と録音ごとの F50、格子、直す手数/キーボード、取り違えの数、ずれの分布）を標準出力と gitignore の `out/heldout-eval/final/summary.md` に。ヒットや録音ごとの結果 JSON は書かない。主な段階は S-9、S-3 と S-ext を並べる。
-- `--selftest`: 同じ道を開発用 4 本（drm-01-a〜04-d）で走らせる。look-3 の行は書かず、ワーキングツリーの状態も見ず、ホールドアウトの id は断る（出力は `out/heldout-eval/selftest/`）。確認済み: 合算 F50 全体 S-9 .706 / S-3 .786 / S-ext .702、直す手数 .614 / .546 / .613 で、上の ③ の表と一致した。
-- 試験: `heldout_eval.test.ts`（偽のログで、ログ無し → 1 行だけ書いて走る / 既にある → 音を読む前に断る / きれいでない木 → 断る / selftest は書かない・ホールドアウトを断る）。
+入口は `ts/drum/heldout_eval.ts --final-heldout`（ガードは頭の注）、実行のコマンドは t14 §1。
 
 ## コマンド（作業ディレクトリ `spikes/analysis`、道具は gitignore の `out/t12b/`）
 
 ```
-# 正解の 開始 の直し（6 本。ホールドアウトは .txt と正解 JSON の秒だけ）
-python3 out/t12b/fix_start.py ; python3 out/t12b/fix_start.py drm-05-e drm-06-f
+# 正解の 開始 の直し（.txt の 開始 を直してから。ホールドアウトは .txt と正解 JSON の秒だけで、音は読まない）
+docker run --rm -u 1000:1000 -e HOME=/tmp -v $PWD:/work -w /work band-sheets-analysis python py/drum_intake.py --reparse
 # R1 の合成と確かめ
 docker exec -u node -w <spikes/analysis> band-sheets npx tsx render/drum/cli.ts --only 'syn-r1-*' --check
 docker run --rm -u 1000:1000 -e HOME=/tmp -v $PWD:/work -w /work band-sheets-analysis python -I out/t12b/compare_syn.py

@@ -14,16 +14,16 @@ const manifest = have ? (JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'ut
 
 describe('parseArgs', () => {
   it('reads the options', () => {
-    const a = parseArgs(['x.wav', '--bpm', '100', '--ts', '3/4', '--start', '-0.2', '--look-point', '3', '--take', 'drm-01-a', '--take', 'drm-02-b']);
-    expect(a).toMatchObject({ input: 'x.wav', bpm: 100, ts: [3, 4], start: -0.2, lookPoint: 3, takes: ['drm-01-a', 'drm-02-b'] });
+    const a = parseArgs(['x.wav', '--bpm', '100', '--ts', '3/4', '--start', '-0.2', '--take', 'drm-01-a', '--take', 'drm-02-b']);
+    expect(a).toMatchObject({ input: 'x.wav', bpm: 100, ts: [3, 4], start: -0.2, takes: ['drm-01-a', 'drm-02-b'] });
     expect(parseArgs(['--all']).splits).toEqual(['tuning', 'dev']);
     expect(parseArgs(['--all']).level).toBe('S-3');
     expect(parseArgs(['--all', '--level', 'S-9']).level).toBe('S-9');
     expect(parseArgs(['--all', '--level', 'S-ext']).level).toBe('S-ext');
   });
-  it('rejects unknown options and a bad look point', () => {
+  it('rejects unknown options (incl. the removed --look-point)', () => {
     expect(() => parseArgs(['--nope'])).toThrow(UsageError);
-    expect(() => parseArgs(['--look-point', '4'])).toThrow(UsageError);
+    expect(() => parseArgs(['--look-point', '3'])).toThrow(UsageError);
     expect(() => parseArgs(['--ts', '44'])).toThrow(UsageError);
     expect(() => parseArgs(['--level', 'S-12'])).toThrow(UsageError);
   });
@@ -36,17 +36,17 @@ describe.skipIf(!have)('held-out guard in the CLI (needs out/drum)', () => {
     expect(() => runAll({ splits: ['tuning', 'dev'], only: held[0].name }, undefined, () => {})).toThrow(/held-out/);
     expect(selectVariants(manifest.variants, ['tuning', 'dev']).some((v) => v.heldOut)).toBe(false);
   });
-  it('single-file mode refuses held-out files (kit C) without a look point, and with look point 2', () => {
+  it('single-file / take mode always refuses held-out files (kit C)', () => {
     expect(held.length).toBeGreaterThan(0);
     for (const v of held.slice(0, 5)) {
-      expect(() => gate(join(OUT, v.wav), {}, 'h', undefined)).toThrow(/held-out/);
-      expect(() => gate(v.name, { lookPoint: 2 }, 'h', undefined)).toThrow(/once/);
+      expect(() => gate(join(OUT, v.wav))).toThrow(/held-out/);
+      expect(() => gate(v.name)).toThrow(/held-out/);
     }
     expect(manifest.variants.filter((v) => v.kit === 'C').every((v) => v.heldOut)).toBe(true);
   });
   it('lets tuning / dev files through', () => {
     const dev = manifest.variants.find((v) => !v.heldOut)!;
-    expect(gate(join(OUT, dev.wav), {}, 'h', undefined)).toBe(false);
+    expect(() => gate(join(OUT, dev.wav))).not.toThrow();
   });
 });
 

@@ -82,6 +82,8 @@ audio; never committed, never bundled into the app. Details: `spikes/analysis/DR
   warranties (license section 5). Changes we make (tuning-only synthetic audio, spike 5 T10b): single mic files
   mixed to mono with fixed weights, trimmed and faded, drums pitch-shifted at level D3, level-matched, combined with
   kit A's drums (hybrid kit H), placed in generated patterns with synthetic reverb, a phone-mic filter and noise.
+  Level R1 (T12b, `render/drum/realistic.ts`) also applies per-hit HH / RD gain patterns, a high-shelf cut on the
+  HH / RD voices, timing jitter and drift, a damped-sine body added to the snare, and resampled toms.
   The rendered audio stays local (gitignored `out/drum/`) and is not shared.
 
 `render/drum/flac.ts` (FLAC decoder) is our own code written from the format specification (RFC 9639); no

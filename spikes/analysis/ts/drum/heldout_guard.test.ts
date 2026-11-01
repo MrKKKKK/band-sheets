@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { hasDrumLook3, heldOutRefusal, lookLogLine, lookPointBlock, type GuardSources } from './heldout_guard';
+import { hasDrumLook3, heldOutRefusal, lookPointBlock, type GuardSources } from './heldout_guard';
+
+const lookLine = (take: string, heldOut: boolean) => JSON.stringify({ time: 't', kind: 'look', input: 'drum', lookPoint: 3, take, heldOut, variants: [take], configHash: 'abc' });
 
 const src: GuardSources = {
   syn: [
@@ -40,12 +42,12 @@ describe('lookPointBlock', () => {
     expect(lookPointBlock({ ...ok, lookPoint: 2 })).toMatch(/once/);
     expect(lookPointBlock({ ...ok, porcelain: ' M x.ts\n' })).toMatch(/clean/);
     expect(lookPointBlock({ ...ok, porcelain: null })).toMatch(/clean/);
-    const line = lookLogLine({ time: 't', lookPoint: 3, take: 'drm-05-e', heldOut: true, configHash: 'abc' });
+    const line = lookLine('drm-05-e', true);
     expect(hasDrumLook3([JSON.parse(line)])).toBe(true);
     expect(lookPointBlock({ ...ok, logText: line + '\n' })).toMatch(/already exists/);
   });
   it('a dev look-3 line or another input does not count', () => {
-    const dev = lookLogLine({ time: 't', lookPoint: 3, take: 'drm-01-a', heldOut: false, configHash: 'abc' });
+    const dev = lookLine('drm-01-a', false);
     expect(lookPointBlock({ lookPoint: 3, logText: dev + '\n', porcelain: '' })).toBeNull();
     expect(lookPointBlock({ lookPoint: 3, logText: JSON.stringify({ kind: 'look', input: 'hum', lookPoint: 3, heldOut: true }) + '\n', porcelain: '' })).toBeNull();
   });
