@@ -408,3 +408,34 @@ describe('copyResultLines', () => {
     ]);
   });
 });
+
+describe('dash lines', () => {
+  const song = songWith(
+    '|[C]--------|[C]----[F]----|\n[C]きら[G]きら\n| [C][G] |',
+  );
+  it('contribute no syllables and their chords map to no syllable', () => {
+    const cc = chartChords(song, 'A');
+    expect(cc.syllables).toEqual(['き', 'ら', 'き', 'ら']);
+    expect(cc.syllables).toEqual(chartSyllables(song, 'A'));
+    expect(cc.chords.map((c) => [c.chord, c.syllable])).toEqual([
+      ['C', null],
+      ['C', null],
+      ['F', null],
+      ['C', 0],
+      ['G', 2],
+      ['C', null],
+      ['G', null],
+    ]);
+  });
+  it('are not copied onto the melody', () => {
+    const events = [n('き'), n('ら'), n('き'), n('ら')];
+    const res = copyChordsFromChart(
+      events,
+      chartChords(song, 'A'),
+      'overwrite',
+    );
+    expect(res.events.map((e) => ('chord' in e ? e.chord : undefined))).toEqual(
+      ['C', undefined, 'G', undefined],
+    );
+  });
+});

@@ -1,1 +1,4 @@
 spikes/
+src/lib/analysis/tables/
+src/lib/analysis/chords/keytrack.cases.json
+src/lib/analysis/fixtures/

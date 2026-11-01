@@ -371,6 +371,63 @@ export const AutoScroll: Story = {
   },
 };
 
+const systemClock = createManualClock();
+
+/**
+ * Issue #62: the view moves system by system — it holds still while a system
+ * plays and moves in one short ease (≤ 0.5s, the last beat) to the next; at
+ * the end the last system sits fully above the auto-scroll bar (the content
+ * has the bar's height of space below it).
+ */
+export const AutoScrollBySystem: Story = {
+  args: { initial: { nav: 'auto', countIn: false }, clock: systemClock },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const viewer = await waitReady(canvasElement);
+    const vp = c.getByTestId('viewer-viewport');
+    const bar = c.getByTestId('auto-scroll-bar');
+    const content = c.getByTestId('viewer-content');
+    const pad = parseFloat(getComputedStyle(content).paddingBottom);
+    expect(pad).toBeGreaterThanOrEqual(bar.getBoundingClientRect().height);
+
+    await userEvent.click(c.getByRole('button', { name: '再生' }));
+    const samples: number[] = [];
+    for (let i = 0; i < 400; i++) {
+      systemClock.advance(100);
+      samples.push(vp.scrollTop);
+      await sleep(0); // let React commit (play state)
+      if (viewer.getAttribute('data-play-state') === 'ended') break;
+    }
+    expect(viewer).toHaveAttribute('data-play-state', 'ended');
+    // Runs of moving samples (each one 100ms apart) and of still ones.
+    const runs: { moving: boolean; n: number }[] = [];
+    for (let i = 1; i < samples.length; i++) {
+      const moving = Math.abs(samples[i] - samples[i - 1]) > 0.5;
+      const last = runs.at(-1);
+      if (last && last.moving === moving) last.n++;
+      else runs.push({ moving, n: 1 });
+    }
+    const moves = runs.filter((r) => r.moving);
+    expect(moves.length).toBeGreaterThanOrEqual(2);
+    for (const m of moves) expect(m.n).toBeLessThanOrEqual(6);
+    // Between two moves a whole system plays (≥ 1 bar = 2s at ♩=120).
+    runs
+      .slice(1, -1)
+      .filter((r) => !r.moving)
+      .forEach((r) => expect(r.n).toBeGreaterThanOrEqual(19));
+
+    // The end: the last score is entirely above the bar.
+    const scores = c.getAllByTestId('section-score');
+    const lastScore = scores.at(-1)!.getBoundingClientRect();
+    expect(lastScore.bottom).toBeLessThanOrEqual(
+      bar.getBoundingClientRect().top,
+    );
+    expect(lastScore.top).toBeGreaterThanOrEqual(
+      vp.getBoundingClientRect().top,
+    );
+  },
+};
+
 /** No {tempo:}: ♩=100 with a note. */
 export const AutoWithoutTempo: Story = {
   args: { text: chartOnlySongText, initial: { nav: 'auto' } },

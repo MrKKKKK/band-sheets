@@ -1,0 +1,165 @@
+{
+  "_source": "source: the user's knowledge note 「和声法ノート v3（band-sheets 音声解析用）」\n§2.1–2.3 (diatonic chords, T・S・D), §3.1 (secondary\ndominants), §3.3 (tritone substitutes), §3.4 (borrowing from the parallel key), §3.5 (passing\ndiminished 7th), §5.1–5.4 (modulation vs. tonicization, near keys, ambiguity), §6.5 (this table).\nbooks: なし（手元の文献なし。根拠は和声法ノート v3 の § のみ。一般的な和声・ポピュラー音楽理論を自分たちの言葉でまとめたもの）",
+  "change": {
+    "boundary": 2.0,
+    "mid": 4.0,
+    "near_factor": 0.75
+  },
+  "confidence": {
+    "scale": 5.0
+  },
+  "major": {
+    "borrowed": [
+      "5 min",
+      "5 min7",
+      "8 maj",
+      "8 maj7",
+      "10 maj",
+      "10 7",
+      "3 maj",
+      "3 maj7",
+      "2 m7b5",
+      "2 dim",
+      "7 min",
+      "7 min7",
+      "1 maj",
+      "1 maj7"
+    ],
+    "diatonic": [
+      "0 maj",
+      "0 maj7",
+      "2 min",
+      "2 min7",
+      "4 min",
+      "4 min7",
+      "5 maj",
+      "5 maj7",
+      "7 maj",
+      "7 7",
+      "7 sus4",
+      "9 min",
+      "9 min7",
+      "11 dim",
+      "11 m7b5"
+    ],
+    "secondary": [
+      "9 7",
+      "9 maj",
+      "11 7",
+      "11 maj",
+      "0 7",
+      "2 7",
+      "2 maj",
+      "4 7",
+      "4 maj",
+      "1 7",
+      "8 7",
+      "3 7",
+      "10 7",
+      "6 7",
+      "6 maj",
+      "0 dim7",
+      "1 dim7",
+      "2 dim7",
+      "3 dim7",
+      "4 dim7",
+      "5 dim7",
+      "6 dim7",
+      "7 dim7",
+      "8 dim7",
+      "9 dim7",
+      "10 dim7",
+      "11 dim7",
+      "1 dim",
+      "3 dim",
+      "6 dim",
+      "8 dim"
+    ],
+    "tonic": [
+      "0 maj",
+      "0 maj7"
+    ]
+  },
+  "minor": {
+    "borrowed": [
+      "5 maj",
+      "5 7",
+      "2 min",
+      "2 min7",
+      "9 dim",
+      "9 m7b5",
+      "11 m7b5",
+      "0 maj",
+      "1 maj",
+      "1 maj7"
+    ],
+    "diatonic": [
+      "0 min",
+      "0 min7",
+      "2 dim",
+      "2 m7b5",
+      "3 maj",
+      "3 maj7",
+      "5 min",
+      "5 min7",
+      "7 min",
+      "7 min7",
+      "8 maj",
+      "8 maj7",
+      "10 maj",
+      "10 7",
+      "7 maj",
+      "7 7",
+      "7 sus4",
+      "11 dim",
+      "11 dim7"
+    ],
+    "dominant": [
+      "7 maj",
+      "7 7",
+      "7 sus4",
+      "11 dim",
+      "11 dim7"
+    ],
+    "secondary": [
+      "0 7",
+      "3 7",
+      "2 7",
+      "2 maj",
+      "1 7",
+      "0 dim7",
+      "1 dim7",
+      "2 dim7",
+      "3 dim7",
+      "4 dim7",
+      "5 dim7",
+      "6 dim7",
+      "7 dim7",
+      "8 dim7",
+      "9 dim7",
+      "10 dim7",
+      "11 dim7"
+    ],
+    "tonic": [
+      "0 min",
+      "0 min7"
+    ]
+  },
+  "phrase": {
+    "bars": 8,
+    "edge": "chord"
+  },
+  "resolution": {
+    "dominant7": 0.6,
+    "min_bars": 2,
+    "triad": 0.6
+  },
+  "stage": {
+    "borrowed": 0.5,
+    "diatonic": 1.0,
+    "dominant": 1.0,
+    "other": 0.0,
+    "secondary": 0.4,
+    "tonic": 1.35
+  }
+}

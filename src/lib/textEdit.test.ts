@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { insertAt, insertSection } from './textEdit';
+import { insertAt, insertSection, replaceLine } from './textEdit';
 
 describe('insertAt', () => {
   it('inserts at the caret and places the caret after the text', () => {
@@ -180,5 +180,30 @@ describe('insertSection', () => {
     const r = insertSection(text, caret, 'F');
     expect(r.text).toBe(`${text}\n${block('F')}`);
     expect(r.caret).toBe(`${text}\n{start_of_verse: F}\n`.length);
+  });
+});
+
+describe('replaceLine', () => {
+  const text = 'a\nｘ\nb\nｘ\nc';
+  it('replaces only the n-th identical line', () => {
+    expect(replaceLine(text, 'ｘ', 'x', 1, 0)?.text).toBe('a\nｘ\nb\nx\nc');
+    expect(replaceLine(text, 'ｘ', 'x', 0, 0)?.text).toBe('a\nx\nb\nｘ\nc');
+  });
+  it('returns null when the line does not exist', () => {
+    expect(replaceLine(text, 'ｘ', 'x', 2, 0)).toBeNull();
+    expect(replaceLine(text, 'zz', 'x', 0, 0)).toBeNull();
+  });
+  it('keeps the caret: before, inside, after the line, with a length change', () => {
+    const t = 'ab\ncdef\ngh';
+    expect(replaceLine(t, 'cdef', 'XY', 0, 1)?.caret).toBe(1);
+    expect(replaceLine(t, 'cdef', 'XY', 0, 6)?.caret).toBe(5);
+    expect(replaceLine(t, 'cdef', 'XY', 0, 9)?.caret).toBe(7);
+    expect(replaceLine(t, 'cdef', 'XYZ', 0, 4)?.caret).toBe(4);
+  });
+  it('handles CRLF and the last line without a newline', () => {
+    expect(replaceLine('a\r\nｘ\r\nb', 'ｘ', 'x', 0, 0)?.text).toBe(
+      'a\r\nx\r\nb',
+    );
+    expect(replaceLine('a\nｘ', 'ｘ', 'x', 0, 3)?.text).toBe('a\nx');
   });
 });

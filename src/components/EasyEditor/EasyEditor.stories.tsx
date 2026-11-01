@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, userEvent, waitFor, within } from 'storybook/test';
 import { sampleSong } from '../../lib/fixtures/sampleSong';
 import { lyricsText } from '../../lib/lyrics';
+import { parseSong } from '../../lib/parseSong';
 import type { Song } from '../../lib/song';
 import { EasyEditor, type Step } from './EasyEditor';
 
@@ -404,6 +405,34 @@ export const CancelLyricsEdit: Story = {
     await userEvent.click(canvas.getByRole('button', { name: '歌詞を編集' }));
     expect(canvas.getByLabelText('歌詞を貼り付け')).not.toHaveValue(
       expect.stringContaining('あ\n'),
+    );
+  },
+};
+
+/** Dash lines (audio-integration-plan §3.6) are not lyrics and not clickable. */
+export const DashLinesReadOnly: Story = {
+  args: {
+    initial: parseSong(
+      [
+        '{title: t}',
+        '{start_of_verse: A}',
+        '|[C]--------|[C]----[F]----|[G]--------|[G]----[G7]----|',
+        '[C]きらきら[F]ひかる',
+        '{end_of_verse}',
+        '',
+      ].join('\n'),
+    ),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    expect(currentStep(canvasElement)).toBe('2コード');
+    expect(canvas.getByTestId('line-0-0')).toHaveTextContent('|');
+    // No per-character buttons on the dash line; the lyric line has them.
+    expect(canvas.queryByTestId('char-0-0-0')).toBeNull();
+    expect(canvas.getByTestId('char-0-1-0')).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: '歌詞を編集' }));
+    expect(canvas.getByLabelText('歌詞を貼り付け')).toHaveValue(
+      'きらきらひかる',
     );
   },
 };

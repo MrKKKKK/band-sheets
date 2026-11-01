@@ -44,3 +44,4 @@ spikes/analysis/drumkits/
 
 # Python bytecode (spikes/analysis/py)
 __pycache__/
+/out/

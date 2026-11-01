@@ -1,0 +1,107 @@
+import type { AnalysisErrorCode } from './analysisTypes';
+
+/**
+ * Japanese texts for the import screens, one per `AnalysisErrorCode`
+ * (docs/audio-integration-plan.md §6.2): what happened + what the user can do.
+ * No details of the file or the error are shown (they could hold song content).
+ */
+export const IMPORT_ERROR_MESSAGES: Record<AnalysisErrorCode, string> = {
+  'decode-failed':
+    'この形式は読めませんでした。WAV・MP3・M4A のファイルを選んでください。',
+  'too-long':
+    '長すぎます。10 分までの録音を選んでください。長い場合は、使いたい部分だけを切り出してください。',
+  empty: '音が入っていません。別のファイルを選んでください。',
+  'too-short': '短すぎます。1 秒以上の録音を選んでください。',
+  'non-finite':
+    'このファイルは壊れているようです。別のファイルを選んでください。',
+  silent: '音が聞こえませんでした。音量を確かめて、別の録音を選んでください。',
+  'no-beats':
+    '拍を見つけられませんでした。リズムがはっきりした録音を選んでください。',
+  'invalid-info':
+    '入力した内容では解析できません。テンポ・拍子・歌い始めの位置を確かめてください。',
+  'out-of-memory':
+    'メモリが足りませんでした。ほかのタブを閉じてから、もう一度試してください。',
+  'worker-crashed':
+    '解析が途中で止まりました。ほかのタブを閉じてから、もう一度試してください。',
+  unsupported:
+    'このブラウザでは音声の解析を使えません。PC の Chrome や Edge など、新しいブラウザで開いてください。',
+  cancelled: '中止しました。',
+  internal:
+    '解析できませんでした。もう一度試してください。直らないときは、別のファイルを試してください。',
+};
+
+/** Shown on the review screen when the browser cannot play the picked file (analysis itself worked). */
+export const PLAYBACK_FAILED_MESSAGE =
+  'このファイルは、このブラウザでは再生できません。';
+
+/** S2: the humming analysis found no sung note (no AnalysisErrorCode: the run itself worked). */
+export const HUM_NO_VOICE_MESSAGE =
+  '歌の声が見つかりませんでした。マイクに近づいて「ラ」や「ん〜」ではっきり歌い、クリックはヘッドホンで聞くようにして、録り直してください。';
+
+/** S4: a whole-draft fix that would move a triplet across a barline is refused. */
+export const HUM_TUPLET_SHIFT_MESSAGE =
+  'そこへはずらせません。3 連符が小節の線をまたいでしまいます。';
+
+/** S4: the analysis result could not be turned into a draft (the analyzer broke its own rules). */
+export const HUM_DRAFT_FAILED_MESSAGE =
+  '下書きを作れませんでした。もう一度解析するか、別の録音を試してください。';
+
+export interface ImportNotice {
+  /** `notice` = the user asked for it (cancel): show it plainly, not as an error. */
+  severity: 'error' | 'notice';
+  message: string;
+  /** Offer 「もう一度試す」 (crash / memory / internal errors, and after a cancel). */
+  retry?: boolean;
+}
+
+/** Errors after which the same file may work on a second try. */
+const RETRYABLE = new Set<AnalysisErrorCode>([
+  'worker-crashed',
+  'out-of-memory',
+  'internal',
+]);
+
+export function importErrorInfo(code: AnalysisErrorCode): ImportNotice {
+  return {
+    severity: code === 'cancelled' ? 'notice' : 'error',
+    message: IMPORT_ERROR_MESSAGES[code],
+  };
+}
+
+/** The notice box for an error code, with the retry offer. */
+export function noticeFor(code: AnalysisErrorCode): ImportNotice {
+  return {
+    ...importErrorInfo(code),
+    retry: code === 'cancelled' || RETRYABLE.has(code),
+  };
+}
+
+/**
+ * The texts that ask for another file, for a recording made with the mic (S2's 「マイクで録る」): its action is
+ * 「録り直す」, not choosing a file. Every other code keeps IMPORT_ERROR_MESSAGES' text.
+ */
+const TAKE_ERROR_MESSAGES: Partial<Record<AnalysisErrorCode, string>> = {
+  'decode-failed': '録音を読めませんでした。録り直してください。',
+  'too-long': '録音が長すぎます。10 分までで録り直してください。',
+  empty: '音が入っていません。マイクの音量を確かめて、録り直してください。',
+  'too-short': '録音が短すぎます。1 秒以上、録り直してください。',
+  'non-finite': '録音が壊れているようです。録り直してください。',
+  silent:
+    '音が聞こえませんでした。マイクの音量を確かめて、録り直してください。',
+  'no-beats':
+    '拍を見つけられませんでした。リズムをはっきりさせて、録り直してください。',
+  internal:
+    '解析できませんでした。もう一度試してください。直らないときは、録り直してください。',
+};
+
+/** noticeFor, worded for a mic recording. */
+export function takeNoticeFor(code: AnalysisErrorCode): ImportNotice {
+  const n = noticeFor(code);
+  const message = TAKE_ERROR_MESSAGES[code];
+  return message ? { ...n, message } : n;
+}
+
+/** The S2 notice when the analysis found no sung note (choose another file; a retry would give the same). */
+export function humNoVoiceNotice(): ImportNotice {
+  return { severity: 'error', message: HUM_NO_VOICE_MESSAGE };
+}

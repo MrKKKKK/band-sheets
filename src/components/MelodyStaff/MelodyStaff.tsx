@@ -38,12 +38,12 @@ export interface MelodyStaffProps {
   ts: TimeSig;
   /** Song key; clicked pitches follow its key signature (key G → F#). */
   keySignature?: string;
-  /** Insertion point 0..events.length (before event i). */
-  cursor: number;
+  /** Insertion point 0..events.length (before event i). Not used with `selectOnly`. */
+  cursor?: number;
   /** Selected event index, or null. */
   selected: number | null;
   /** Note value of the hover preview (the value the next note will get). */
-  previewDuration: { d: Duration; dotted: boolean };
+  previewDuration?: { d: Duration; dotted: boolean };
   /** Lyrics of events from this index on are drawn in --warning. */
   mismatchFrom?: number | null;
   readOnly?: boolean;
@@ -52,7 +52,7 @@ export interface MelodyStaffProps {
    * insertion point `index`. While something is selected, that click only
    * calls `onSelect(null)` (M7); the next one places.
    */
-  onPlace: (index: number, pitch: string) => void;
+  onPlace?: (index: number, pitch: string) => void;
   /** Click a note/rest (again → null), Escape → null. */
   onSelect: (index: number | null) => void;
   /**
@@ -84,12 +84,26 @@ export interface MelodyStaffProps {
    * typing in it never reaches `onKeyDown`.
    */
   overlay?: { index: number; content: ReactNode } | null;
+  /**
+   * Review staff (S4, the humming draft): a click only selects a note (or clears the selection); nothing is
+   * placed, no hover preview, and the cursor line is drawn only at `playhead`. Keys still go to `onKeyDown`.
+   */
+  selectOnly?: boolean;
+  /**
+   * The event sounding now (before event i); null/absent = none. `selectOnly`: drawn as the cursor line. Input
+   * staff (the melody editor's playback): a separate playhead line plus the sounding note highlighted, the input
+   * cursor stays where it is (drawn dashed meanwhile), and the playhead's system is scrolled into view.
+   */
+  playhead?: number | null;
+  /** Events drawn in --warning (S4: low-confidence notes), lyric row included. */
+  markedNotes?: ReadonlySet<number>;
 }
 
 /** Must match the popover width in ChordPopover.module.css. */
 const OVERLAY_WIDTH = 320;
 
 const MIN_WIDTH = 320;
+const DEFAULT_PREVIEW = { d: '4', dotted: false } as const;
 /** px of vertical movement before a press on the selected note is a drag. */
 const DRAG_THRESHOLD = 3;
 
@@ -233,9 +247,9 @@ export function MelodyStaff({
   events,
   ts,
   keySignature,
-  cursor,
+  cursor = 0,
   selected,
-  previewDuration,
+  previewDuration = DEFAULT_PREVIEW,
   mismatchFrom = null,
   readOnly = false,
   onPlace,
@@ -247,6 +261,9 @@ export function MelodyStaff({
   ariaLabel,
   onChordClick,
   overlay = null,
+  selectOnly = false,
+  playhead = null,
+  markedNotes,
 }: MelodyStaffProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -320,8 +337,9 @@ export function MelodyStaff({
     if (!t) return;
     if (t.kind === 'chord') onChordClick?.(t.index);
     else if (t.kind === 'note') onSelect(t.index === selected ? null : t.index);
-    else if (selected !== null) onSelect(null);
-    else onPlace(t.cursor, t.pitch);
+    else if (selectOnly || selected !== null) {
+      if (selected !== null) onSelect(null);
+    } else onPlace?.(t.cursor, t.pitch);
   };
 
   const release = (target: Element, pointerId: number) => {
@@ -414,8 +432,11 @@ export function MelodyStaff({
       }
       return;
     }
-    if (e.key === 'Escape' && selected !== null) onSelect(null);
     onKeyDown(e);
+    // The parent may take Escape for itself (the editor: stop playback) by preventing the default.
+    if (e.key === 'Escape' && selected !== null && !e.defaultPrevented) {
+      onSelect(null);
+    }
   };
 
   // No place preview while something is selected: a click there only
@@ -425,7 +446,7 @@ export function MelodyStaff({
       ? targetAt(layout, hover.x, hover.y, keySignature, chordTargets)
       : null;
   const preview =
-    target?.kind === 'place' && selected === null
+    target?.kind === 'place' && selected === null && !selectOnly
       ? previewPiece(
           layout,
           target.cursor,
@@ -437,9 +458,28 @@ export function MelodyStaff({
 
   const s = layout.staffSpace;
   const t = layout.thickness;
-  const cur =
-    layout.cursors[Math.max(0, Math.min(cursor, layout.cursors.length - 1))];
-  const curSys = layout.systems[cur.system];
+  const cursorAt = selectOnly ? playhead : cursor;
+  const cursorBox = (i: number) => {
+    const c =
+      layout.cursors[Math.max(0, Math.min(i, layout.cursors.length - 1))];
+    return { x: c.x, system: c.system, sys: layout.systems[c.system] };
+  };
+  const cur = cursorBox(cursorAt ?? 0);
+  const curSys = cur.sys;
+  const sounding = !selectOnly && playhead !== null ? playhead : null;
+  const play = sounding !== null ? cursorBox(sounding) : null;
+  const soundingPieces =
+    sounding === null
+      ? []
+      : layout.pieces.filter((p) => p.eventIndex === sounding);
+
+  // Playback: keep the system that is sounding in view (once per system, not per note).
+  const playheadRef = useRef<SVGLineElement>(null);
+  const playSystem = play?.system ?? null;
+  useEffect(() => {
+    if (playSystem !== null)
+      playheadRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [playSystem]);
   const selectedPieces =
     selected === null
       ? []
@@ -480,7 +520,9 @@ export function MelodyStaff({
               role: 'application',
               tabIndex: 0,
               'aria-label': ariaLabel,
-              'aria-roledescription': 'メロディ入力',
+              'aria-roledescription': selectOnly
+                ? '下書きの譜面'
+                : 'メロディ入力',
               'aria-describedby': hintId,
               onKeyDown: handleKeyDown,
             })}
@@ -504,6 +546,19 @@ export function MelodyStaff({
           onPointerCancel={cancelDrag}
           onPointerLeave={() => setHover(null)}
         >
+          {/* sounding note (playback), behind everything */}
+          {soundingPieces.map((p) => (
+            <rect
+              key={`play-${p.pieceIndex}`}
+              x={p.box.x1}
+              y={p.box.y1}
+              width={p.box.x2 - p.box.x1}
+              height={p.box.y2 - p.box.y1}
+              rx={s * 0.3}
+              className={styles.soundingBg}
+            />
+          ))}
+
           {/* selection highlight, behind everything */}
           {selectedPieces.map((p) => (
             <rect
@@ -608,7 +663,13 @@ export function MelodyStaff({
               <g
                 key={`${p.eventIndex}-${p.pieceIndex}`}
                 data-testid={`${p.kind}-${p.eventIndex}-${p.pieceIndex}`}
-                className={[styles.music, isSel && styles.selectedNote]
+                data-sounding={p.eventIndex === sounding || undefined}
+                className={[
+                  styles.music,
+                  markedNotes?.has(p.eventIndex) && styles.marked,
+                  isSel && styles.selectedNote,
+                  p.eventIndex === sounding && styles.sounding,
+                ]
                   .filter(Boolean)
                   .join(' ')}
               >
@@ -628,7 +689,8 @@ export function MelodyStaff({
                   textAnchor="middle"
                   fontSize={s * 1.6}
                   className={
-                    mismatchFrom !== null && p.eventIndex >= mismatchFrom
+                    (mismatchFrom !== null && p.eventIndex >= mismatchFrom) ||
+                    markedNotes?.has(p.eventIndex)
                       ? `${styles.lyric} ${styles.lyricWarn}`
                       : styles.lyric
                   }
@@ -692,15 +754,32 @@ export function MelodyStaff({
             </g>
           )}
 
-          {!readOnly && (
+          {!readOnly && cursorAt !== null && (
             <line
               data-testid="cursor"
               x1={cur.x}
               x2={cur.x}
               y1={curSys.lineYs[0] - s}
               y2={curSys.lineYs[4] + s}
-              className={styles.cursor}
+              className={
+                play ? `${styles.cursor} ${styles.cursorAside}` : styles.cursor
+              }
             />
+          )}
+
+          {play && (
+            <g data-testid="playhead" className={styles.playhead}>
+              <line
+                ref={playheadRef}
+                x1={play.x}
+                x2={play.x}
+                y1={play.sys.lineYs[0] - 1.6 * s}
+                y2={play.sys.lineYs[4] + 1.6 * s}
+              />
+              <path
+                d={`M${play.x - 0.6 * s} ${play.sys.lineYs[0] - 2.4 * s}h${1.2 * s}l${-0.6 * s} ${0.8 * s}z`}
+              />
+            </g>
           )}
 
           {drag?.moved && selectedPieces[0] && (
@@ -740,7 +819,13 @@ export function MelodyStaff({
           {overlay!.content}
         </div>
       )}
-      {!readOnly && (
+      {!readOnly && selectOnly && (
+        <p id={hintId} className={styles.srOnly}>
+          音符をクリックすると、その音の候補が出ます。← → で前後の音を選び、Esc
+          で選ぶのをやめます。
+        </p>
+      )}
+      {!readOnly && !selectOnly && (
         <p id={hintId} className={styles.srOnly}>
           五線をクリックで音を置く、音符をクリックで選択（選択中に空き部分をクリックすると選択解除、選んだ音符は上下ドラッグで高さを変更）。A〜Kキーで音を入力、W
           E T Y U で黒鍵、Shiftで1オクターブ上。数字キー 1 2 4 8 6

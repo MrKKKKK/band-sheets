@@ -65,6 +65,7 @@ import {
   parseMelodyBeats,
   parseMelodyIgnoringBars,
 } from './melodyParse';
+import { chartOrder } from './melodyEditor';
 import { serializeMelody } from './melodyTex';
 import { isDrumPart, type Part, type Song } from './song';
 import { atoms, tupletGroups, type Timed } from './tuplet';
@@ -707,4 +708,38 @@ export function withoutCrossingTuplets<T extends Timed>(
     pos += (end - start) * unitTicks;
   }
   return out ?? (events as T[]);
+}
+
+/**
+ * Writes `events` into section `label` of melody part `partIndex` (-1 = the song has none: an empty part named
+ * `newPartName` is added first, as `ensureMelodyPart` does) and returns the new song: one call = one song. Throws
+ * the Japanese message of `writeSection` (read-only section, unusable label). Callers decide BEFORE calling
+ * whether an empty write should happen at all (the editor never creates an empty section / part).
+ */
+export function writeMelodySection(
+  song: Song,
+  partIndex: number,
+  label: string,
+  events: MelodyEvent[],
+  ts: TimeSig,
+  newPartName?: string,
+): Song {
+  let base = song;
+  let idx = partIndex;
+  if (idx < 0) {
+    const ensured = ensureMelodyPart(song, newPartName);
+    base = ensured.song;
+    idx = ensured.partIndex;
+  }
+  const body = writeSection(
+    base.parts[idx].body,
+    label,
+    events,
+    ts,
+    chartOrder(song),
+  );
+  return {
+    ...base,
+    parts: base.parts.map((p, i) => (i === idx ? { ...p, body } : p)),
+  };
 }

@@ -136,6 +136,71 @@ export function transposeChord(
   targetKey: string | undefined,
 ): string {
   if (semitones === 0) return text;
+  return shiftChord(text, semitones, targetKey);
+}
+
+/**
+ * The same chord respelled for `targetKey` (import only; `transposeChord` is
+ * unchanged). Each root / slash bass is spelled by its scale degree from the
+ * key's tonic: a note in the key (major, or natural minor) → the key's
+ * spelling (flats / sharps by its signature); an out-of-key note → major key:
+ * +1 ♯, +3 ♭, +6 ♯, +8 ♭, +10 ♭; minor key: +1 ♭, +4 ♯, +6 ♭, +9 ♯, +11 ♯
+ * (C → C# Eb F# Ab Bb, Am → Bb C# Eb F# G#). Spellings come from the plain
+ * sharp / flat tables, so E# / Cb / double accidentals never appear (F / B).
+ * Quality verbatim; a trailing `?` (draft mark) is kept; non-chord text
+ * (`N.C.`) is returned unchanged; no / unusable key → the chord's own style.
+ */
+export function respellChord(
+  text: string,
+  targetKey: string | undefined,
+): string {
+  const mark = text.endsWith('?') ? '?' : '';
+  const body = mark ? text.slice(0, -1) : text;
+  const parsed = targetKey === undefined ? null : parseKey(targetKey);
+  const fifths = keyFifths(targetKey);
+  if (parsed && fifths !== null)
+    return (
+      degreeSpelling(
+        body,
+        pcOf(parsed.tonic + parsed.accidental),
+        parsed.minor,
+        fifths,
+      ) + mark
+    );
+  return shiftChord(body, 0, targetKey) + mark;
+}
+
+const MAJOR_IN_KEY = new Set([0, 2, 4, 5, 7, 9, 11]);
+const MINOR_IN_KEY = new Set([0, 2, 3, 5, 7, 8, 10]);
+/** Out-of-key semitones above the tonic that are written with a sharp (the others: flat). */
+const MAJOR_SHARP = new Set([1, 6]);
+const MINOR_SHARP = new Set([4, 9, 11]);
+
+/** Root and slash bass spelled by scale degree (see `respellChord`). */
+function degreeSpelling(
+  text: string,
+  tonic: number,
+  minor: boolean,
+  fifths: number,
+): string {
+  const m = CHORD.exec(text);
+  if (!m) return text;
+  const [, root, quality, bass] = m;
+  const inKey = minor ? MINOR_IN_KEY : MAJOR_IN_KEY;
+  const sharps = minor ? MINOR_SHARP : MAJOR_SHARP;
+  const sp = (n: string) => {
+    const pc = pcOf(n);
+    const d = mod(pc - tonic, 12);
+    return spell(pc, inKey.has(d) ? fifths < 0 : !sharps.has(d));
+  };
+  return sp(root) + quality + (bass === undefined ? '' : `/${sp(bass)}`);
+}
+
+function shiftChord(
+  text: string,
+  semitones: number,
+  targetKey: string | undefined,
+): string {
   const m = CHORD.exec(text);
   if (!m) return text;
   const [, root, quality, bass] = m;

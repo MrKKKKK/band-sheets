@@ -36,6 +36,8 @@ export type SongListProps = {
   onNew: () => void;
   /** 「サンプル曲を追加」 (a new song from the built-in sample). No button when omitted. */
   onAddSample?: () => void;
+  /** 「録音から新しい曲」 (PC only; docs/audio-integration-plan.md §4). No button when omitted. */
+  onImport?: () => void;
   onOpen: (songId: string) => void;
   onOpenView: (songId: string) => void;
   /**
@@ -96,6 +98,7 @@ export function SongList({
   connection,
   onNew,
   onAddSample,
+  onImport,
   onOpen,
   onOpenView,
   canRename,
@@ -219,6 +222,26 @@ export function SongList({
           </Button>
           {onAddSample ? (
             <Button onClick={onAddSample}>サンプル曲を追加</Button>
+          ) : null}
+          {onImport ? (
+            <Button onClick={onImport}>
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M9 18V6l10-2v12" />
+                <circle cx="6.5" cy="18" r="2.5" />
+                <circle cx="16.5" cy="16" r="2.5" />
+              </svg>
+              録音から新しい曲
+            </Button>
           ) : null}
           <Button variant="primary" onClick={onNew}>
             <svg

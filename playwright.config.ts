@@ -1,7 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
+import { join } from 'node:path';
+
+// Written by the globalSetup (e2e/support/micFakeAudio.ts) before any browser launches; keep the path in sync.
+const MIC_FAKE_WAV = join(
+  import.meta.dirname,
+  'test-results/analysis-audio/mic-fake-40s.wav',
+);
 
 export default defineConfig({
   testDir: './e2e',
+  // writes the fake microphone's wav before any browser launches (the `mic` project)
+  globalSetup: './e2e/support/globalSetup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -14,8 +23,29 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: /(viewer|tablet)\.spec/,
+      testIgnore: [
+        /(viewer|tablet)\.spec/,
+        /e2e\/csp\//,
+        /e2e\/perf\//,
+        /e2e\/mic\.spec/,
+      ],
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      // 「マイクで録る」 with Chromium's fake microphone playing a generated wav (e2e/support/micFakeAudio.ts). The
+      // fake-media flags are only here: the other projects must keep seeing "no microphone".
+      name: 'mic',
+      testMatch: /e2e\/mic\.spec/,
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: {
+          args: [
+            '--use-fake-ui-for-media-stream',
+            '--use-fake-device-for-media-stream',
+            `--use-file-for-fake-audio-capture=${MIC_FAKE_WAV}`,
+          ],
+        },
+      },
     },
     {
       // iPad Pro 11 landscape (1194x834, touch). The descriptor's default

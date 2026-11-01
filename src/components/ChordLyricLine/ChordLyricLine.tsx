@@ -1,4 +1,5 @@
 import { graphemes } from '../../lib/chartEdit';
+import { isDashLine } from '../../lib/dashChart';
 import type { LyricLine } from '../../lib/song';
 import styles from './ChordLyricLine.module.css';
 
@@ -99,6 +100,7 @@ export function ChordLyricLine({
     styles.line,
     editable && styles.editable,
     chordOnly && styles.chordOnly,
+    isDashLine(line) && styles.dash,
   ]
     .filter(Boolean)
     .join(' ');
