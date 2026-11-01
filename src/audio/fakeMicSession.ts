@@ -20,7 +20,7 @@ import {
   type MicSession,
   type OpenMic,
   type ScheduledClick,
-} from './micSession';
+} from './micSession.types';
 
 export interface FakeMicOptions {
   /** Default: one mic `fake-mic` 「テスト用マイク」. [] = no mic (open fails with notFound). */

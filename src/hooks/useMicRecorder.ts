@@ -19,7 +19,7 @@ import {
   type Capture,
   type MicSession,
   type OpenMic,
-} from '../audio/micSession';
+} from '../audio/micSession.types';
 import { MAX_DURATION_SEC } from '../lib/import/analysisTypes';
 import type { TimeSig } from '../lib/melody';
 import { barSec, clickBeats } from '../lib/mic/clickTrack';
