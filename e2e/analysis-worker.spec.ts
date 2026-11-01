@@ -109,7 +109,7 @@ test('cancel: terminates the Worker at once and reports cancelled; a new run wor
   const { y, sr } = readFixtureWav('chords.wav');
   await page.setInputFiles(
     '#file',
-    writeWav16('chords-60s.wav', loopTo(y, sr, 60), sr),
+    await writeWav16('chords-60s.wav', loopTo(y, sr, 60), sr),
   );
   const pending = run(page, 'chords', { summaryOnly: true });
   // wait until the Worker is busy (past decode and resample), then cancel
@@ -205,7 +205,7 @@ test('errors: undecodable file, silent audio, unusable hum info', async ({
 
   await page.setInputFiles(
     '#file',
-    writeWav16('silent-3s.wav', new Float32Array(3 * 22050), 22050),
+    await writeWav16('silent-3s.wav', new Float32Array(3 * 22050), 22050),
   );
   const silent = await run(page, 'chords');
   expect(silent).toMatchObject({ ok: false, code: 'silent' });

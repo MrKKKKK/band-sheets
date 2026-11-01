@@ -9,7 +9,7 @@
  * Targets (plan section 6.1): chords <= 40 s / +300 MB, hum <= 10 s / +150 MB.
  */
 import { expect, test } from '@playwright/test';
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   Harness,
@@ -23,38 +23,17 @@ import {
   readFixtureWav,
   writeWav16,
 } from './support/analysisAudio';
+import { rendererRssMb } from './support/rss';
 
 test.skip(!process.env.ANALYSIS_PERF, 'set ANALYSIS_PERF=1 to measure');
 test.setTimeout(300_000);
 
-function rendererRssMb(): number {
-  let max = 0;
-  for (const pid of readdirSync('/proc')) {
-    if (!/^\d+$/.test(pid)) continue;
-    try {
-      if (
-        !readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes(
-          '--type=renderer',
-        )
-      )
-        continue;
-      const m = /VmRSS:\s+(\d+) kB/.exec(
-        readFileSync(`/proc/${pid}/status`, 'utf8'),
-      );
-      if (m) max = Math.max(max, Number(m[1]) / 1024);
-    } catch {
-      /* process gone */
-    }
-  }
-  return max;
-}
-
 const CASES = [
   {
     kind: 'chords' as const,
-    make: () => {
+    make: async () => {
       const { y, sr } = readFixtureWav('chords.wav');
-      return writeWav16(
+      return await writeWav16(
         'chords-5min-48k-stereo.wav',
         loopTo(y, sr, 300, 48000),
         48000,
@@ -67,9 +46,9 @@ const CASES = [
   },
   {
     kind: 'hum' as const,
-    make: () => {
+    make: async () => {
       const { y, sr } = readFixtureWav('hum.wav');
-      return writeWav16(
+      return await writeWav16(
         'hum-5min-44k-mono.wav',
         loopTo(y, sr, 300, 44100),
         44100,
@@ -90,7 +69,7 @@ const rows: Record<string, unknown>[] = [];
 
 for (const c of CASES) {
   test(`perf: ${c.kind}, 5 min synthetic`, async ({ page }) => {
-    const file = c.make();
+    const file = await c.make();
     await page.goto('/e2e/harness/analysis.html');
     await page.waitForFunction(() => '__analysis' in window);
     await page.setInputFiles('#file', file);

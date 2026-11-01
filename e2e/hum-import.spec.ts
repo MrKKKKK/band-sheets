@@ -137,7 +137,7 @@ test('cancel: stops the analysis, neutral notice, back to the editor', async ({
   const offOrigin = await openHum(page);
   const { y, sr } = readFixtureWav('hum.wav');
   await fileInput(page).setInputFiles(
-    writeWav16('hum-300s.wav', loopTo(y, sr, 300), sr),
+    await writeWav16('hum-300s.wav', loopTo(y, sr, 300), sr),
   );
   await page.getByRole('button', { name: '解析する' }).click();
   await expect(
