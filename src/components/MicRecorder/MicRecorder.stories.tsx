@@ -147,6 +147,7 @@ export const M3Ready: Story = {
     );
     expect(c.getByText(/一度測っておくと/)).toBeVisible();
     expect(c.getByText(/ヘッドホンをつけてください/)).toBeVisible();
+    expect(c.getByText(/歌だけで録ってください/)).toBeVisible();
     expect(c.getByText(/1 小節（4 拍）のカウント/)).toBeVisible();
     await userEvent.selectOptions(c.getByLabelText('マイク'), 'built-in');
     expect(args.recorder.chooseMic).toHaveBeenCalledWith('built-in');

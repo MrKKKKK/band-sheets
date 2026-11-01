@@ -407,6 +407,19 @@ describe('createMicSession', () => {
     expect(srcs.map((s) => s.stoppedCalls)).toEqual([1, 1, 0]);
   });
 
+  it('plays the sharp click by default and the soft one when asked', async () => {
+    const { session, contexts, handlers } = setup();
+    const mic = await session.open(null, handlers);
+    mic.scheduleClicks([
+      { time: 1, strong: false },
+      { time: 2, strong: false, sound: 'soft' },
+      { time: 3, strong: false, sound: 'soft' },
+    ]);
+    const srcs = contexts[0].sources;
+    expect(srcs[0].buffer).not.toBe(srcs[1].buffer);
+    expect(srcs[1].buffer).toBe(srcs[2].buffer);
+  });
+
   it('interruptions: track ended once, a closed context; none after close()', async () => {
     const { session, media, contexts, g, handlers } = setup();
     const mic = await session.open(null, handlers);

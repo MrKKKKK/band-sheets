@@ -118,6 +118,7 @@ describe('useMicRecorder', () => {
     expect(s.session.scheduled[0]).toEqual({
       time: COUNT_IN_LEAD_SEC,
       strong: true,
+      sound: 'soft',
     });
     await step(s.session, 1.5);
     expect(s.hook.result.current.state).toMatchObject({
@@ -159,8 +160,8 @@ describe('useMicRecorder', () => {
     await step(s.session, 0.3);
     const peaks = s.hook.result.current.take!.peaks;
     // clicks every 0.5 s: buckets 0, 50, 100… hold them; in between is silence
-    expect(peaks[0]).toBeGreaterThan(0.5);
-    expect(peaks[50]).toBeGreaterThan(0.5);
+    expect(peaks[0]).toBeGreaterThan(0.3);
+    expect(peaks[50]).toBeGreaterThan(0.3);
     expect(peaks[25]).toBe(0);
     expect(peaks[49]).toBe(0);
   });
@@ -287,6 +288,10 @@ describe('useMicRecorder', () => {
       phase: 'measuring',
       heard: 0,
     });
+    // the measurement keeps the sharp click
+    expect(
+      s.session.scheduled.every((c) => (c.sound ?? 'measure') === 'measure'),
+    ).toBe(true);
     await step(s.session, 1);
     expect(s.hook.result.current.state).toMatchObject({ heard: 2 });
     await step(s.session, 2);
@@ -412,9 +417,9 @@ describe('useMicRecorder', () => {
     act(() => s.hook.result.current.stop());
     await step(s.session, 0.3);
     const peaks = s.hook.result.current.take!.peaks;
-    expect(peaks[0]).toBeGreaterThan(0.5);
-    expect(peaks[50]).toBeGreaterThan(0.5);
-    expect(peaks[5]).toBe(0);
+    expect(peaks[0]).toBeGreaterThan(0.3);
+    expect(peaks[50]).toBeGreaterThan(0.3);
+    expect(peaks[10]).toBe(0);
   });
 
   it('an interruption during the measurement reopens the mic and stores nothing', async () => {

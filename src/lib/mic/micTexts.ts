@@ -118,6 +118,9 @@ export const METER_HINT = '声を出して確かめます';
 export const HEADPHONES_NOTE =
   'ヘッドホンをつけてください。クリックの音がマイクに入るのを防ぎます。';
 
+export const VOICE_ONLY_NOTE =
+  '楽器を鳴らさず、歌だけで録ってください（伴奏が入ると音を拾い違えます）。';
+
 /** M3: under ● 録音. */
 export function recordNote(beats: number): string {
   return `録音を押すと、1 小節（${beats} 拍）のカウントのあとから録れます。`;
