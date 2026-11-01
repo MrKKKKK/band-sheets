@@ -29,7 +29,7 @@ export type MicErrorKind =
  * - `ended`: the track ended (unplugged, permission revoked);
  * - `contextClosed` / `contextInterrupted`: the AudioContext closed, or was interrupted / suspended after running
  *   (not by `close()`);
- * - `workletError`: the capture processor threw.
+ * - `workletError`: the capture processor threw (afterwards no chunks / level / end come and `done` never resolves).
  * A context that just stalls (no state change) is not reported: the caller watches `now()` for that.
  */
 export type MicInterruption =

@@ -216,6 +216,23 @@ describe('useMicRecorder', () => {
     expect(s.hook.result.current.take!.durationSec).toBeGreaterThan(3.5);
   });
 
+  it('a dead worklet (workletError) delivers nothing more: the take is made from what was buffered after the time limit', async () => {
+    const s = setup();
+    await opened(s);
+    await recordFor(s, 4);
+    act(() => s.session.interrupt('workletError'));
+    s.session.advance(1); // the context clock goes on, the dead worklet says nothing
+    await wait(INTERRUPTED_WAIT_MS - 10);
+    expect(s.hook.result.current.state.phase).toBe('finishing');
+    await wait(20);
+    expect(s.hook.result.current.state).toMatchObject({
+      phase: 'take',
+      end: 'workletError',
+    });
+    expect(s.hook.result.current.take!.durationSec).toBeGreaterThan(3);
+    expect(s.hook.result.current.take!.durationSec).toBeLessThan(4.5);
+  });
+
   it('a context clock that stands still while recording = interrupted (stalled)', async () => {
     const s = setup();
     await opened(s);

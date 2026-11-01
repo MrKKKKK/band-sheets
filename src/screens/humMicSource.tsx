@@ -27,11 +27,7 @@ export function micHumSource({
   saveName,
   save,
   playbackDeps,
-  waitForFile,
-}: MicRecorderProps & {
-  /** A picked file is still being probed: starting now would discard it (useAnalysisRun.startFile). */
-  waitForFile: boolean;
-}): HumSource {
+}: MicRecorderProps): HumSource {
   const { state, take } = recorder;
   const recording = isRecording(state);
   return {
@@ -45,7 +41,7 @@ export function micHumSource({
         playbackDeps={playbackDeps}
       />
     ),
-    ready: !!take && !waitForFile,
+    ready: !!take,
     summaryLabel: '音',
     meter: take?.meter,
     summary: take

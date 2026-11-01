@@ -27,7 +27,7 @@ afterEach(() => {
 function setup(
   opts: FakeMicOptions = {},
   client = createFakeAnalysisClient({ results: { hum: humSampleResult() } }),
-  probeSec = 12,
+  probeSec: number | (() => Promise<number | null>) = 12,
   save: (blob: Blob, name: string) => void = vi.fn(),
 ) {
   const session = createFakeMicSession({ sampleRate: 8000, ...opts });
@@ -45,7 +45,11 @@ function setup(
       onInsert={vi.fn()}
       onBack={onBack}
       client={client}
-      probe={() => Promise.resolve(probeSec)}
+      probe={
+        typeof probeSec === 'function'
+          ? probeSec
+          : () => Promise.resolve(probeSec)
+      }
       micSession={session}
       save={save}
       playbackDeps={{
@@ -266,6 +270,54 @@ describe('HumImportScreen: マイクで録る', () => {
     expect(
       screen.getByRole('dialog', { name: '録り直しますか？' }),
     ).toBeVisible();
+  });
+
+  it('a mic notice goes away when the take is dropped to record again', async () => {
+    const { session } = setup(
+      {},
+      createFakeAnalysisClient({ error: 'decode-failed' }),
+    );
+    await chooseMic();
+    await recordTake(session);
+    fireEvent.click(button('下書きを作る'));
+    await flush();
+    expect(screen.getByTestId('import-notice')).toBeVisible();
+    fireEvent.click(
+      within(screen.getByTestId('import-notice')).getByRole('button', {
+        name: '録り直す',
+      }),
+    );
+    await flush();
+    const dialog = screen.getByRole('dialog', { name: '録り直しますか？' });
+    fireEvent.click(
+      within(dialog)
+        .getAllByRole('button')
+        .find((b) => /録り直/.test(b.textContent ?? ''))!,
+    );
+    await flush();
+    expect(screen.queryByRole('heading', { name: '録音 1 つ' })).toBeNull();
+    expect(screen.queryByTestId('import-notice')).toBeNull();
+    await recordTake(session);
+    expect(screen.queryByTestId('import-notice')).toBeNull();
+  });
+
+  it('下書きを作る is enabled while a picked file is still being probed, and the probe is not discarded', async () => {
+    let finish: (sec: number) => void = () => {};
+    const { session } = setup(
+      {},
+      undefined,
+      () => new Promise<number>((r) => (finish = r)),
+    );
+    await pickFile();
+    expect(screen.getByTestId('picked-file')).toHaveTextContent('長さ');
+    await chooseMic();
+    await recordTake(session);
+    expect(button('下書きを作る')).toBeEnabled();
+    fireEvent.click(button('下書きを作る'));
+    await flush();
+    finish(12);
+    await flush();
+    expect(screen.getByRole('region', { name: '下書きの譜面' })).toBeVisible();
   });
 
   it('the notice belongs to its source: a file’s too-long is not shown with the mic', async () => {

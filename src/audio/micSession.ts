@@ -72,7 +72,7 @@ export interface Capture {
   stop(atFrame: number): void;
   /**
    * Resolves once the capture has ended and every frame before `frame` is in `buffer`. Never rejects. If the
-   * context stops running without being closed (`contextInterrupted`) it may never resolve: wait with a time limit.
+   * context stops running without being closed (`contextInterrupted`) it may never resolve: wait with a time limit. After `workletError` (the worklet is dead: no chunks, level or end) it never resolves either.
    */
   readonly done: Promise<CaptureEnd>;
 }
