@@ -4,12 +4,27 @@ import {
   compensationSec,
   detectClicks,
   judgeLatency,
+  MAX_SPREAD_MS,
   stats,
   type ClickDetection,
 } from './latency';
-import { clickSamples } from './clickTrack';
+import { softClickSamples } from './clickTrack';
 
 const SR = 48000;
+
+/**
+ * The spike's sharp click (a 2 ms square burst at 4 kHz with a fade), kept here only so the spike's
+ * detector tests below still check the onset of an impulsive click to a sample or two; the app plays
+ * `softClickSamples` (tested further down).
+ */
+function sharpClick(amplitude: number): Float32Array {
+  const n = Math.round(SR * 0.002);
+  const period = Math.round(SR / 4000);
+  return Float32Array.from({ length: n }, (_, i) => {
+    const fade = Math.min(1, (n - i) / (n * 0.3));
+    return (Math.floor((2 * i) / period) % 2 ? -1 : 1) * amplitude * fade;
+  });
+}
 
 /** Deterministic noise (LCG), uniform in [-amp, amp]. */
 function noise(n: number, amp: number, seed = 1): Float32Array {
@@ -28,10 +43,15 @@ function scene(opts: {
   noiseAmp?: number;
   gain?: number;
   extra?: (i: number) => number;
+  /** the click wave at `gain` (default: the sharp click) */
+  click?: (gain: number) => Float32Array;
+  /** applied to the clicks before the noise (the headphones → mic path) */
+  path?: (x: Float32Array) => Float32Array;
+  seed?: number;
 }) {
   const n = SR * 5;
-  const x = noise(n, opts.noiseAmp ?? 0.002);
-  const click = clickSamples(SR, false, opts.gain ?? 0.5);
+  let x: Float32Array = new Float32Array(n);
+  const click = (opts.click ?? sharpClick)(opts.gain ?? 0.5);
   const expected: number[] = [];
   opts.delaysMs.forEach((d, k) => {
     const exp = Math.round(SR * (0.5 + k * 0.5));
@@ -40,6 +60,9 @@ function scene(opts: {
     const at = exp + Math.round((d / 1000) * SR);
     for (let i = 0; i < click.length; i++) x[at + i] += click[i];
   });
+  if (opts.path) x = opts.path(x);
+  const nz = noise(n, opts.noiseAmp ?? 0.002, opts.seed);
+  for (let i = 0; i < n; i++) x[i] += nz[i];
   if (opts.extra) for (let i = 0; i < n; i++) x[i] += opts.extra(i);
   return { x, expected };
 }
@@ -105,6 +128,80 @@ describe('detectClicks', () => {
     const nan = new Float32Array(SR).fill(NaN);
     expect(detectClicks(nan, SR, [1000])[0].onset).toBeNull();
     expect(detectClicks(new Float32Array(0), SR, [0])[0].onset).toBeNull();
+  });
+});
+
+/** Two first-order low-passes at `hz`: headphones held to a microphone lose the highs. */
+const muffled = (hz: number) => (x: Float32Array) => {
+  const a = 1 - Math.exp((-2 * Math.PI * hz) / SR);
+  let y = x;
+  for (let k = 0; k < 2; k++) {
+    const o = new Float32Array(y.length);
+    let p = 0;
+    for (let i = 0; i < y.length; i++) o[i] = p += a * (y[i] - p);
+    y = o;
+  }
+  return y;
+};
+
+describe('detectClicks on the soft click (what the app plays)', () => {
+  const soft = (strong: boolean) => (g: number) =>
+    softClickSamples(SR, strong, g);
+  /** detected onset - true start of each click (ms); null = missing */
+  const bias = (opts: Parameters<typeof scene>[0]) => {
+    const { x, expected } = scene(opts);
+    return detectClicks(x, SR, expected).map((c, i) =>
+      c.delayMs === null ? null : c.delayMs - opts.delaysMs[i]!,
+    );
+  };
+  const D = [40, 40, 40, 40];
+
+  // Without noise ~0.69 ms (16-96 kHz), up to ~4 ms near the detection limit. The take is shifted
+  // early by that much, far below the 10 ms target.
+  it('finds the onset a constant ~0.7 ms after the start', () => {
+    for (const strong of [false, true])
+      for (const b of bias({ delaysMs: D, noiseAmp: 0, click: soft(strong) })) {
+        expect(b).toBeGreaterThan(0.5);
+        expect(b).toBeLessThan(0.8);
+      }
+  });
+
+  it('keeps the delay under 1.5 ms with noise, a muffled path, DC + hum and clipping', () => {
+    const scenes: Parameters<typeof scene>[0][] = [
+      { delaysMs: D, gain: 0.1, noiseAmp: 0.03 },
+      { delaysMs: D, gain: 0.03, noiseAmp: 0.01, seed: 7 },
+      { delaysMs: D, gain: 0.1, path: muffled(2000) },
+      {
+        delaysMs: D,
+        extra: (i) => 0.2 + 0.3 * Math.sin((2 * Math.PI * 50 * i) / SR),
+      },
+    ];
+    for (const sc of scenes)
+      for (const b of bias({ ...sc, click: soft(false) })) {
+        expect(b).not.toBeNull();
+        expect(b!).toBeGreaterThan(0);
+        expect(b!).toBeLessThan(1.5);
+      }
+    const { x, expected } = scene({ delaysMs: D, gain: 6, click: soft(false) });
+    for (let i = 0; i < x.length; i++) x[i] = Math.max(-1, Math.min(1, x[i]));
+    for (const c of detectClicks(x, SR, expected))
+      expect(Math.abs(c.delayMs! - 40)).toBeLessThan(1);
+  });
+
+  it('finds every click in white noise down to click = noise amplitude', () => {
+    // With the spike's detector (one high-pass only) the sharp click was found 4/4 down to click/noise
+    // amplitude 3 and lost at 1; the soft click was already lost at 3.
+    for (const [gain, noiseAmp, max] of [
+      [0.1, 0.03, 1.5],
+      [0.03, 0.01, 1.5],
+      [0.03, 0.03, 4], // marginal: later and less steady, still within the spread limit
+    ]) {
+      const found = bias({ delaysMs: D, gain, noiseAmp, click: soft(false) });
+      expect(found.every((b) => b !== null && b > 0 && b < max)).toBe(true);
+      const v = found as number[];
+      // the spread stays within judgeLatency's limit
+      expect(Math.max(...v) - Math.min(...v)).toBeLessThan(MAX_SPREAD_MS);
+    }
   });
 });
 

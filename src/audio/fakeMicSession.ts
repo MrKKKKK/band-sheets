@@ -5,7 +5,7 @@
  * every scheduled click heard `clickRoundTripMs` later (so a latency measurement with latency.ts succeeds), or
  * none (`clickRoundTripMs: null`, the measurement fails).
  */
-import { clickSamples, softClickSamples } from '../lib/mic/clickTrack';
+import { softClickSamples } from '../lib/mic/clickTrack';
 import type { ReportedLatency } from '../lib/mic/latency';
 import { CaptureCore } from './captureCore';
 import { createCaptureRouter } from './captureRouter';
@@ -83,14 +83,8 @@ export function createFakeMicSession(
   const scheduled: ScheduledClick[] = [];
   const stats = { opens: 0, closes: 0, resumes: 0, stopClicks: 0 };
   const clickWave = {
-    measure: {
-      weak: clickSamples(rate, false),
-      strong: clickSamples(rate, true),
-    },
-    soft: {
-      weak: softClickSamples(rate, false),
-      strong: softClickSamples(rate, true),
-    },
+    weak: softClickSamples(rate, false),
+    strong: softClickSamples(rate, true),
   };
 
   let mic: {
@@ -197,9 +191,7 @@ export function createFakeMicSession(
             if (roundTrip !== null)
               m.heard.push({
                 at: Math.round((c.time + roundTrip / 1000) * rate),
-                wave: clickWave[c.sound ?? 'measure'][
-                  c.strong ? 'strong' : 'weak'
-                ],
+                wave: clickWave[c.strong ? 'strong' : 'weak'],
               });
           }
         },

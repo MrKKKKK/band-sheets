@@ -83,6 +83,9 @@ async function recordFor(s: ReturnType<typeof setup>, sec: number) {
   await step(s.session, sec);
 }
 
+/** The fake's measured remainder: round trip 100 ms - reported 50 ms + the soft click's ~0.7 ms detection delay (latency.test.ts). */
+const MEASURED_MS = 50.7;
+
 describe('useMicRecorder', () => {
   it('opens the mic: ready, devices, level, announcement', async () => {
     const s = setup();
@@ -118,7 +121,6 @@ describe('useMicRecorder', () => {
     expect(s.session.scheduled[0]).toEqual({
       time: COUNT_IN_LEAD_SEC,
       strong: true,
-      sound: 'soft',
     });
     await step(s.session, 1.5);
     expect(s.hook.result.current.state).toMatchObject({
@@ -288,22 +290,18 @@ describe('useMicRecorder', () => {
       phase: 'measuring',
       heard: 0,
     });
-    // the measurement keeps the sharp click
-    expect(
-      s.session.scheduled.every((c) => (c.sound ?? 'measure') === 'measure'),
-    ).toBe(true);
     await step(s.session, 1);
     expect(s.hook.result.current.state).toMatchObject({ heard: 2 });
     await step(s.session, 2);
     const r = s.hook.result.current;
     expect(r.state.phase).toBe('measured');
-    expect(r.state.remainderMs).toBeCloseTo(50, 0);
-    expect(loadMicRemainder(s.storage, 'fake-mic')).toBeCloseTo(50, 0);
-    expect(s.said.at(-1)).toBe('入力の遅れ 50 ms を覚えました。');
+    expect(r.state.remainderMs).toBeCloseTo(MEASURED_MS, 0);
+    expect(loadMicRemainder(s.storage, 'fake-mic')).toBeCloseTo(MEASURED_MS, 0);
+    expect(s.said.at(-1)).toBe('入力の遅れ 51 ms を覚えました。');
     act(() => r.closeMeasure());
     expect(s.hook.result.current.state).toMatchObject({
       phase: 'ready',
-      remainderMs: expect.closeTo(50, 0),
+      remainderMs: expect.closeTo(MEASURED_MS, 0),
     });
   });
 
@@ -411,7 +409,7 @@ describe('useMicRecorder', () => {
     act(() => s.hook.result.current.measure());
     await step(s.session, 3);
     expect(s.hook.result.current.state.phase).toBe('measured');
-    expect(s.hook.result.current.state.remainderMs).toBeCloseTo(50, 0);
+    expect(s.hook.result.current.state.remainderMs).toBeCloseTo(MEASURED_MS, 0);
     act(() => s.hook.result.current.closeMeasure());
     await recordFor(s, 3);
     act(() => s.hook.result.current.stop());

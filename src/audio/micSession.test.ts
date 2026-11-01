@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CaptureCommand, CaptureMessage } from './captureCore';
+import { softClickSamples } from '../lib/mic/clickTrack';
 import {
   connectCapture,
   createMicSession,
@@ -200,7 +201,13 @@ class FakeContext extends EventTarget {
     this.dispatchEvent(new Event('statechange'));
   }
   createBuffer(_c: number, length: number) {
-    return { length, copyToChannel() {} };
+    return {
+      length,
+      samples: null as Float32Array | null,
+      copyToChannel(s: Float32Array) {
+        this.samples = s;
+      },
+    };
   }
   createBufferSource() {
     const s = new FakeSource();
@@ -407,17 +414,23 @@ describe('createMicSession', () => {
     expect(srcs.map((s) => s.stoppedCalls)).toEqual([1, 1, 0]);
   });
 
-  it('plays the sharp click by default and the soft one when asked', async () => {
+  it('makes one buffer for the downbeat and one for the other clicks', async () => {
     const { session, contexts, handlers } = setup();
     const mic = await session.open(null, handlers);
     mic.scheduleClicks([
-      { time: 1, strong: false },
-      { time: 2, strong: false, sound: 'soft' },
-      { time: 3, strong: false, sound: 'soft' },
+      { time: 1, strong: true },
+      { time: 2, strong: false },
+      { time: 3, strong: false },
     ]);
     const srcs = contexts[0].sources;
     expect(srcs[0].buffer).not.toBe(srcs[1].buffer);
     expect(srcs[1].buffer).toBe(srcs[2].buffer);
+    // every click (count-in, recording, latency measurement) is the soft one
+    const rate = mic.sampleRate;
+    const samples = (i: number) =>
+      Array.from((srcs[i].buffer as { samples: Float32Array }).samples);
+    expect(samples(0)).toEqual(Array.from(softClickSamples(rate, true)));
+    expect(samples(1)).toEqual(Array.from(softClickSamples(rate, false)));
   });
 
   it('interruptions: track ended once, a closed context; none after close()', async () => {
