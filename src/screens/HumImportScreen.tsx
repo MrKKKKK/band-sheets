@@ -160,6 +160,8 @@ export function HumImportScreen({
    * (retake, 「もう一度試す」) act on the source shown, so it is shown only with that source.
    */
   const [noticeFrom, setNoticeFrom] = useState<SourceKind>('file');
+  /** The take a mic notice belongs to: a new take (after 録り直す) does not bring the old notice back. */
+  const [noticeTake, setNoticeTake] = useState<File | null>(null);
   const switchRef = useRef<HTMLDivElement>(null);
   const chooseSource = (next: SourceKind) => {
     setSourceKind(next);
@@ -201,6 +203,7 @@ export function HumImportScreen({
     if (sourceKind === 'mic') {
       const take = recorder.take;
       if (!take) return;
+      setNoticeTake(take.file);
       void startFile(take.file, take.durationSec, {
         kind: 'hum',
         source: { file: take.file },
@@ -335,7 +338,7 @@ export function HumImportScreen({
           phase.kind === 'pick' &&
           noticeFrom === sourceKind &&
           // a mic notice offers 「録り直す」, which only works while the recorder holds a take
-          (sourceKind !== 'mic' || recorder.take)
+          (sourceKind !== 'mic' || recorder.take?.file === noticeTake)
             ? phase.notice
             : null
         }

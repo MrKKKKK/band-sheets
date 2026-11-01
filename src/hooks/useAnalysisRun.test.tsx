@@ -303,4 +303,59 @@ describe('useAnalysisRun: the length probe has its own generation', () => {
     expect(ph.kind === 'pick' && ph.probing).toBeFalsy();
     expect(ph.kind === 'pick' && ph.notice).not.toBeNull();
   });
+
+  function probeSetup(opts: FakeAnalysisOptions) {
+    let finish: (sec: number) => void = () => {};
+    const hook = renderHook(() =>
+      useAnalysisRun<HumRequest>({
+        client: createFakeAnalysisClient(opts),
+        probe: () => new Promise<number>((r) => (finish = r)),
+        steps: HUM_STEPS,
+        doneMessage: '終わりました',
+      }),
+    );
+    const take = file('take.wav');
+    const run = () =>
+      hook.result.current.startFile(take, 12, {
+        kind: 'hum',
+        source: { file: take },
+        info: { bpm: 100, ts: [4, 4], startSec: 2.4 },
+      });
+    return { hook, run, finish: (sec: number) => finish(sec) };
+  }
+
+  it.each([30, 9999])(
+    'a probe (%s s) finishing during the review leaves the review and its announcement alone',
+    async (sec) => {
+      const { hook, run, finish } = probeSetup({
+        results: { hum: humSampleResult() },
+      });
+      await act(async () => {
+        void hook.result.current.pick(file('a.wav'));
+      });
+      await act(async () => run());
+      expect(hook.result.current.phase.kind).toBe('review');
+      const live = hook.result.current.live;
+      await act(async () => finish(sec));
+      expect(hook.result.current.phase.kind).toBe('review');
+      expect(hook.result.current.live).toBe(live);
+    },
+  );
+
+  it('a too-long probe finishing under a recording’s failure notice keeps that notice', async () => {
+    const { hook, run, finish } = probeSetup({ error: 'empty' });
+    await act(async () => {
+      void hook.result.current.pick(file('a.wav'));
+    });
+    await act(async () => run());
+    const live = hook.result.current.live;
+    await act(async () => finish(9999));
+    expect(hook.result.current.phase).toMatchObject({
+      kind: 'pick',
+      notice: { severity: 'error' },
+    });
+    expect(hook.result.current.live).toBe(live);
+    const ph = hook.result.current.phase;
+    expect(ph.kind === 'pick' && ph.notice?.message).not.toContain('長すぎ');
+  });
 });

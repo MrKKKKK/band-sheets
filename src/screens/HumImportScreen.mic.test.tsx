@@ -297,6 +297,8 @@ describe('HumImportScreen: マイクで録る', () => {
     await flush();
     expect(screen.queryByRole('heading', { name: '録音 1 つ' })).toBeNull();
     expect(screen.queryByTestId('import-notice')).toBeNull();
+    await recordTake(session);
+    expect(screen.queryByTestId('import-notice')).toBeNull();
   });
 
   it('下書きを作る is enabled while a picked file is still being probed, and the probe is not discarded', async () => {
