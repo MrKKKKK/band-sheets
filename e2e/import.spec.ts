@@ -113,7 +113,7 @@ test('cancel: stops the analysis, neutral notice, can run again', async ({
   const offOrigin = await openImport(page);
   const { y, sr } = readFixtureWav('chords.wav');
   await fileInput(page).setInputFiles(
-    writeWav16('chords-60s.wav', loopTo(y, sr, 60), sr),
+    await writeWav16('chords-60s.wav', loopTo(y, sr, 60), sr),
   );
   await page.getByRole('button', { name: '解析を始める' }).click();
   await expect(

@@ -4,6 +4,8 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { floatToInt16 } from '../../src/lib/mic/takeBuffer';
+import { encodeWav16 } from '../../src/lib/mic/wav';
 
 export const FIXTURES = join(
   import.meta.dirname,
@@ -29,33 +31,25 @@ export function readFixtureJson<T>(name: string): T {
   return JSON.parse(readFileSync(join(FIXTURES, name), 'utf8')) as T;
 }
 
-/** Writes 16-bit PCM (channels interleaved; every channel gets `x`). */
-export function writeWav16(
+/**
+ * Writes `x` as a 16-bit PCM wav with the app's own encoder (src/lib/mic/wav.ts, mono). With `channels` > 1 every
+ * channel gets `x`: the samples are interleaved and the header's channel fields are patched (the encoder is mono-only).
+ */
+export async function writeWav16(
   name: string,
   x: Float32Array,
   sr: number,
   channels = 1,
-): string {
+): Promise<string> {
   mkdirSync(GEN_DIR, { recursive: true });
-  const data = x.length * 2 * channels;
-  const b = Buffer.alloc(44 + data);
-  b.write('RIFF', 0, 'ascii');
-  b.writeUInt32LE(36 + data, 4);
-  b.write('WAVEfmt ', 8, 'ascii');
-  b.writeUInt32LE(16, 16);
-  b.writeUInt16LE(1, 20);
+  const mono = floatToInt16(x);
+  const pcm = new Int16Array(mono.length * channels);
+  for (let i = 0; i < mono.length; i++)
+    for (let c = 0; c < channels; c++) pcm[i * channels + c] = mono[i];
+  const b = Buffer.from(await encodeWav16([pcm], sr).arrayBuffer());
   b.writeUInt16LE(channels, 22);
-  b.writeUInt32LE(sr, 24);
   b.writeUInt32LE(sr * 2 * channels, 28);
   b.writeUInt16LE(2 * channels, 32);
-  b.writeUInt16LE(16, 34);
-  b.write('data', 36, 'ascii');
-  b.writeUInt32LE(data, 40);
-  let o = 44;
-  for (let i = 0; i < x.length; i++) {
-    const s = Math.max(-32768, Math.min(32767, Math.round(x[i] * 32768)));
-    for (let c = 0; c < channels; c++, o += 2) b.writeInt16LE(s, o);
-  }
   const path = join(GEN_DIR, name);
   writeFileSync(path, b);
   return path;
