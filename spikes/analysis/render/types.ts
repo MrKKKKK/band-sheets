@@ -166,6 +166,14 @@ export interface AnalysisDrumHit {
   inst: string;
   strength: number;
   confidence: number;
+  // ---- spike 5 additions (docs/audio-spike5-plan.md section 6, decision 3); all optional, absent = as before ----
+  /** Grid position: 0-based bar and ticks from the start of that bar (whole note = 64); see ts/drum/types.ts. */
+  bar?: number;
+  tick?: number;
+  /** Dynamic mark: ghost or accent (absent = normal). */
+  mark?: 'g' | 'ac';
+  /** Second-best instrument readings, best first. */
+  alts?: { inst: string; confidence: number }[];
 }
 
 export interface AnalysisResult {
@@ -207,5 +215,10 @@ export interface AnalysisResult {
     quantized?: unknown;
   };
   drums?: AnalysisDrumHit[];
+  /** `swing` absent = no shuffle. */
   swing?: { kind: '8' | '16'; confidence: number };
+  /** Spike 5: per-bar shuffle values (ts/drum/types.ts DrumSwingBar). Optional. */
+  swingBars?: { bar: number; kind: 'none' | '8' | '16'; ratio: number }[];
+  /** Spike 5: drum analyzer extras (ts/drum/types.ts DrumExtras). Optional; other readers ignore it. */
+  drum?: unknown;
 }

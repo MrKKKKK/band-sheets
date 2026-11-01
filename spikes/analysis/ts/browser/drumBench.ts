@@ -1,0 +1,173 @@
+/**
+ * Drum bench page (spike 5 T8, after humBench.ts): pick a file, give bpm / time signature / bar-1 head second (and a
+ * repeat count that lengthens the signal for time-per-minute measurements), decode on the main thread (decodeAudioData at
+ * the file's own rate, mono mixdown), transfer to the Worker (drumWorker.ts), show per-stage timings and the hit count.
+ * Nothing is sent anywhere (CSP connect-src 'self', network APIs removed in the Worker) and the hits are never shown.
+ * Test hook: window.__drumBench.
+ */
+import type { DrumLevel } from '../drum/types';
+import type { DrumRunRequest, DrumRunSummary, DrumWorkerMessage } from './drumProtocol';
+import { readWavHeader } from './wav';
+
+interface Row {
+  label: string;
+  inputSr: number;
+  summary: DrumRunSummary;
+  /** click -> result (decode + transfer + analysis), main-thread clock */
+  wallMs: number;
+  decodeMs: number;
+  repeat: number;
+  ticks: number;
+  maxTickGapMs: number;
+}
+const bench: { ready: boolean; runs: Row[]; fileDone: number; error?: { message: string; code?: string } } = {
+  ready: false,
+  runs: [],
+  fileDone: 0,
+};
+(window as unknown as { __drumBench: typeof bench }).__drumBench = bench;
+
+const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const statusEl = $('status');
+const errorEl = $('error');
+const fileEl = $<HTMLInputElement>('file');
+const runEl = $<HTMLButtonElement>('run');
+const timerEl = $('timer');
+
+// UI timer: keeps ticking while the Worker analyses (a stalled main thread shows as a big gap between ticks).
+let ticks = 0;
+let maxGap = 0;
+let lastTick = performance.now();
+const t0 = lastTick;
+setInterval(() => {
+  const now = performance.now();
+  maxGap = Math.max(maxGap, now - lastTick);
+  lastTick = now;
+  ticks++;
+  timerEl.textContent = ((now - t0) / 1000).toFixed(1);
+}, 50);
+
+const worker = new Worker(new URL('./drumWorker.ts', import.meta.url), { type: 'module' });
+let nextId = 1;
+
+function sniffRate(bytes: Uint8Array): number {
+  return readWavHeader(bytes)?.sampleRate ?? 44100;
+}
+
+/** Mono mixdown in place in channel 0. */
+function mixdown(buf: AudioBuffer): Float32Array {
+  const k = buf.numberOfChannels;
+  const out = buf.getChannelData(0);
+  for (let c = 1; c < k; c++) {
+    const ch = buf.getChannelData(c);
+    for (let i = 0; i < out.length; i++) out[i] += ch[i];
+  }
+  if (k > 1) for (let i = 0; i < out.length; i++) out[i] /= k;
+  return out;
+}
+
+async function decode(bytes: ArrayBuffer): Promise<{ mono: Float32Array; sr: number }> {
+  const rate = sniffRate(new Uint8Array(bytes));
+  const buf = await new OfflineAudioContext(1, 1, rate).decodeAudioData(bytes);
+  return { mono: mixdown(buf), sr: buf.sampleRate };
+}
+
+function parseTs(s: string): [number, number] | null {
+  const m = /^\s*(\d+)\s*\/\s*(\d+)\s*$/.exec(s);
+  return m ? [Number(m[1]), Number(m[2])] : null;
+}
+
+function analyse(
+  label: string,
+  mono: Float32Array,
+  sr: number,
+  info: DrumRunRequest['info'],
+  level: DrumLevel,
+): Promise<Pick<Row, 'label' | 'inputSr' | 'summary'>> {
+  const id = nextId++;
+  return new Promise((resolve, reject) => {
+    worker.onmessage = (e: MessageEvent<DrumWorkerMessage>) => {
+      const m = e.data;
+      if (m.id !== id) return;
+      if (m.type === 'stage') statusEl.textContent = `${label}: ${m.name} 済み (${(m.ms / 1000).toFixed(2)} s)`;
+      else if (m.type === 'error') reject(Object.assign(new Error(m.message), { code: m.code }));
+      else resolve({ label, inputSr: sr, summary: m.summary });
+    };
+    const req: DrumRunRequest = { type: 'run', id, sr, samples: mono, info, level };
+    worker.postMessage(req, [mono.buffer as ArrayBuffer]); // transfer: mono is detached here
+  });
+}
+
+function repeatSignal(x: Float32Array, n: number): Float32Array {
+  const out = new Float32Array(x.length * n);
+  for (let k = 0; k < n; k++) out.set(x, k * x.length);
+  return out;
+}
+
+const s = (ms: number | undefined) => (ms === undefined ? '–' : (ms / 1000).toFixed(2));
+
+function addRow(r: Row): void {
+  bench.runs.push(r);
+  const x = r.summary;
+  const cells = [
+    r.label,
+    `${x.audioSec.toFixed(1)} s @ ${r.inputSr}${r.repeat > 1 ? ` (x${r.repeat})` : ''}`,
+    ...['validate', 'onset', 'classify', 'quantize'].map((k) => s(x.stagesMs[k])),
+    s(x.analysisMs),
+    s(x.totalMs),
+    ((x.analysisMs / 1000 / x.audioSec) * 60).toFixed(2),
+    String(x.hitCount),
+    String(x.gridCount),
+    x.roundTrip.identical ? 'ok' : 'NG',
+    String(x.warnings),
+    x.configHash,
+  ];
+  const tr = document.createElement('tr');
+  for (const c of cells) {
+    const td = document.createElement('td');
+    td.textContent = c;
+    tr.append(td);
+  }
+  $('rows').append(tr);
+}
+
+fileEl.addEventListener('change', () => {
+  runEl.disabled = !fileEl.files?.length;
+});
+
+runEl.addEventListener('click', async () => {
+  const file = fileEl.files?.[0];
+  if (!file) return;
+  errorEl.textContent = '';
+  bench.error = undefined;
+  const ts = parseTs($<HTMLInputElement>('ts').value);
+  const info = { bpm: Number($<HTMLInputElement>('bpm').value), ts: ts ?? ([0, 0] as [number, number]), startSec: Number($<HTMLInputElement>('start').value) };
+  const level = $<HTMLSelectElement>('level').value as DrumLevel;
+  const repeat = Math.max(1, Math.min(40, Math.floor(Number($<HTMLInputElement>('repeat').value) || 1)));
+  runEl.disabled = true;
+  try {
+    statusEl.textContent = '読み込み中…';
+    const tStart = performance.now();
+    const ticks0 = ticks;
+    maxGap = 0;
+    lastTick = tStart;
+    const dec = await decode(await file.arrayBuffer());
+    const sr = dec.sr;
+    const mono = repeat === 1 ? dec.mono : repeatSignal(dec.mono, repeat);
+    const decodeMs = performance.now() - tStart;
+    const r = await analyse(`file ${bench.runs.length + 1} ${level}`, mono, sr, info, level);
+    addRow({ ...r, repeat, decodeMs, wallMs: performance.now() - tStart, ticks: ticks - ticks0, maxTickGapMs: maxGap });
+    statusEl.textContent = '完了';
+  } catch (e) {
+    const err = e as Error & { code?: string };
+    errorEl.textContent = err.code ? `[${err.code}] ${err.message}` : err.message;
+    bench.error = { message: err.message, code: err.code };
+    statusEl.textContent = '失敗';
+  } finally {
+    runEl.disabled = false;
+    bench.fileDone++;
+  }
+});
+
+bench.ready = true;
+statusEl.textContent = 'ファイルを選んでください。';

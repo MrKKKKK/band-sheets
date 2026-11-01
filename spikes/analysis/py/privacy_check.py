@@ -186,7 +186,7 @@ def collect_all(rec_dir):
         if not os.path.isdir(d):
             continue
         for fn in os.listdir(d):
-            if fn.startswith(".") or fn in ("ids.local.json", "hum-ids.local.json", "private-terms.local.txt") \
+            if fn.startswith(".") or fn in ("ids.local.json", "hum-ids.local.json", "drm-ids.local.json", "private-terms.local.txt") \
                     or not os.path.isfile(os.path.join(d, fn)):
                 continue
             terms.add(fn.split(".")[0] if fn.endswith((".chords.json", ".truth.json")) else os.path.splitext(fn)[0])
@@ -243,7 +243,7 @@ def collect_all(rec_dir):
             if not seq or seq[-1] != c[0]:
                 seq.append(c[0])
         runs |= _runs(seq)
-    anon = r"(rec|chart|hum)( \d+)?( [a-f]\d*)?( max)?( (block|rec|rechard))?"
+    anon = r"(rec|chart|hum|drm)( \d+)?( [a-f]\d*)?( max)?( (block|rec|rechard))?"
     good = sorted({_norm(t) for t in terms if len(_norm(t)) >= 4 and not re.fullmatch(anon, _norm(t))})
     return good, sorted(runs), lyric_grams(lyric_lines)
 
