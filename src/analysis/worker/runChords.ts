@@ -1,7 +1,8 @@
 /**
  * The chords / beats / sections / key run inside the chords Worker: validate at the file's rate (positions in the
- * error message are in the file's own time) -> resample to 22050 Hz (our sinc, as the research branch) -> normalize the
- * level (#96) -> drop the file-rate signal -> analyze(). `analyzer.timingsSec` is not written (stage times go out as progress messages).
+ * error message are in the file's own time) -> resample to 22050 Hz (our sinc, as the research branch) -> drop the
+ * file-rate signal -> normalize the level (#96) -> analyze(). `analyzer.timingsSec` is not written (stage times go
+ * out as progress messages).
  */
 import { analyze, validateInput } from '../../lib/analysis/chords/analyze';
 import type { TsAnalysisResult } from '../../lib/analysis/chords/result';

@@ -6,6 +6,7 @@ import {
   PEAK_CEILING_DB,
   TARGET_RMS_DB,
 } from './inputLevel';
+import { SILENCE_PEAK } from './chords/analyze';
 
 const db = (x: number) => 20 * Math.log10(x);
 
@@ -39,10 +40,6 @@ describe('normalizeGainDb', () => {
   });
   it('already loud: attenuates (negative gain)', () => {
     expect(normalizeGainDb(-10, -0.5)).toBeCloseTo(-12, 12);
-  });
-  it('accepts explicit target and ceiling', () => {
-    expect(normalizeGainDb(-30, -20, -20, -3)).toBeCloseTo(10, 12);
-    expect(normalizeGainDb(-30, -20, -20, -12)).toBeCloseTo(8, 12);
   });
 });
 
@@ -80,6 +77,11 @@ describe('normalizeLevel', () => {
     const z = new Float32Array(16);
     expect(normalizeLevel(z)).toBe(0);
     expect(Array.from(z).every((v) => v === 0)).toBe(true);
+  });
+  it('leaves a signal at or below SILENCE_PEAK untouched (stays silent for the analyzer)', () => {
+    const y = new Float32Array(100).fill(SILENCE_PEAK);
+    expect(normalizeLevel(y)).toBe(0);
+    expect(y[0]).toBe(SILENCE_PEAK);
   });
   it.each([NaN, Infinity, -Infinity])(
     'leaves input containing %s untouched and returns 0',

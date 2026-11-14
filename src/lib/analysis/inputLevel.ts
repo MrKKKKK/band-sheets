@@ -7,6 +7,7 @@
  * `levelDb` / `normalizeGainDb` in its `rec_eval.ts`). This file is app-side code, NOT copied from the research
  * branch, and sits outside the frozen `chords/` directory (so the analyzer config hash is unchanged).
  */
+import { SILENCE_PEAK } from './chords/analyze';
 
 /** Median whole-file RMS (dBFS) of the synthetic tuning split (spike 6 R3). */
 export const TARGET_RMS_DB = -22;
@@ -29,22 +30,22 @@ export function levelDb(y: Float32Array): { rmsDb: number; peakDb: number } {
   };
 }
 
-/** Gain (dB) that brings the RMS to `targetDb`, capped so the peak stays at or below `ceilingDb`. May be negative. */
-export const normalizeGainDb = (
-  rmsDb: number,
-  peakDb: number,
-  targetDb: number = TARGET_RMS_DB,
-  ceilingDb: number = PEAK_CEILING_DB,
-): number => Math.min(targetDb - rmsDb, ceilingDb - peakDb);
+/** Gain (dB) that brings the RMS to TARGET_RMS_DB, capped so the peak stays at or below PEAK_CEILING_DB. May be negative. */
+export const normalizeGainDb = (rmsDb: number, peakDb: number): number =>
+  Math.min(TARGET_RMS_DB - rmsDb, PEAK_CEILING_DB - peakDb);
 
 /**
- * Applies the normalising gain to `y` in place and returns the dB applied. Empty, all-zero or non-finite input
- * is left untouched (returns 0); a gain of exactly 0 leaves the samples bit-identical.
+ * Applies the normalising gain to `y` in place and returns the dB applied. Empty, silent (peak <= the analyzer's SILENCE_PEAK) or
+ * non-finite input is left untouched (returns 0); a gain of exactly 0 leaves the samples bit-identical.
  */
 export function normalizeLevel(y: Float32Array): number {
   const { rmsDb, peakDb } = levelDb(y);
-  // empty / all-zero (floored) / NaN / Infinity: nothing to normalise
-  if (!Number.isFinite(rmsDb) || !Number.isFinite(peakDb) || peakDb <= -240)
+  // empty / silent (the analyzer would reject it anyway, and gain would only lift noise) / NaN / Infinity
+  if (
+    !Number.isFinite(rmsDb) ||
+    !Number.isFinite(peakDb) ||
+    peakDb <= dbOf(SILENCE_PEAK)
+  )
     return 0;
   const g = normalizeGainDb(rmsDb, peakDb);
   if (g === 0) return 0;
