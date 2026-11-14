@@ -27,7 +27,7 @@ import { heldOutRefusal, selectVariants, type GuardVariant } from './heldout_gua
 import { LOW_SR, lowCqt } from './lowCqt';
 import { beatWindows, editDiff, mapVocab, normalizeTruthSlash, noteToPc, scoreBass, type ScoreBeat, type ScoreChord } from './score';
 import { segmentBass } from './segmentBass';
-import { slashIn, withSlashMarks } from './segment_eval';
+import { argOf, at, slashIn, withSlashMarks } from './evalCommon';
 import { slashMarks } from './slash';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -67,12 +67,7 @@ interface Acc {
 }
 const acc = (): Acc => ({ files: 0, scored: 0, segHit: 0, truthSlash: 0, resultSlash: 0, slashHit: 0, noSlash: 0, falseSlash: 0, runs: 0, runHit: 0, beats: 0, editsWith: 0, editsWithout: 0, ops: {}, conf: {}, octN: 0, octHit: 0 });
 
-const argOf = (argv: string[], k: string): string | undefined => {
-  const i = argv.indexOf(k);
-  return i >= 0 ? argv[i + 1] : undefined;
-};
 const sounding = (c: ScoreChord): number => (c.bass ? noteToPc(c.bass) : noteToPc(c.root));
-const at = (cs: readonly ScoreChord[], t: number): ScoreChord | null => cs.find((c) => c.start <= t && t < c.end) ?? null;
 
 /** Interval histogram on the score.ts points (two per truth beat, weight 0.5; dropped truth qualities skipped). */
 function confusion(a: Acc, truth: readonly ScoreChord[], result: readonly ScoreChord[], beats: readonly ScoreBeat[]): void {

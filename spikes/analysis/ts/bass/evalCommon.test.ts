@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { median, type ScoreChord } from './score';
-import { slashIn, withBass, withSlashMarks } from './segment_eval';
+import { argOf, at, parseJsonl, slashIn, withSlashMarks } from './evalCommon';
+import { withBass } from './segment_eval';
 import type { SegmentBass } from './segmentBass';
 import type { SlashMark } from './slash';
 
@@ -35,6 +36,23 @@ describe('withBass', () => {
     const sb = (pc: number): SegmentBass => ({ pc, midi: 36 + pc, confidence: 0.5, second: { pc: 0, confidence: 0.1 } });
     expect(withBass(chords, [sb(0), sb(11), sb(6)]).map((c) => c.bass)).toEqual([null, 'B', null]);
     expect(withBass(chords, [sb(1), sb(10), sb(3)]).map((c) => c.bass)).toEqual(['C#', null, 'D#']);
+  });
+});
+
+describe('argOf / at / parseJsonl', () => {
+  it('argOf: value after the flag, undefined when absent or last', () => {
+    expect(argOf(['--a', '1', '--b'], '--a')).toBe('1');
+    expect(argOf(['--a', '1', '--b'], '--b')).toBeUndefined();
+    expect(argOf(['--a', '1'], '--c')).toBeUndefined();
+  });
+  it('at: [start, end) lookup, undefined outside', () => {
+    expect(at(chords, 2)?.root).toBe('Bb');
+    expect(at(chords, 1.999)?.root).toBe('C');
+    expect(at(chords, 5)).toBeUndefined();
+  });
+  it('parseJsonl: skips blank lines, null = no file', () => {
+    expect(parseJsonl<{ a: number }>('{"a":1}\n\n  \n{"a":2}\n')).toEqual([{ a: 1 }, { a: 2 }]);
+    expect(parseJsonl(null)).toEqual([]);
   });
 });
 

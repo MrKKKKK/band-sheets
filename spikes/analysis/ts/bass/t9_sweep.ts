@@ -26,12 +26,12 @@ import { decodeWav } from '../browser/wav';
 import { NOTE_NAMES } from '../dsp/chords';
 import { resampleSinc, toMono } from '../dsp/core/resample';
 import { bassChords } from './analyze';
+import { argOf, at, json, slashIn } from './evalCommon';
 import { enabledBassConfig, bassConfigHash, type BassConfig } from './config';
 import { heldOutRefusal, selectVariants, type GuardVariant } from './heldout_guard';
 import { LOW_SR, lowCqt, type LowCqt } from './lowCqt';
 import { beatWindows, editCounts, mapVocab, normalizeTruthSlash, noteToPc, scoreBass, type ScoreBeat, type ScoreChord } from './score';
 import { segmentBass } from './segmentBass';
-import { slashIn } from './segment_eval';
 import { slashMarks } from './slash';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -49,11 +49,6 @@ export interface Item {
   ceiling: boolean;
 }
 
-const argOf = (argv: string[], k: string): string | undefined => {
-  const i = argv.indexOf(k);
-  return i >= 0 ? argv[i + 1] : undefined;
-};
-const json = <T>(p: string): T => JSON.parse(readFileSync(p, 'utf8')) as T;
 const lowOf = (wavPath: string, cfg: BassConfig): LowCqt => {
   const wav = decodeWav(new Uint8Array(readFileSync(wavPath)));
   return lowCqt(resampleSinc(toMono(wav.channels), wav.sampleRate, LOW_SR), cfg.lowCqt);
@@ -112,7 +107,6 @@ interface Acc {
 }
 const acc = (): Acc => ({ scored: 0, segHit: 0, truthSlash: 0, resultSlash: 0, slashHit: 0, noSlash: 0, falseSlash: 0, runs: 0, runHit: 0, beats: 0, editsV1a: 0, editsSet: 0, nameV1a: 0, nameSet: 0, rootV1a: 0, rootSet: 0 });
 const f3 = (x: number | null) => (x === null || Number.isNaN(x) ? '  -  ' : x.toFixed(3));
-const at = (cs: readonly ScoreChord[], t: number): ScoreChord | undefined => cs.find((c) => c.start <= t && t < c.end);
 
 /** Name / root hits of `result` at the score.ts points (dropped truth qualities skipped, weight 0.5). */
 function nameHits(truth: readonly ScoreChord[], result: readonly ScoreChord[], beats: readonly ScoreBeat[]): { name: number; root: number } {

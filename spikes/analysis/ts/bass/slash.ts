@@ -119,6 +119,11 @@ export function heldWeak(
   });
 }
 
+/** The B-2 input of segments: root pitch class (by `rootPc`), quality and beat count (`beatsIn`). */
+export function slashChordsOf(chords: readonly { start: number; end: number; root: string; quality: string }[], beats: readonly number[], rootPc: (name: string) => number): SlashChord[] {
+  return chords.map((c) => ({ root: rootPc(c.root), quality: c.quality, beats: beatsIn(c.start, c.end, beats) }));
+}
+
 /** Beats of [start, end): the number of beat times inside it (at least 1 for a non-empty segment). */
 export function beatsIn(start: number, end: number, beatTimes: readonly number[]): number {
   const eps = 1e-3;
