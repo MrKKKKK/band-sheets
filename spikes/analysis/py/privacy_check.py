@@ -1,7 +1,9 @@
 """Check that nothing about the private recordings leaked into git-tracked files (task T3).
 
-Usage: python py/privacy_check.py [--root DIR] [--recordings DIR] [--no-log] [--base REF] [--history]
-Exit 0 = clean, 1 = a private term was found, 2 = usage error.
+Usage: python py/privacy_check.py [--root DIR] [--recordings DIR] [--no-log] [--base REF] [--history] [--allow-empty]
+Exit 0 = clean, 1 = a private term was found or no private term could be collected at all (an empty / missing
+recordings folder would pass vacuously), 2 = usage error. --allow-empty permits 0 collected terms (sources whose
+scores are self-made and whose names are anonymous, e.g. spike 5 drums): a line says so and the other checks run.
 
 Private terms are read at RUNTIME from the gitignored recordings folder (nothing private is embedded here):
   * the stems of every file in recordings/ and the original file names in ids.local.json,
@@ -22,6 +24,8 @@ Private terms are read at RUNTIME from the gitignored recordings folder (nothing
     "humming note sequence (k of n runs)" (once per file / diff / message). T15: the runs are also compared by their
     interval sequence (differences between consecutive pitches), so a transposed or octave-shifted copy of a run is
     found as well ("... transposed form"); interval windows with fewer than 3 distinct intervals are not used.
+  * spike 5 drums / spike 6 bass: the original names in recordings/drm-ids.local.json and bas-ids.local.json (read
+    like ids.local.json) and the stems of the files in drm-inbox/, drm-originals/, bas-inbox/ and bas-originals/.
 Chord runs that are a window of a generic loop (GENERIC_LOOPS, e.g. I-vi-IV-V of the T0 test signal) in any key are
 allowed: they identify nothing and are used by tests.
 Matching ignores case and treats space / _ / - / . as the same. Anonymous names (rec, rec-01 ...) and very short
@@ -52,6 +56,7 @@ _PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 _CHORD_TOKEN = re.compile(r"([A-G])([#b]?)(.*)")
 SKIP_DIRS = {"out", "recordings", "node_modules", ".git", "soundfonts", "__pycache__"}
 SEP = r"[\s_\-.]+"
+IDS_FILES = ("ids.local.json", "hum-ids.local.json", "drm-ids.local.json", "bas-ids.local.json")
 
 
 def _norm(t):
@@ -181,12 +186,13 @@ def collect_all(rec_dir):
     lyric_lines = []
     if not os.path.isdir(rec_dir):
         return [], [], set()
-    for sub in ("", "inbox", "originals", "hum-inbox", "hum-originals"):
+    for sub in ("", "inbox", "originals", "hum-inbox", "hum-originals", "drm-inbox", "drm-originals", "bas-inbox",
+                "bas-originals"):
         d = os.path.join(rec_dir, sub)
         if not os.path.isdir(d):
             continue
         for fn in os.listdir(d):
-            if fn.startswith(".") or fn in ("ids.local.json", "hum-ids.local.json", "drm-ids.local.json", "private-terms.local.txt") \
+            if fn.startswith(".") or fn in IDS_FILES + ("private-terms.local.txt",) \
                     or not os.path.isfile(os.path.join(d, fn)):
                 continue
             terms.add(fn.split(".")[0] if fn.endswith((".chords.json", ".truth.json")) else os.path.splitext(fn)[0])
@@ -217,12 +223,12 @@ def collect_all(rec_dir):
                     terms.add(os.path.splitext(e.get("original", ""))[0])
             except ValueError:
                 pass
-    for ids_name in ("ids.local.json", "hum-ids.local.json"):
+    for ids_name in IDS_FILES:
         ids_p = os.path.join(rec_dir, ids_name)
         if os.path.exists(ids_p):
             for e in json.load(open(ids_p)).get("recordings", {}).values():
                 terms.add(os.path.splitext(e.get("original", ""))[0])
-                for of in e.get("originalFiles", []) if ids_name.startswith("hum-") else []:
+                for of in e.get("originalFiles", []):
                     terms.add(os.path.splitext(of)[0])
     tp = os.path.join(rec_dir, "private-terms.local.txt")
     if os.path.exists(tp):
@@ -243,7 +249,7 @@ def collect_all(rec_dir):
             if not seq or seq[-1] != c[0]:
                 seq.append(c[0])
         runs |= _runs(seq)
-    anon = r"(rec|chart|hum|drm)( \d+)?( [a-f]\d*)?( max)?( (block|rec|rechard))?"
+    anon = r"(rec|chart|hum|drm|bas)( \d+)?( [a-f]\d*)?( max)?( (block|rec|rechard))?"
     good = sorted({_norm(t) for t in terms if len(_norm(t)) >= 4 and not re.fullmatch(anon, _norm(t))})
     return good, sorted(runs), lyric_grams(lyric_lines)
 
@@ -506,6 +512,8 @@ def main(argv=None):
     ap.add_argument("--recordings", default=None, help="default: <analysis dir>/recordings")
     ap.add_argument("--no-log", action="store_true", help="do not scan commit messages")
     ap.add_argument("--base", default=DEFAULT_BASE, help="branch base: commits of BASE..HEAD are scanned")
+    ap.add_argument("--allow-empty", action="store_true",
+                    help="0 collected private terms is not a failure (self-made sources with anonymous names)")
     ap.add_argument("--history", action="store_true", help="also scan every line added by the commits of BASE..HEAD")
     a = ap.parse_args(argv)
     rec = a.recordings or os.path.join(os.path.dirname(here), "recordings")
@@ -518,6 +526,11 @@ def main(argv=None):
         except (OSError, subprocess.CalledProcessError):
             pass
     m = Matcher(rec)
+    if not m.n_terms and a.allow_empty:
+        print("privacy check: 0 private terms (allowed by --allow-empty) - only structural checks ran")
+    elif not m.n_terms:
+        print("PRIVACY CHECK FAILED: no private terms collected (recordings folder empty or missing?) - nothing was checked")
+        return 1
     bad = check(root, rec, not a.no_log, a.base, a.history, m)
     if bad:
         print(f"PRIVACY CHECK FAILED: {len(bad)} finding(s)")

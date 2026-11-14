@@ -1,0 +1,20 @@
+{title: 録音用 d（分数コード無し）}
+{tempo: 88}
+{time: 4/4}
+{key: D}
+
+{start_of_verse: A}
+|[D]--------|[Bm]--------|[G]--------|[A]--------|
+{end_of_verse}
+
+{start_of_verse: B}
+|[D]--------|[Bm]--------|[Em7]--------|[A7]--------|
+{end_of_verse}
+
+{start_of_verse: C}
+|[G]--------|[D]--------|[Em7]--------|[A]--------|
+{end_of_verse}
+
+{start_of_verse: D}
+|[Bm]--------|[G]--------|[A7]--------|[D]--------|
+{end_of_verse}

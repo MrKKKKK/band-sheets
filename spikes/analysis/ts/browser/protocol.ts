@@ -7,6 +7,8 @@ export interface RunRequest {
   sr: number;
   /** transferred (zero-copy); the Worker empties this array once it has resampled */
   channels: Float32Array[];
+  /** Spike 6 T7: run the bass stage (ts/bass/analyze.ts) with these config overrides on top of `enabled: true`; absent = v1a only. */
+  bass?: Record<string, unknown>;
 }
 
 /** What the page needs from the full TsAnalysisResult (the JSON itself stays in the Worker). */
@@ -21,6 +23,8 @@ export interface RunSummary {
   sections: number;
   resultJsonBytes: number;
   warnings: string[];
+  /** Spike 6 T7, only with `bass`: bass config hash and the number of chords that got a `/X` (no names: privacy). */
+  bass?: { configHash: string; marked: number };
 }
 
 export type WorkerMessage =

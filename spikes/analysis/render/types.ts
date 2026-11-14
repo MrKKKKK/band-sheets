@@ -46,7 +46,8 @@ export interface ChordTimeline {
 export type Mix = 'piano' | 'piano+drums' | 'full';
 
 export interface Variant {
-  song: 'saints' | 'etude' | 'chart';
+  /** 'bass': spike 6 T2 synthetic bass songs (render/bass). */
+  song: 'saints' | 'etude' | 'chart' | 'bass';
   mix: Mix;
   tempo: number;
   swing: 'none' | 'asWritten';
@@ -147,6 +148,16 @@ export interface AnalysisChord {
   bass: string | null;
   text?: string;
   confidence: number;
+  // ---- spike 6 additions (docs/audio-spike6-plan.md section 6, decision 4); all optional, absent = as before ----
+  /** Confidence of `bass` (0..1); only written when `bass` is set by ts/bass. */
+  bassConfidence?: number;
+  /** Why the bass differs from the root: inversion (chord tone), passing (scale step between two basses), pedal (same bass across chords). */
+  bassKind?: 'inversion' | 'passing' | 'pedal';
+  /**
+   * Other bass readings, best first (spike 6 T7: only the second); `confidence` = its score relative to the best (0..1).
+   * With `bass`, or (T9) without it when the best reading was a 5th held back from `bass` (then confidence 1).
+   */
+  bassCandidates?: { bass: string; confidence: number }[];
 }
 
 export interface AnalysisNote {
@@ -221,4 +232,8 @@ export interface AnalysisResult {
   swingBars?: { bar: number; kind: 'none' | '8' | '16'; ratio: number }[];
   /** Spike 5: drum analyzer extras (ts/drum/types.ts DrumExtras). Optional; other readers ignore it. */
   drum?: unknown;
+  /** Spike 6: the bass line as notes (B-4, optional; ts/bass/types.ts). Other readers ignore it. */
+  bassNotes?: AnalysisNote[];
+  /** Spike 6 T7: the bass stage that wrote `chords[].bass` (absent = bass stage off, v1a output). Other readers ignore it. */
+  bassAnalyzer?: { config: string; configHash: string; commit?: string };
 }

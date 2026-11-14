@@ -1,0 +1,20 @@
+{title: 録音用 e（クリシェ・ペダル・別の楽譜）}
+{tempo: 80}
+{time: 4/4}
+{key: G}
+
+{start_of_verse: A}
+|[Em]--------|[Em/D]--------|[Em/C#]--------|[C]--------|
+{end_of_verse}
+
+{start_of_verse: B}
+|[G]--------|[C/G]--------|[D/G]--------|[G]--------|
+{end_of_verse}
+
+{start_of_verse: C}
+|[G]--------|[G/F#]--------|[G/F]--------|[G/E]--------|
+{end_of_verse}
+
+{start_of_verse: D}
+|[C]--------|[D]--------|[C]--------|[G]--------|
+{end_of_verse}
