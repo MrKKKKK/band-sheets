@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AnalysisInputError } from '../../lib/analysis/chords/analyze';
+import { analyze, AnalysisInputError } from '../../lib/analysis/chords/analyze';
 import type { HumInput } from '../../lib/analysis/hum/types';
+import { diffJson } from '../../test/diffJson';
 import { stubNoNetwork } from '../../test/noNetwork';
 import type { RunMessage, WorkerMessage } from '../protocol';
 import { runChords } from './runChords';
@@ -114,6 +115,51 @@ describe('runChords', () => {
       sampleRate: 44100,
     });
     expect(short.posted.at(-1)).toMatchObject({ code: 'too-short' });
+  });
+
+  describe('quiet input is normalised before the analyzer (#96)', () => {
+    const { y, sr } = readPcmWav('chords.wav');
+    const exp: unknown = JSON.parse(
+      readFileSync(join(FIXTURES, 'chords.expected.json'), 'utf8'),
+    );
+    const attenuated = (gainDb: number) => {
+      const k = 10 ** (gainDb / 20);
+      return y.map((v) => v * k);
+    };
+    const viaWorker = (samples: Float32Array): unknown => {
+      const { scope, posted, send } = fakeScope();
+      serve(scope, 'chords', runChords);
+      send({ type: 'run', kind: 'chords', samples, sampleRate: sr });
+      const last = posted.at(-1) as { type: string; result: unknown };
+      expect(last.type).toBe('result');
+      return JSON.parse(JSON.stringify(last.result));
+    };
+
+    it.each([-10, -18, -24, -30])(
+      'chords.wav at %i dB: the Worker result matches chords.expected.json',
+      (gainDb) => {
+        expect(diffJson(viaWorker(attenuated(gainDb)), exp)).toEqual([]);
+      },
+    );
+
+    it('the same -24 dB straight into analyze() does NOT match (the test is meaningful)', () => {
+      const r = JSON.parse(
+        JSON.stringify(analyze(attenuated(-24), { timings: false }).result),
+      );
+      expect(diffJson(r, exp)).not.toEqual([]);
+    });
+
+    it('a file that is silent only after resampling stays `silent` (not lifted into no-beats)', () => {
+      // 15 kHz tone at 4e-5 passes the file-rate check, but the 22050 Hz resampling brings it to <= 2^-15
+      const n = 44100 * 2;
+      const tone = new Float32Array(n).map(
+        (_, i) => 4e-5 * Math.sin((2 * Math.PI * 15000 * i) / 44100),
+      );
+      const { scope, posted, send } = fakeScope();
+      serve(scope, 'chords', runChords);
+      send({ type: 'run', kind: 'chords', samples: tone, sampleRate: 44100 });
+      expect(posted.at(-1)).toMatchObject({ type: 'error', code: 'silent' });
+    });
   });
 });
 
