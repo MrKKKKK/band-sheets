@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { MicDevice } from './micTypes';
 import {
   initialRecorderState,
+  isRecording,
   isTakeTooShort,
   recorderReducer,
   type RecorderEvent,
@@ -461,5 +462,13 @@ describe('isTakeTooShort', () => {
     expect(isTakeTooShort(2.01, 2)).toBe(false);
     expect(isTakeTooShort(0.9, 0.5)).toBe(true);
     expect(isTakeTooShort(1, 0.5)).toBe(false);
+  });
+});
+
+describe('isRecording', () => {
+  it('is true from the count-in until the file is made, and in no other phase', () => {
+    const on = new Set(['countIn', 'recording', 'finishing']);
+    for (const [phase, make] of Object.entries(PHASES))
+      expect([phase, isRecording(make())]).toEqual([phase, on.has(phase)]);
   });
 });

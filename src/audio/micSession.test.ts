@@ -1,11 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CaptureCommand, CaptureMessage } from './captureCore';
+import { softClickSamples } from '../lib/mic/clickSound';
 import {
   connectCapture,
   createMicSession,
-  foldDevices,
-  isMicError,
-  micErrorOf,
   type CaptureGraph,
   type Capture,
   type MicHandlers,
@@ -17,87 +15,6 @@ const dev = (
   label = deviceId,
   kind: MediaDeviceKind = 'audioinput',
 ) => ({ deviceId, groupId, label, kind }) as MediaDeviceInfo;
-
-describe('foldDevices', () => {
-  it('folds default / communications into the real devices and marks the default', () => {
-    const list = [
-      dev('default', 'g2', '既定 - USB Mic'),
-      dev('communications', 'g1', '通信 - Built-in'),
-      dev('real-1', 'g1', 'Built-in'),
-      dev('real-2', 'g2', 'USB Mic'),
-      dev('out-1', 'g2', 'Speaker', 'audiooutput'),
-    ];
-    expect(foldDevices(list)).toEqual([
-      { deviceId: 'real-1', label: 'Built-in', isDefault: false },
-      { deviceId: 'real-2', label: 'USB Mic', isDefault: true },
-    ]);
-  });
-
-  it('without a shared groupId, the twin is found by the label after " - "', () => {
-    expect(
-      foldDevices([
-        dev('default', 'gx', 'Default - USB Mic'),
-        dev('real-1', 'g1', 'Built-in'),
-        dev('real-2', 'g2', 'USB Mic'),
-      ]),
-    ).toEqual([
-      { deviceId: 'real-1', label: 'Built-in', isDefault: false },
-      { deviceId: 'real-2', label: 'USB Mic', isDefault: true },
-    ]);
-  });
-
-  it('a groupId shared by two real inputs falls back to the label', () => {
-    expect(
-      foldDevices([
-        dev('default', 'g1', '既定 - In 2'),
-        dev('in-1', 'g1', 'In 1'),
-        dev('in-2', 'g1', 'In 2'),
-      ]).find((d) => d.isDefault)?.deviceId,
-    ).toBe('in-2');
-  });
-
-  it('keeps a default without a real twin (Chromium fake device); drops a lonely communications', () => {
-    expect(
-      foldDevices([
-        dev('default', 'gx', 'Default'),
-        dev('communications', 'gy'),
-      ]),
-    ).toEqual([{ deviceId: 'default', label: 'Default', isDefault: true }]);
-  });
-
-  it('before the permission (one entry, empty ids) the first input is the default', () => {
-    expect(foldDevices([dev('', '', '')])).toEqual([
-      { deviceId: '', label: '', isDefault: true },
-    ]);
-  });
-
-  it('no inputs → []', () => {
-    expect(foldDevices([])).toEqual([]);
-  });
-});
-
-describe('micErrorOf', () => {
-  it('classifies by name, also a plain object (OverconstrainedError is not an Error everywhere)', () => {
-    expect(micErrorOf({ name: 'OverconstrainedError' }).kind).toBe('notFound');
-    expect(micErrorOf('x').kind).toBe('unknown');
-  });
-
-  it.each([
-    ['NotAllowedError', 'denied'],
-    ['SecurityError', 'denied'],
-    ['NotFoundError', 'notFound'],
-    ['OverconstrainedError', 'notFound'],
-    ['NotReadableError', 'busy'],
-    ['AbortError', 'busy'],
-    ['TypeError', 'unknown'],
-  ])('%s → %s', (name, kind) => {
-    const e = new DOMException('x', name);
-    const m = micErrorOf(e);
-    expect(isMicError(m)).toBe(true);
-    expect(m.kind).toBe(kind);
-    expect(m.cause).toBe(e);
-  });
-});
 
 // --- fakes for the real session -------------------------------------------------------------------------------
 
@@ -200,7 +117,13 @@ class FakeContext extends EventTarget {
     this.dispatchEvent(new Event('statechange'));
   }
   createBuffer(_c: number, length: number) {
-    return { length, copyToChannel() {} };
+    return {
+      length,
+      samples: null as Float32Array | null,
+      copyToChannel(s: Float32Array) {
+        this.samples = s;
+      },
+    };
   }
   createBufferSource() {
     const s = new FakeSource();
@@ -405,6 +328,25 @@ describe('createMicSession', () => {
     srcs[2].onended?.(); // one already played
     mic.stopClicks();
     expect(srcs.map((s) => s.stoppedCalls)).toEqual([1, 1, 0]);
+  });
+
+  it('makes one buffer for the downbeat and one for the other clicks', async () => {
+    const { session, contexts, handlers } = setup();
+    const mic = await session.open(null, handlers);
+    mic.scheduleClicks([
+      { time: 1, strong: true },
+      { time: 2, strong: false },
+      { time: 3, strong: false },
+    ]);
+    const srcs = contexts[0].sources;
+    expect(srcs[0].buffer).not.toBe(srcs[1].buffer);
+    expect(srcs[1].buffer).toBe(srcs[2].buffer);
+    // every click (count-in, recording, latency measurement) is the soft one
+    const rate = mic.sampleRate;
+    const samples = (i: number) =>
+      Array.from((srcs[i].buffer as { samples: Float32Array }).samples);
+    expect(samples(0)).toEqual(Array.from(softClickSamples(rate, true)));
+    expect(samples(1)).toEqual(Array.from(softClickSamples(rate, false)));
   });
 
   it('interruptions: track ended once, a closed context; none after close()', async () => {

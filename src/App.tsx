@@ -29,7 +29,7 @@ import { clearStaleMetaLines, type MetaField } from './lib/meta';
 import { parseSong } from './lib/parseSong';
 import { newSongText, serializeSong, UNTITLED } from './lib/serializeSong';
 import type { AnalysisClient } from './analysis/types';
-import type { MicSession } from './audio/micSession';
+import type { MicSession } from './audio/micSession.types';
 import type { Song, SongMeta } from './lib/song';
 import {
   LOCAL_SONG_ID,

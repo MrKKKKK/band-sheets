@@ -5,16 +5,7 @@ import {
 import type { HumSource } from '../components/HumSetup/HumSetup';
 import { formatClock } from '../lib/import/format';
 import { latencyText } from '../lib/mic/micTexts';
-import type { RecorderState } from '../lib/mic/recorderState';
-
-/** Count-in, recording and making the file: S2 cannot be left or switched to the file meanwhile. */
-export function isRecording(state: RecorderState): boolean {
-  return (
-    state.phase === 'countIn' ||
-    state.phase === 'recording' ||
-    state.phase === 'finishing'
-  );
-}
+import { isRecording } from '../lib/mic/recorderState';
 
 /**
  * S2's source when the singing is recorded with the mic (docs/mic-recording-plan.md §2.7, canvas M1–M8): the
@@ -27,11 +18,7 @@ export function micHumSource({
   saveName,
   save,
   playbackDeps,
-  waitForFile,
-}: MicRecorderProps & {
-  /** A picked file is still being probed: starting now would discard it (useAnalysisRun.startFile). */
-  waitForFile: boolean;
-}): HumSource {
+}: MicRecorderProps): HumSource {
   const { state, take } = recorder;
   const recording = isRecording(state);
   return {
@@ -45,7 +32,7 @@ export function micHumSource({
         playbackDeps={playbackDeps}
       />
     ),
-    ready: !!take && !waitForFile,
+    ready: !!take,
     summaryLabel: '音',
     meter: take?.meter,
     summary: take

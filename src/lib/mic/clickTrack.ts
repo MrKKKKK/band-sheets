@@ -1,7 +1,7 @@
 /**
  * The metronome of the microphone recording (docs/mic-recording-plan.md §2.4): when every click
  * sounds, which one is the downbeat, where the recording is "now" (bar / beat) and the click as
- * samples / as notes for the review screen's playback.
+ * notes for the review screen's playback.
  *
  * Clock: second 0 = the first beat of the one-bar count-in = the file's 0 s. Bar 0 is the count-in,
  * bar 1 is the song's first bar (it starts at `barSec`). The tempo is ♩ per minute (the song's
@@ -86,31 +86,6 @@ export function positionAt(
   // the epsilon keeps a time that is exactly on a beat (up to float error) on that beat
   const n = Math.floor(t / step + 1e-9);
   return { bar: Math.floor(n / ts.num), beat: (n % ts.num) + 1 };
-}
-
-const CLICK_HZ = 4000;
-const STRONG_CLICK_HZ = 6000;
-
-/**
- * The click: a 2 ms burst of a square wave with a short fade; the downbeat is higher. The normal
- * click is also what the latency measurement plays.
- */
-export function clickSamples(
-  sampleRate: number,
-  strong = false,
-  amplitude = 0.9,
-): Float32Array<ArrayBuffer> {
-  const n = Math.max(8, Math.round(sampleRate * 0.002));
-  const period = Math.max(
-    2,
-    Math.round(sampleRate / (strong ? STRONG_CLICK_HZ : CLICK_HZ)),
-  );
-  const out = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const fade = Math.min(1, (n - i) / (n * 0.3));
-    out[i] = (Math.floor((2 * i) / period) % 2 ? -1 : 1) * amplitude * fade;
-  }
-  return out;
 }
 
 const CLICK_NOTE_SEC = 0.05;
