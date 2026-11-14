@@ -17,9 +17,10 @@
  * is written to out/t19/bench.json (gitignored).
  */
 import { expect, test, type Page } from '@playwright/test';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resampleSinc } from '../dsp/core/resample';
+import { rendererRssMb } from './perfProc';
 import { decodeWav } from './wav';
 
 const OUT = join(import.meta.dirname, '../../out');
@@ -95,27 +96,6 @@ function makeWavs(): void {
   }
   writeWav16(join(T19, 'silent-3s.wav'), [new Float32Array(3 * 44100)], 44100);
   writeWav16(join(T19, 'short-0.1s.wav'), [mono.slice(44100, 44100 + 4410)], 44100);
-}
-
-/** VmRSS (MB) of the Chromium renderer processes: the largest one and the sum (page and Worker share one). */
-function rendererRssMb(): { max: number; sum: number } {
-  let max = 0;
-  let sum = 0;
-  for (const pid of readdirSync('/proc')) {
-    if (!/^\d+$/.test(pid)) continue;
-    try {
-      if (!readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes('--type=renderer')) continue;
-      const m = /VmRSS:\s+(\d+) kB/.exec(readFileSync(`/proc/${pid}/status`, 'utf8'));
-      if (m) {
-        const mb = Number(m[1]) / 1024;
-        max = Math.max(max, mb);
-        sum += mb;
-      }
-    } catch {
-      /* process went away */
-    }
-  }
-  return { max, sum };
 }
 
 type Api = { __benchApi: { runMinutes(m: number): Promise<unknown> }; __bench: { ready: boolean; clipSource: string } };

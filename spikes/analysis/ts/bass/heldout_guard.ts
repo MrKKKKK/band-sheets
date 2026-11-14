@@ -11,6 +11,7 @@
  * out/results/heldout-log.jsonl, so dev looks are counted (spike 5's lesson).
  */
 import { basename } from 'node:path';
+import { parseJsonl } from './evalCommon';
 
 export interface GuardVariant {
   name: string;
@@ -72,11 +73,7 @@ export const DEV_LOOK_INPUT = 'bass-synth-dev';
 
 /** Number of logged dev looks at the bass synthetic dev split. */
 export function devLookCount(logText: string | null): number {
-  return (logText ?? '')
-    .split('\n')
-    .filter((l) => l.trim())
-    .map((l) => JSON.parse(l) as LogLine)
-    .filter((d) => d.kind === 'look' && d.input === DEV_LOOK_INPUT).length;
+  return parseJsonl<LogLine>(logText).filter((d) => d.kind === 'look' && d.input === DEV_LOOK_INPUT).length;
 }
 
 export function devLookLine(o: { task: string; reason: string; configHash: string; commit: string; files: number; at: string }): string {

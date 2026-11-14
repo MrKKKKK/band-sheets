@@ -32,18 +32,14 @@ import { analyzeWithBass, bassChords } from './analyze';
 import { bassConfigHash, enabledBassConfig, resolveBassConfig } from './config';
 import { heldOutRefusal, selectVariants, type GuardVariant } from './heldout_guard';
 import { LOW_SR, lowCqt, type LowCqt } from './lowCqt';
-import { beatWindows, mapVocab, normalizeTruthSlash, noteToPc, type ScoreBeat, type ScoreChord } from './score';
+import { argOf, at, json, parseJsonl } from './evalCommon';
+import { beatWindows, mapVocab, median, normalizeTruthSlash, noteToPc, type ScoreBeat, type ScoreChord } from './score';
 import { run, strip, type Chord, type Item } from './t9_sweep';
 import type { BassConfig } from './config';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const LOG = join(ROOT, 'out', 'results', 'heldout-log.jsonl');
 
-const argOf = (argv: string[], k: string): string | undefined => {
-  const i = argv.indexOf(k);
-  return i >= 0 ? argv[i + 1] : undefined;
-};
-const json = <T>(p: string): T => JSON.parse(readFileSync(p, 'utf8')) as T;
 
 interface LookLine {
   kind?: string;
@@ -64,11 +60,7 @@ export interface RecTruth {
 
 /** The one logged look line for `task` (pure; throws when absent, doubled or not a dev look). */
 export function lookLineFor(logText: string, task: string): LookLine {
-  const lines = logText
-    .split('\n')
-    .filter((l) => l.trim())
-    .map((l) => JSON.parse(l) as LookLine)
-    .filter((d) => d.kind === 'look' && d.input === 'bass' && d.task === task);
+  const lines = parseJsonl<LookLine>(logText).filter((d) => d.kind === 'look' && d.input === 'bass' && d.task === task);
   if (lines.length !== 1) throw new Error(`expected exactly one logged recordings look for task ${task}, found ${lines.length} (run py/tools/bass_rec_fit.py first)`);
   const l = lines[0];
   if (l.heldOut !== false || !l.takes?.length) throw new Error(`the ${task} look line is not a dev look with takes: refusing`);
@@ -99,14 +91,9 @@ export function tuningMedianRmsDb(): { db: number; files: number } {
   const dir = join(ROOT, 'out', 'bass');
   const all = json<{ variants: (GuardVariant & { wav: string })[] }>(join(dir, 'manifest.json')).variants;
   const vs = selectVariants(all, ['tuning']);
-  return { db: med(vs.map((v) => levelDb(loadMono(join(dir, v.wav))).rmsDb)), files: vs.length };
+  return { db: median(vs.map((v) => levelDb(loadMono(join(dir, v.wav))).rmsDb)), files: vs.length };
 }
 
-const med = (xs: number[]): number => {
-  const s = [...xs].sort((a, b) => a - b);
-  return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : NaN;
-};
-const at = <C extends ScoreChord>(cs: readonly C[], t: number): C | undefined => cs.find((c) => c.start <= t && t < c.end);
 
 /** Timing and confusion aggregates of one config on the v1a segments (counts / rates only). */
 export function diagnose(name: string, cfg: BassConfig, items: Item[]): void {
@@ -116,8 +103,8 @@ export function diagnose(name: string, cfg: BassConfig, items: Item[]): void {
   const inc = (k: string, n: number) => iv.set(k, (iv.get(k) ?? 0) + n);
   for (const it of items) {
     const tb = it.truthBeats.map((b) => b.t);
-    const per = med(tb.slice(1).map((t, i) => t - tb[i]));
-    const vper = med(it.v1aBeats.slice(1).map((t, i) => t - it.v1aBeats[i]));
+    const per = median(tb.slice(1).map((t, i) => t - tb[i]));
+    const vper = median(it.v1aBeats.slice(1).map((t, i) => t - it.v1aBeats[i]));
     const inside = it.v1aBeats.filter((t) => t >= tb[0] - per / 2 && t <= tb[tb.length - 1] + per / 2);
     const off = inside.map((t) => {
       const k = Math.round((t - tb[0]) / per);
@@ -149,7 +136,7 @@ export function diagnose(name: string, cfg: BassConfig, items: Item[]): void {
       }
     inc('noChord|points', noChord);
     inc('noChord|of', pts);
-    console.log(`${it.level}\t${(vper / per).toFixed(3)}\t${med(off).toFixed(3)}|${med(off.map(Math.abs)).toFixed(3)}\t${it.v1a.length}/${it.truth.length}\t${hit}/${changes.length}\t${noChord}/${pts}`);
+    console.log(`${it.level}\t${(vper / per).toFixed(3)}\t${median(off).toFixed(3)}|${median(off.map(Math.abs)).toFixed(3)}\t${it.v1a.length}/${it.truth.length}\t${hit}/${changes.length}\t${noChord}/${pts}`);
   }
   for (const [k, n] of [...iv.entries()].sort()) console.log(`${k}\t${n}`);
 }

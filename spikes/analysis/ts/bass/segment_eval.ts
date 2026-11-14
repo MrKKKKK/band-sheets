@@ -21,21 +21,22 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decodeWav } from '../browser/wav';
 import { analyze } from '../dsp/analyze';
+import { NOTE_NAMES } from '../dsp/chords';
 import { configHash as dspConfigHash } from '../dsp/config';
 import { resampleSinc, toMono } from '../dsp/core/resample';
 import { bassConfigHash, DEFAULT_BASS_CONFIG, resolveBassConfig, type BassConfig } from './config';
+import { argOf, readJson, slashIn, withSlashMarks } from './evalCommon';
 import { devLookCount, devLookLine, heldOutRefusal, selectVariants, type GuardSources, type GuardVariant } from './heldout_guard';
 import { LOW_SR, lowCqt } from './lowCqt';
 import { normalizeTruthSlash, scoreBass, noteToPc, type ScoreBeat, type ScoreChord } from './score';
 import { segmentBass, type SegmentBass } from './segmentBass';
-import { beatsIn, bassKind, slashMarks, type SlashMark } from './slash';
+import { bassKind, slashMarks, type SlashMark } from './slash';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..', '..');
 const OUT = join(ROOT, 'out', 'bass');
 const CACHE = join(ROOT, 'out', 'bass-eval', 'v1a');
 const LOG = join(ROOT, 'out', 'results', 'heldout-log.jsonl');
-const SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 interface Variant extends GuardVariant {
   level: string;
@@ -55,29 +56,11 @@ interface V1a {
   chords: ScoreChord[];
 }
 
-const readJson = <T>(p: string, pick: (j: any) => T): T | null => {
-  try {
-    return pick(JSON.parse(readFileSync(p, 'utf8')));
-  } catch {
-    return null;
-  }
-};
-const argOf = (argv: string[], k: string): string | undefined => {
-  const i = argv.indexOf(k);
-  return i >= 0 ? argv[i + 1] : undefined;
-};
-
 /** Chords with the B-1 bass written as `/X` when it differs from the root. */
 export function withBass(chords: readonly ScoreChord[], bass: readonly SegmentBass[]): ScoreChord[] {
-  return chords.map((c, i) => ({ ...c, bass: bass[i].pc === noteToPc(c.root) ? null : SHARP[bass[i].pc] }));
+  return chords.map((c, i) => ({ ...c, bass: bass[i].pc === noteToPc(c.root) ? null : NOTE_NAMES[bass[i].pc] }));
 }
 
-/** T6: chords with the B-2 marks as `/X` (slash.ts). */
-export function withSlashMarks(chords: readonly ScoreChord[], marks: readonly (SlashMark | null)[]): ScoreChord[] {
-  return chords.map((c, i) => ({ ...c, bass: marks[i] ? SHARP[marks[i]!.bass] : null }));
-}
-export const slashIn = (chords: readonly ScoreChord[], beats: readonly number[]) =>
-  chords.map((c) => ({ root: noteToPc(c.root), quality: c.quality, beats: beatsIn(c.start, c.end, beats) }));
 /** T6 sweep: minConfidence values x second-root guard on/off. */
 const SWEEP = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5];
 interface SlashAcc {

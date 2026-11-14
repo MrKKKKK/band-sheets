@@ -121,7 +121,7 @@ class ChordTrack {
   }
 }
 
-function median(xs: number[]): number {
+export function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
   const h = s.length >> 1;
   return s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2;

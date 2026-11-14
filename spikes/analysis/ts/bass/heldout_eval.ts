@@ -28,6 +28,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analyzeWithBass } from './analyze';
 import { bassConfigHash, enabledBassConfig, resolveBassConfig } from './config';
+import { json, parseJsonl } from './evalCommon';
 import { heldOutRefusal, isHeld, selectVariants, type GuardSources, type GuardVariant } from './heldout_guard';
 import { lowCqt } from './lowCqt';
 import { diagnose, INPUT_GAIN, loadMono, pipelineCheck, printRecordings, readRecTruth, recordingItems, tuningMedianRmsDb, type ConfigSet } from './rec_eval';
@@ -79,18 +80,13 @@ export interface FinalGuardInput {
  * was printed; the fix respells truth roots (t9_sweep.ts truthSegments) and adds this path.
  */
 export const HARNESS_FILES = ['spikes/analysis/ts/bass/t9_sweep.ts', 'spikes/analysis/ts/bass/t9_sweep.test.ts', 'spikes/analysis/ts/bass/heldout_eval.ts', 'spikes/analysis/ts/bass/heldout_eval.test.ts'];
-const parseLog = (text: string | null): Look3[] =>
-  (text ?? '')
-    .split('\n')
-    .filter((l) => l.trim())
-    .map((l) => JSON.parse(l) as Look3);
 const fixLines = (lines: Look3[]) => lines.filter((d) => d.kind === 'harness-fix' && d.input === 'bass' && d.task === 'T13');
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /** The guard of the final run (pure): the look-3 line, or the reason to refuse. */
 export function finalGuard(g: FinalGuardInput): { line: Look3 } | { refuse: string } {
-  const all = parseLog(g.logText);
+  const all = parseJsonl<Look3>(g.logText);
   const lines = all.filter((d) => d.kind === 'look' && d.input === 'bass' && (d.lookPoint === 3 || d.task === 'T13' || d.heldOut === true));
   if (lines.length !== 1) return { refuse: `expected exactly one bass look-3 line, found ${lines.length} (run py/tools/bass_heldout_fit.py --final-heldout first)` };
   const l = lines[0];
@@ -126,7 +122,7 @@ export function harnessOnlyBlock(changed: string[] | null): string | null {
  * clean later commit that changes harness files only. Returns the line to append, or the reason to refuse.
  */
 export function harnessFixLine(g: FinalGuardInput, reason: string, time: string): { line: string } | { refuse: string } {
-  const all = parseLog(g.logText);
+  const all = parseJsonl<Look3>(g.logText);
   const looks = all.filter((d) => d.kind === 'look' && d.input === 'bass' && d.lookPoint === 3 && d.task === 'T13' && d.heldOut === true);
   if (looks.length !== 1) return { refuse: `expected exactly one T13 look-3 line, found ${looks.length}` };
   if (g.done) return { refuse: 'already scored: a harness fix is no longer allowed' };
@@ -170,7 +166,6 @@ export function synthVariants(all: readonly SynVariant[], split: 'heldOut' | 'tu
   return held;
 }
 
-const json = <T>(p: string): T => JSON.parse(readFileSync(p, 'utf8')) as T;
 
 /** Synthetic items (audio opened here, after the caller's guards) + the pipeline check of every set. */
 function synthItems(vs: readonly SynVariant[], heldOut: boolean, sets: readonly ConfigSet[]): { items: Item[]; check: Map<string, { chords: number; same: number }> } {
@@ -204,7 +199,7 @@ function guardInput(argv: string[], sets: readonly ConfigSet[]): FinalGuardInput
   const i = argv.indexOf('--commit');
   const logText = existsSync(LOG) ? readFileSync(LOG, 'utf8') : null;
   const head = git(['rev-parse', '--short', 'HEAD']);
-  const logged = parseLog(logText).find((d) => d.kind === 'look' && d.input === 'bass' && d.lookPoint === 3)?.commit;
+  const logged = parseJsonl<Look3>(logText).find((d) => d.kind === 'look' && d.input === 'bass' && d.lookPoint === 3)?.commit;
   const diff = logged && head && head !== logged ? git(['diff', '--name-only', logged, 'HEAD']) : null;
   return {
     logText,

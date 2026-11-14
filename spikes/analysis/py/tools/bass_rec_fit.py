@@ -49,6 +49,17 @@ def dev_takes(ids, manifest):
     return out
 
 
+def read_log():
+    """The parsed lines of the heldout log (empty when there is no file)."""
+    return [json.loads(x) for x in open(LOG, encoding="utf-8") if x.strip()] if os.path.exists(LOG) else []
+
+
+def append_log(line):
+    os.makedirs(os.path.dirname(LOG), exist_ok=True)
+    with open(LOG, "a", encoding="utf-8") as f:
+        f.write(json.dumps(line, ensure_ascii=False) + "\n")
+
+
 def logged(lines, task):
     return [d for d in lines if d.get("kind") == "look" and d.get("input") == "bass" and d.get("task") == task]
 
@@ -66,7 +77,7 @@ def main(argv=None):
     ids = json.load(open(IDS, encoding="utf-8"))
     manifest = json.load(open(MANIFEST, encoding="utf-8"))
     takes = dev_takes(ids, manifest)
-    lines = [json.loads(x) for x in open(LOG, encoding="utf-8") if x.strip()] if os.path.exists(LOG) else []
+    lines = read_log()
     if logged(lines, a.task):
         raise SystemExit(f"a look for task {a.task} is already logged: refusing a second one")
     prior = [d for d in lines if d.get("kind") == "look" and d.get("input") == "bass" and not d.get("heldOut")]
@@ -75,9 +86,7 @@ def main(argv=None):
             "configHashes": a.config_hashes.split(","), "commit": a.commit, "reason": a.reason}
     if a.input_gain:
         line["inputGain"] = a.input_gain
-    os.makedirs(os.path.dirname(LOG), exist_ok=True)
-    with open(LOG, "a", encoding="utf-8") as f:
-        f.write(json.dumps(line, ensure_ascii=False) + "\n")
+    append_log(line)
     print(f"look logged: recordings dev look #{len(prior) + 1}, {len(takes)} takes, task {a.task}")
 
     fit_takes(takes, ids, False, FIT_DIR, a.task)

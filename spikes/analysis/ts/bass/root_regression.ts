@@ -23,15 +23,12 @@ import { chordName, NOTE_NAMES } from '../dsp/chords';
 import { resampleSinc, toMono } from '../dsp/core/resample';
 import { analyzeWithBass } from './analyze';
 import { bassConfigHash, enabledBassConfig } from './config';
+import { argOf } from './evalCommon';
 import { LOW_SR } from './lowCqt';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const BASS_FIELDS = ['bass', 'bassConfidence', 'bassKind', 'bassCandidates', 'text'] as const;
 
-const argOf = (argv: string[], k: string): string | undefined => {
-  const i = argv.indexOf(k);
-  return i >= 0 ? argv[i + 1] : undefined;
-};
 
 type Obj = Record<string, unknown>;
 const without = (o: Obj, keys: readonly string[]): Obj => Object.fromEntries(Object.entries(o).filter(([k]) => !keys.includes(k)));

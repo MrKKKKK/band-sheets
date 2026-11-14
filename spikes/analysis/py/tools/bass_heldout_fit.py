@@ -25,7 +25,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import bass_intake as B  # noqa: E402
-from bass_rec_fit import IDS, LOG, MANIFEST, dev_takes, fit_takes  # noqa: E402
+from bass_rec_fit import IDS, MANIFEST, append_log, dev_takes, fit_takes, read_log  # noqa: E402
 
 TASK = "T13"
 # T8-equivalent (bass on, weakMinConfidence 0, split / redecide off) and the G2 default (enabledBassConfig()); the same
@@ -74,16 +74,6 @@ def final_line(time, takes, synthetic, commit):
             "reason": "T13 look point 3, the one held-out look: recordings e/f (raw and loudness-normalized to the "
                       "synthetic tuning median RMS, user decision 2026-11-14) and the synthetic held-out split "
                       "(timbre C, seeds 6-7); T8-equivalent and G2 configs; fit_grid truth timing; frozen, no tuning after"}
-
-
-def read_log():
-    return [json.loads(x) for x in open(LOG, encoding="utf-8") if x.strip()] if os.path.exists(LOG) else []
-
-
-def append_log(line):
-    os.makedirs(os.path.dirname(LOG), exist_ok=True)
-    with open(LOG, "a", encoding="utf-8") as f:
-        f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
 
 def now():

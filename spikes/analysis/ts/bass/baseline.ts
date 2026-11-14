@@ -27,7 +27,7 @@ import { heldOutRefusal, selectVariants, type GuardVariant } from './heldout_gua
 import { LOW_SR, lowCqt } from './lowCqt';
 import { beatWindows, editDiff, mapVocab, normalizeTruthSlash, noteToPc, scoreBass, type ScoreBeat, type ScoreChord } from './score';
 import { segmentBass } from './segmentBass';
-import { slashIn, withSlashMarks } from './segment_eval';
+import { argOf, at, json, slashIn, withSlashMarks } from './evalCommon';
 import { slashMarks } from './slash';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -67,12 +67,7 @@ interface Acc {
 }
 const acc = (): Acc => ({ files: 0, scored: 0, segHit: 0, truthSlash: 0, resultSlash: 0, slashHit: 0, noSlash: 0, falseSlash: 0, runs: 0, runHit: 0, beats: 0, editsWith: 0, editsWithout: 0, ops: {}, conf: {}, octN: 0, octHit: 0 });
 
-const argOf = (argv: string[], k: string): string | undefined => {
-  const i = argv.indexOf(k);
-  return i >= 0 ? argv[i + 1] : undefined;
-};
 const sounding = (c: ScoreChord): number => (c.bass ? noteToPc(c.bass) : noteToPc(c.root));
-const at = (cs: readonly ScoreChord[], t: number): ScoreChord | null => cs.find((c) => c.start <= t && t < c.end) ?? null;
 
 /** Interval histogram on the score.ts points (two per truth beat, weight 0.5; dropped truth qualities skipped). */
 function confusion(a: Acc, truth: readonly ScoreChord[], result: readonly ScoreChord[], beats: readonly ScoreBeat[]): void {
@@ -135,12 +130,12 @@ function main(argv: string[]): void {
   if (split !== 'tuning' && split !== 'dev') throw new Error(`--split tuning|dev only, got ${split}`);
   const results = resolve(ROOT, argOf(argv, '--results') ?? 'out/bass-results/t8-tuning');
   if (split === 'dev') {
-    const run = JSON.parse(readFileSync(join(results, 'run.json'), 'utf8')) as { splits?: string[] };
+    const run = json(join(results, 'run.json')) as { splits?: string[] };
     if (JSON.stringify(run.splits) !== '["dev"]') throw new Error(`${results}/run.json is not a logged dev run (cli.ts --all --split dev --dev-look): refusing`);
   }
   const cfg = enabledBassConfig();
   const hash = bassConfigHash(cfg);
-  const all = (JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8')) as { variants: Variant[] }).variants;
+  const all = (json(join(OUT, 'manifest.json')) as { variants: Variant[] }).variants;
   const src = { syn: all, rec: null, ids: null };
   const vs = selectVariants(all, [split]);
   const res = new Map<string, Acc>();
@@ -148,10 +143,10 @@ function main(argv: string[]): void {
   for (const v of vs) {
     const refusal = heldOutRefusal(v.wav, src);
     if (refusal) throw new Error(`${v.name}: ${refusal}`);
-    const truth = JSON.parse(readFileSync(join(OUT, v.truth), 'utf8')) as Truth;
+    const truth = json(join(OUT, v.truth)) as Truth;
     const tv = truth.bass.variant;
     if (tv.heldOut || tv.split !== split || tv.timbre === 'C') throw new Error(`${v.name}: truth is not ${split}, refusing`);
-    const out = JSON.parse(readFileSync(join(results, `${v.name}.json`), 'utf8')) as { chords: ScoreChord[]; bassAnalyzer?: { configHash: string } };
+    const out = json(join(results, `${v.name}.json`)) as { chords: ScoreChord[]; bassAnalyzer?: { configHash: string } };
     if (out.bassAnalyzer?.configHash !== hash) throw new Error(`${v.name}: result config ${out.bassAnalyzer?.configHash} != ${hash}`);
     const tn = normalizeTruthSlash(truth.chords);
     const v1a = out.chords.map((c) => ({ start: c.start, end: c.end, root: c.root, quality: c.quality, bass: c.bass ?? null }));

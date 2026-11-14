@@ -22,7 +22,7 @@ import { splitByBass } from './cliche';
 import { LOW_SR, lowCqt, type LowCqt } from './lowCqt';
 import { redecideRoots } from './redecide';
 import { segmentBass } from './segmentBass';
-import { beatsIn, heldWeak, slashMarks, withSlash, type SlashFields } from './slash';
+import { heldWeak, slashChordsOf, slashMarks, withSlash, type SlashFields } from './slash';
 import type { AnalysisResult } from './types';
 
 /** Stage names the bass path adds to `stats` / `analyzer.timingsSec` (after the v1a stages). */
@@ -63,7 +63,7 @@ export interface V1aChord {
 function markChords<C extends V1aChord>(low: LowCqt, chords: readonly C[], beats: readonly number[], cfg: BassConfig): (C & SlashFields)[] {
   const sb = segmentBass(low, chords, beats, cfg.segment);
   const segs = cfg.cliche.redecideRoot ? redecideRoots(low, chords, sb, cfg) : chords;
-  const inp = segs.map((c) => ({ root: pcOf(c.root), quality: c.quality, beats: beatsIn(c.start, c.end, beats) }));
+  const inp = slashChordsOf(segs, beats, pcOf);
   const marks = slashMarks(inp, sb, cfg.slash, cfg.cliche.split);
   return withSlash(segs, marks, heldWeak(inp, sb, marks, cfg.slash));
 }
