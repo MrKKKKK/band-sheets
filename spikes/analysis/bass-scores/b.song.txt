@@ -1,0 +1,20 @@
+{title: 録音用 b（クリシェ・ペダル・白玉）}
+{tempo: 76}
+{time: 4/4}
+{key: C}
+
+{start_of_verse: A}
+|[C]--------|[C/B]--------|[C/Bb]--------|[C/A]--------|
+{end_of_verse}
+
+{start_of_verse: B}
+|[F]--------|[G]--------|[C]--------|[F/C]--------|
+{end_of_verse}
+
+{start_of_verse: C}
+|[G/C]--------|[C]--------|[Am]--------|[Am/G]--------|
+{end_of_verse}
+
+{start_of_verse: D}
+|[Am/F#]--------|[F]--------|[G]--------|[C]--------|
+{end_of_verse}

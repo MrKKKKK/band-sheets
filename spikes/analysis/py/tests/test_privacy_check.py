@@ -242,5 +242,44 @@ class TestT17(unittest.TestCase):
         self.assertIn("docs/leak.md", hist[0])
 
 
+class TestDrumBassSources(unittest.TestCase):
+    """Spike 5 / 6: drm-/bas- ids files and intake folders feed the checker; an empty source fails."""
+
+    def setUp(self):
+        self.t = tempfile.TemporaryDirectory()
+        self.rec = os.path.join(self.t.name, "recordings")
+        os.makedirs(self.rec)
+
+    def tearDown(self):
+        self.t.cleanup()
+
+    def terms(self):
+        return P.collect_all(self.rec)[0]
+
+    def test_ids_originals_of_drm_and_bas(self):
+        for name, orig in (("drm-ids.local.json", "Test Song A.wav"), ("bas-ids.local.json", "Test Song B.m4a")):
+            write(os.path.join(self.rec, name), json.dumps({"recordings": {"x-01": {"original": orig}}}))
+        self.assertEqual(self.terms(), ["test song a", "test song b"])
+
+    def test_original_files_list_read_for_any_ids_file(self):
+        write(os.path.join(self.rec, "drm-ids.local.json"),
+              json.dumps({"recordings": {"x-01": {"originalFiles": ["Test Song C.wav", "Test Song C.txt"]}}}))
+        self.assertEqual(self.terms(), ["test song c"])
+
+    def test_stems_of_drm_and_bas_folders(self):
+        for sub, fn in (("drm-inbox", "Test Song D.wav"), ("drm-originals", "Test Song E.txt"),
+                        ("bas-inbox", "Test Song F.wav"), ("bas-originals", "Test Song G.txt")):
+            write(os.path.join(self.rec, sub, fn), "x")
+        self.assertEqual(self.terms(), ["test song d", "test song e", "test song f", "test song g"])
+
+    def test_zero_terms_fails(self):
+        root = os.path.join(self.t.name, "src")
+        write(os.path.join(root, "a.md"), "nothing\n")
+        self.assertEqual(P.main(["--root", root, "--recordings", self.rec, "--no-log"]), 1)
+        self.assertEqual(P.main(["--root", root, "--recordings", self.rec, "--no-log", "--allow-empty"]), 0)
+        write(os.path.join(self.rec, "drm-originals", "Test Song H.txt"), "x")
+        self.assertEqual(P.main(["--root", root, "--recordings", self.rec, "--no-log"]), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

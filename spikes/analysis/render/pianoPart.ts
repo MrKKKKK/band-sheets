@@ -58,21 +58,31 @@ const ARP8_PATTERN = [0, 1, 2, 3, 2, 1, 2, 3];
 /** alphaTex duration (with optional dot) of `beats` quarter notes, or null. */
 const WHOLE_DURATION: Record<number, string> = { 1: ':4', 2: ':2', 3: ':2', 4: ':1' };
 
-function barLine(comp: Comp, row: (string | null)[]): string {
+/** Spike 6 T2 (render/bass, level B3): the left hand also plays its bass an octave lower. */
+export interface PianoPartOptions {
+  lhOctave?: boolean;
+}
+
+function barLine(comp: Comp, row: (string | null)[], opts: PianoPartOptions = {}): string {
+  const voiced = (text: string) => {
+    const t = chordMidi(text);
+    return opts.lhOctave ? [t[0] - 12, ...t] : t;
+  };
   const chordAt = (b: number) => {
     const text = row[b];
     if (text === null) throw new Error('コードの無い拍があります');
     return text;
   };
   if (comp === 'block4') {
-    return row.map((_, b) => `(${chordMidi(chordAt(b)).map(noteName).join(' ')})`).join(' ');
+    return row.map((_, b) => `(${voiced(chordAt(b)).map(noteName).join(' ')})`).join(' ');
   }
   if (comp === 'arp8') {
     // Two 8th notes per beat, each beat arpeggiating that beat's chord.
     const out: string[] = [];
     for (let i = 0; i < row.length * 2; i++) {
       const tones = chordMidi(chordAt(i >> 1));
-      out.push(noteName(tones[ARP8_PATTERN[i % ARP8_PATTERN.length] % tones.length]));
+      const k = ARP8_PATTERN[i % ARP8_PATTERN.length] % tones.length;
+      out.push(k === 0 && opts.lhOctave ? `(${noteName(tones[0] - 12)} ${noteName(tones[0])})` : noteName(tones[k]));
     }
     return out.join(' ');
   }
@@ -85,7 +95,7 @@ function barLine(comp: Comp, row: (string | null)[]): string {
   }
   return segs
     .map(({ text, beats }) => {
-      const notes = `(${chordMidi(text).map(noteName).join(' ')})`;
+      const notes = `(${voiced(text).map(noteName).join(' ')})`;
       const dur = WHOLE_DURATION[beats];
       if (dur === undefined) throw new Error(`白玉の長さ ${beats} 拍は扱えません`);
       return `${dur} ${notes}${beats === 3 ? ' {d}' : ''}`;
@@ -94,7 +104,7 @@ function barLine(comp: Comp, row: (string | null)[]): string {
 }
 
 /** Part body (for `{start_of_part: Piano}`), with one `\section` per section. */
-export function pianoPartBody(timeline: ChordTimeline, comp: Comp = 'block4'): string {
+export function pianoPartBody(timeline: ChordTimeline, comp: Comp = 'block4', opts: PianoPartOptions = {}): string {
   if (comp === 'rec') throw new Error("comp 'rec' は recComp で作ってください（正解のコードの時刻も変わるため）");
   const perBeat = chordsPerBeat(timeline);
   const lines: string[] = [];
@@ -103,7 +113,7 @@ export function pianoPartBody(timeline: ChordTimeline, comp: Comp = 'block4'): s
     lines.push(`\\section "${sec.label}"`);
     for (let b = 0; b < sec.bars; b++) {
       const row = perBeat[sec.startBar + b];
-      lines.push(`${b === 0 ? unit : ''}${barLine(comp, row)} |`);
+      lines.push(`${b === 0 ? unit : ''}${barLine(comp, row, opts)} |`);
     }
   }
   return lines.join('\n');

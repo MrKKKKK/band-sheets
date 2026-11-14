@@ -1,0 +1,20 @@
+{title: 録音用 c（下がるベース・分散）}
+{tempo: 92}
+{time: 4/4}
+{key: A}
+
+{start_of_verse: A}
+|[A]--------|[E/G#]--------|[F#m]--------|[C#m/E]--------|
+{end_of_verse}
+
+{start_of_verse: B}
+|[D]--------|[A/C#]--------|[Bm]--------|[E]--------|
+{end_of_verse}
+
+{start_of_verse: C}
+|[A]--------|[A/C#]--------|[D]--------|[E/G#]--------|
+{end_of_verse}
+
+{start_of_verse: D}
+|[F#m]--------|[C#m/E]--------|[D/F#]--------|[A]--------|
+{end_of_verse}

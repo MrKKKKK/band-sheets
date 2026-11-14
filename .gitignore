@@ -41,6 +41,7 @@ spikes/analysis/out/
 spikes/analysis/recordings/
 spikes/analysis/soundfonts/
 spikes/analysis/drumkits/
+spikes/analysis/basskits/
 
 # Python bytecode (spikes/analysis/py)
 __pycache__/

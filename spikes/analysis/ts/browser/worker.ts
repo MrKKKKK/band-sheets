@@ -2,11 +2,15 @@
  * The analysis Worker (plan section 2 "画面": analysis off the main thread). Receives the decoded mono
  * signal at its own rate (transferred, no copy), validates it (AnalysisInputError -> an error message with
  * its code), resamples to 22050 Hz, drops the file-rate signal, runs the full analyzer (dsp/analyze.ts) and posts per-stage stats.
+ * Spike 6 T7: with `req.bass` the bass stage runs too (ts/bass/analyze.ts analyzeWithBass; without it the call is
+ * exactly dsp analyze()).
  * Defence in depth for the privacy rule: network APIs are removed from the Worker's global scope
  * before any message is handled (the analysis code never uses them anyway).
  */
 import type { RunRequest, WorkerMessage } from './protocol';
-import { AnalysisInputError, analyze, validateInput } from '../dsp/analyze';
+import { AnalysisInputError, validateInput } from '../dsp/analyze';
+import { analyzeWithBass } from '../bass/analyze';
+import { bassConfigHash, enabledBassConfig } from '../bass/config';
 import { MemTracker } from '../dsp/core/mem';
 import { resampleSinc, toMono } from '../dsp/core/resample';
 
@@ -56,7 +60,9 @@ scope.onmessage = (e) => {
     const resampleMs = performance.now() - t0;
     const resampleStat = { name: 'resample', ms: resampleMs, memLive: mem.live, memPeak: mem.peak };
     scope.postMessage({ type: 'stage', id: req.id, stage: resampleStat });
-    const out = analyze(box, {
+    const bass = req.bass ? enabledBassConfig(req.bass) : undefined;
+    const out = analyzeWithBass(box, {
+      bass,
       mem,
       preTimings: { resample: resampleMs / 1000 },
       onStage: (stage) => scope.postMessage({ type: 'stage', id: req.id, stage }),
@@ -72,6 +78,7 @@ scope.onmessage = (e) => {
       sections: r.sections.length,
       resultJsonBytes: JSON.stringify(r).length,
       warnings: r.analyzer.warnings ?? [],
+      ...(bass ? { bass: { configHash: bassConfigHash(bass), marked: r.chords.filter((c) => c.bass !== null).length } } : {}),
     };
     scope.postMessage({ type: 'done', id: req.id, summary, workerHeap: heap() });
   } catch (err) {
