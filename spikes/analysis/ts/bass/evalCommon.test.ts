@@ -14,10 +14,15 @@ const chords: ScoreChord[] = [
 const mark = (bass: number): SlashMark => ({ bass, kind: 'inversion', confidence: 0.5, second: { pc: 0, confidence: 0.1 } }) as SlashMark;
 
 describe('withSlashMarks', () => {
-  it('writes the mark as a sharp name and clears the bass of unmarked chords', () => {
-    const out = withSlashMarks(chords, [mark(4), null, mark(10)]);
-    expect(out.map((c) => c.bass)).toEqual(['E', null, 'A#']);
-    expect(out.map((c) => [c.start, c.end, c.root, c.quality])).toEqual(chords.map((c) => [c.start, c.end, c.root, c.quality]));
+  it('only sets bass: a sharp name for a mark, null otherwise; every other field (text too) untouched; no length check', () => {
+    const withText = chords.map((c, i) => ({ ...c, text: ['C/E', 'Bbm7/F', 'F#7'][i] }));
+    const out = withSlashMarks(withText, [mark(4), null, mark(10)]);
+    expect(out).toEqual([
+      { start: 0, end: 2, root: 'C', quality: 'maj', bass: 'E', text: 'C/E' },
+      { start: 2, end: 4, root: 'Bb', quality: 'min7', bass: null, text: 'Bbm7/F' },
+      { start: 4, end: 5, root: 'F#', quality: '7', bass: 'A#', text: 'F#7' },
+    ]);
+    expect(withSlashMarks(withText, [mark(4)]).map((c) => c.bass)).toEqual(['E', null, null]);
   });
 });
 

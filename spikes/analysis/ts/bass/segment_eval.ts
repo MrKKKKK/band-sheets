@@ -25,7 +25,7 @@ import { NOTE_NAMES } from '../dsp/chords';
 import { configHash as dspConfigHash } from '../dsp/config';
 import { resampleSinc, toMono } from '../dsp/core/resample';
 import { bassConfigHash, DEFAULT_BASS_CONFIG, resolveBassConfig, type BassConfig } from './config';
-import { argOf, slashIn, withSlashMarks } from './evalCommon';
+import { argOf, readJson, slashIn, withSlashMarks } from './evalCommon';
 import { devLookCount, devLookLine, heldOutRefusal, selectVariants, type GuardSources, type GuardVariant } from './heldout_guard';
 import { LOW_SR, lowCqt } from './lowCqt';
 import { normalizeTruthSlash, scoreBass, noteToPc, type ScoreBeat, type ScoreChord } from './score';
@@ -55,14 +55,6 @@ interface V1a {
   beats: { t: number }[];
   chords: ScoreChord[];
 }
-
-const readJson = <T>(p: string, pick: (j: any) => T): T | null => {
-  try {
-    return pick(JSON.parse(readFileSync(p, 'utf8')));
-  } catch {
-    return null;
-  }
-};
 
 /** Chords with the B-1 bass written as `/X` when it differs from the root. */
 export function withBass(chords: readonly ScoreChord[], bass: readonly SegmentBass[]): ScoreChord[] {

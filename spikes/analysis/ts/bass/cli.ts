@@ -27,6 +27,7 @@ import { AnalysisInputError } from '../dsp/analyze';
 import { resampleSinc, toMono } from '../dsp/core/resample';
 import { analyzeWithBass, BASS_STAGES, type BassAnalyzeOutput } from './analyze';
 import { bassConfigHash, enabledBassConfig, type BassConfig } from './config';
+import { readJson } from './evalCommon';
 import { devLookCount, devLookLine, globRegExp, heldOutRefusal, isHeld, selectVariants, type GuardSources, type GuardVariant } from './heldout_guard';
 import { LOW_SR } from './lowCqt';
 
@@ -106,14 +107,6 @@ export function gateSingle(input: string, src: GuardSources, devLook?: string): 
   if (dev && !devLook) throw new UsageError('a dev synthetic variant is a logged look: pass --dev-look "<reason>"');
   return { dev };
 }
-
-const readJson = <T>(path: string, pick: (j: any) => T): T | null => {
-  try {
-    return pick(JSON.parse(readFileSync(path, 'utf8')));
-  } catch {
-    return null;
-  }
-};
 
 export function guardSources(): GuardSources {
   return {

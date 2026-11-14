@@ -3,8 +3,9 @@
  * heldout_eval, heldout_guard). Not a CLI: importing it runs nothing.
  */
 import { readFileSync } from 'node:fs';
+import { NOTE_NAMES } from '../dsp/chords';
 import { noteToPc, type ScoreChord } from './score';
-import { slashChordsOf, withSlash, type SlashMark } from './slash';
+import { slashChordsOf, type SlashMark } from './slash';
 
 /** Value after the flag `k` in argv, or undefined. */
 export const argOf = (argv: string[], k: string): string | undefined => {
@@ -13,6 +14,15 @@ export const argOf = (argv: string[], k: string): string | undefined => {
 };
 
 export const json = <T>(p: string): T => JSON.parse(readFileSync(p, 'utf8')) as T;
+
+/** Parsed file reduced by `pick`; null when the file is missing or unparsable. */
+export const readJson = <T>(p: string, pick: (j: any) => T): T | null => {
+  try {
+    return pick(JSON.parse(readFileSync(p, 'utf8')));
+  } catch {
+    return null;
+  }
+};
 
 /** The chord whose [start, end) holds t. */
 export const at = <C extends { start: number; end: number }>(cs: readonly C[], t: number): C | undefined => cs.find((c) => c.start <= t && t < c.end);
@@ -28,9 +38,5 @@ export const parseJsonl = <T>(text: string | null): T[] =>
 export const slashIn = (chords: readonly ScoreChord[], beats: readonly number[]) => slashChordsOf(chords, beats, noteToPc);
 
 /** Chords with only the B-2 marks as `/X` (sharp names): the bass of every unmarked chord is cleared. */
-export function withSlashMarks(chords: readonly ScoreChord[], marks: readonly (SlashMark | null)[]): ScoreChord[] {
-  return withSlash(
-    chords.map((c) => ({ ...c, bass: null as string | null })),
-    marks,
-  );
-}
+export const withSlashMarks = (chords: readonly ScoreChord[], marks: readonly (SlashMark | null)[]): ScoreChord[] =>
+  chords.map((c, i) => ({ ...c, bass: marks[i] ? NOTE_NAMES[marks[i]!.bass] : null }));

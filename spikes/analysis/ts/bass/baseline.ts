@@ -27,7 +27,7 @@ import { heldOutRefusal, selectVariants, type GuardVariant } from './heldout_gua
 import { LOW_SR, lowCqt } from './lowCqt';
 import { beatWindows, editDiff, mapVocab, normalizeTruthSlash, noteToPc, scoreBass, type ScoreBeat, type ScoreChord } from './score';
 import { segmentBass } from './segmentBass';
-import { argOf, at, slashIn, withSlashMarks } from './evalCommon';
+import { argOf, at, json, slashIn, withSlashMarks } from './evalCommon';
 import { slashMarks } from './slash';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -130,12 +130,12 @@ function main(argv: string[]): void {
   if (split !== 'tuning' && split !== 'dev') throw new Error(`--split tuning|dev only, got ${split}`);
   const results = resolve(ROOT, argOf(argv, '--results') ?? 'out/bass-results/t8-tuning');
   if (split === 'dev') {
-    const run = JSON.parse(readFileSync(join(results, 'run.json'), 'utf8')) as { splits?: string[] };
+    const run = json(join(results, 'run.json')) as { splits?: string[] };
     if (JSON.stringify(run.splits) !== '["dev"]') throw new Error(`${results}/run.json is not a logged dev run (cli.ts --all --split dev --dev-look): refusing`);
   }
   const cfg = enabledBassConfig();
   const hash = bassConfigHash(cfg);
-  const all = (JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8')) as { variants: Variant[] }).variants;
+  const all = (json(join(OUT, 'manifest.json')) as { variants: Variant[] }).variants;
   const src = { syn: all, rec: null, ids: null };
   const vs = selectVariants(all, [split]);
   const res = new Map<string, Acc>();
@@ -143,10 +143,10 @@ function main(argv: string[]): void {
   for (const v of vs) {
     const refusal = heldOutRefusal(v.wav, src);
     if (refusal) throw new Error(`${v.name}: ${refusal}`);
-    const truth = JSON.parse(readFileSync(join(OUT, v.truth), 'utf8')) as Truth;
+    const truth = json(join(OUT, v.truth)) as Truth;
     const tv = truth.bass.variant;
     if (tv.heldOut || tv.split !== split || tv.timbre === 'C') throw new Error(`${v.name}: truth is not ${split}, refusing`);
-    const out = JSON.parse(readFileSync(join(results, `${v.name}.json`), 'utf8')) as { chords: ScoreChord[]; bassAnalyzer?: { configHash: string } };
+    const out = json(join(results, `${v.name}.json`)) as { chords: ScoreChord[]; bassAnalyzer?: { configHash: string } };
     if (out.bassAnalyzer?.configHash !== hash) throw new Error(`${v.name}: result config ${out.bassAnalyzer?.configHash} != ${hash}`);
     const tn = normalizeTruthSlash(truth.chords);
     const v1a = out.chords.map((c) => ({ start: c.start, end: c.end, root: c.root, quality: c.quality, bass: c.bass ?? null }));
