@@ -4,8 +4,10 @@
  * time. The audio goes through the REAL capture logic (captureCore.ts + captureRouter.ts): a synthetic hum, plus
  * every scheduled click heard `clickRoundTripMs` later (so a latency measurement with latency.ts succeeds), or
  * none (`clickRoundTripMs: null`, the measurement fails).
+ * Differences from the real session: `stopClicks` cuts the heard clicks at once (the real ones may ring out);
+ * `resume()` always succeeds at once; core messages arrive by microtask, not through a MessagePort (timing differs).
  */
-import { clickSamples } from '../lib/mic/clickTrack';
+import { softClickSamples } from '../lib/mic/clickSound';
 import type { ReportedLatency } from '../lib/mic/latency';
 import { CaptureCore } from './captureCore';
 import { createCaptureRouter } from './captureRouter';
@@ -18,7 +20,7 @@ import {
   type MicSession,
   type OpenMic,
   type ScheduledClick,
-} from './micSession';
+} from './micSession.types';
 
 export interface FakeMicOptions {
   /** Default: one mic `fake-mic` 「テスト用マイク」. [] = no mic (open fails with notFound). */
@@ -83,8 +85,8 @@ export function createFakeMicSession(
   const scheduled: ScheduledClick[] = [];
   const stats = { opens: 0, closes: 0, resumes: 0, stopClicks: 0 };
   const clickWave = {
-    weak: clickSamples(rate, false),
-    strong: clickSamples(rate, true),
+    weak: softClickSamples(rate, false),
+    strong: softClickSamples(rate, true),
   };
 
   let mic: {
@@ -102,6 +104,8 @@ export function createFakeMicSession(
     silent: boolean;
     frozen: boolean;
     interrupted: boolean;
+    /** the worklet died (`workletError`): the clock goes on, but nothing is processed any more (no chunks, level or end) */
+    dead: boolean;
     /** context time of the first click of the latest scheduleClicks */
     clicksFrom: number;
   } | null = null;
@@ -126,6 +130,10 @@ export function createFakeMicSession(
     m.target += sec * rate;
     while (m.frame + QUANTUM <= m.target + 1e-6) {
       m.heard = m.heard.filter((c) => c.at + c.wave.length > m.frame);
+      if (m.dead) {
+        m.frame += QUANTUM;
+        continue;
+      }
       m.core.process([render(m, m.frame)], m.frame, QUANTUM);
       if (m.frozen || m.closed) {
         m.target = m.frame;
@@ -169,6 +177,7 @@ export function createFakeMicSession(
       silent: false,
       frozen: false,
       interrupted: false,
+      dead: false,
       clicksFrom: Infinity,
       open: {
         deviceId: dev.deviceId,
@@ -191,7 +200,7 @@ export function createFakeMicSession(
             if (roundTrip !== null)
               m.heard.push({
                 at: Math.round((c.time + roundTrip / 1000) * rate),
-                wave: c.strong ? clickWave.strong : clickWave.weak,
+                wave: clickWave[c.strong ? 'strong' : 'weak'],
               });
           }
         },
@@ -235,6 +244,7 @@ export function createFakeMicSession(
       m.silent = true;
       if (reason === 'contextClosed' || reason === 'contextInterrupted')
         m.frozen = true;
+      if (reason === 'workletError') m.dead = true;
       if (reason === 'contextClosed') m.router.dispose();
       m.handlers.onInterrupted(reason);
     },

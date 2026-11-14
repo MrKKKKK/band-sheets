@@ -82,8 +82,9 @@ describe('createFakeMicSession', () => {
     const v = judgeLatency(det, mic.latencyNow());
     expect(v).toMatchObject({ ok: true, found: 4 });
     if (v.ok) {
-      expect(v.roundTripMs).toBeCloseTo(100, 0);
-      expect(v.remainderMs).toBeCloseTo(50, 0);
+      // + the soft click's ~0.7 ms detection delay (latency.test.ts)
+      expect(v.roundTripMs).toBeCloseTo(100.7, 0);
+      expect(v.remainderMs).toBeCloseTo(50.7, 0);
     }
   });
 
@@ -119,8 +120,9 @@ describe('createFakeMicSession', () => {
     s.advance(1.6);
     await cap.done;
     const all = cap.buffer.sliceFloat(0, 3 * r);
+    // the soft click peaks at 0.5
     expect(Math.max(...all.subarray(r, r + 200).map(Math.abs))).toBeGreaterThan(
-      0.5,
+      0.4,
     );
     expect(
       Math.max(...all.subarray(2 * r - 10, 2 * r + 200).map(Math.abs)),

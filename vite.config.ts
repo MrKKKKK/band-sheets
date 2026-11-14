@@ -113,6 +113,11 @@ export default defineConfig({
     // match, so never fall back to another port.
     port: 5173,
     strictPort: true,
+    watch: {
+      // Nested git worktrees (.worktrees/<name>, another full checkout with spikes / data) must not be watched:
+      // chokidar walking them grew the dev server past its heap limit and crashed e2e's server.
+      ignored: ['**/.worktrees/**'],
+    },
   },
   test: {
     // Keep worker count low: full-suite runs used to take down WSL in

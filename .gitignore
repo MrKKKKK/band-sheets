@@ -46,3 +46,6 @@ spikes/analysis/basskits/
 # Python bytecode (spikes/analysis/py)
 __pycache__/
 /out/
+
+# Nested git worktrees (also keeps Prettier, which reads .gitignore, out of them)
+/.worktrees/

@@ -83,6 +83,9 @@ async function recordFor(s: ReturnType<typeof setup>, sec: number) {
   await step(s.session, sec);
 }
 
+/** The fake's measured remainder: round trip 100 ms - reported 50 ms + the soft click's ~0.7 ms detection delay (latency.test.ts). */
+const MEASURED_MS = 50.7;
+
 describe('useMicRecorder', () => {
   it('opens the mic: ready, devices, level, announcement', async () => {
     const s = setup();
@@ -159,8 +162,8 @@ describe('useMicRecorder', () => {
     await step(s.session, 0.3);
     const peaks = s.hook.result.current.take!.peaks;
     // clicks every 0.5 s: buckets 0, 50, 100… hold them; in between is silence
-    expect(peaks[0]).toBeGreaterThan(0.5);
-    expect(peaks[50]).toBeGreaterThan(0.5);
+    expect(peaks[0]).toBeGreaterThan(0.3);
+    expect(peaks[50]).toBeGreaterThan(0.3);
     expect(peaks[25]).toBe(0);
     expect(peaks[49]).toBe(0);
   });
@@ -211,6 +214,23 @@ describe('useMicRecorder', () => {
       end: 'contextInterrupted',
     });
     expect(s.hook.result.current.take!.durationSec).toBeGreaterThan(3.5);
+  });
+
+  it('a dead worklet (workletError) delivers nothing more: the take is made from what was buffered after the time limit', async () => {
+    const s = setup();
+    await opened(s);
+    await recordFor(s, 4);
+    act(() => s.session.interrupt('workletError'));
+    s.session.advance(1); // the context clock goes on, the dead worklet says nothing
+    await wait(INTERRUPTED_WAIT_MS - 10);
+    expect(s.hook.result.current.state.phase).toBe('finishing');
+    await wait(20);
+    expect(s.hook.result.current.state).toMatchObject({
+      phase: 'take',
+      end: 'workletError',
+    });
+    expect(s.hook.result.current.take!.durationSec).toBeGreaterThan(3);
+    expect(s.hook.result.current.take!.durationSec).toBeLessThan(4.5);
   });
 
   it('a context clock that stands still while recording = interrupted (stalled)', async () => {
@@ -292,13 +312,13 @@ describe('useMicRecorder', () => {
     await step(s.session, 2);
     const r = s.hook.result.current;
     expect(r.state.phase).toBe('measured');
-    expect(r.state.remainderMs).toBeCloseTo(50, 0);
-    expect(loadMicRemainder(s.storage, 'fake-mic')).toBeCloseTo(50, 0);
-    expect(s.said.at(-1)).toBe('入力の遅れ 50 ms を覚えました。');
+    expect(r.state.remainderMs).toBeCloseTo(MEASURED_MS, 0);
+    expect(loadMicRemainder(s.storage, 'fake-mic')).toBeCloseTo(MEASURED_MS, 0);
+    expect(s.said.at(-1)).toBe('入力の遅れ 51 ms を覚えました。');
     act(() => r.closeMeasure());
     expect(s.hook.result.current.state).toMatchObject({
       phase: 'ready',
-      remainderMs: expect.closeTo(50, 0),
+      remainderMs: expect.closeTo(MEASURED_MS, 0),
     });
   });
 
@@ -406,15 +426,15 @@ describe('useMicRecorder', () => {
     act(() => s.hook.result.current.measure());
     await step(s.session, 3);
     expect(s.hook.result.current.state.phase).toBe('measured');
-    expect(s.hook.result.current.state.remainderMs).toBeCloseTo(50, 0);
+    expect(s.hook.result.current.state.remainderMs).toBeCloseTo(MEASURED_MS, 0);
     act(() => s.hook.result.current.closeMeasure());
     await recordFor(s, 3);
     act(() => s.hook.result.current.stop());
     await step(s.session, 0.3);
     const peaks = s.hook.result.current.take!.peaks;
-    expect(peaks[0]).toBeGreaterThan(0.5);
-    expect(peaks[50]).toBeGreaterThan(0.5);
-    expect(peaks[5]).toBe(0);
+    expect(peaks[0]).toBeGreaterThan(0.3);
+    expect(peaks[50]).toBeGreaterThan(0.3);
+    expect(peaks[10]).toBe(0);
   });
 
   it('an interruption during the measurement reopens the mic and stores nothing', async () => {

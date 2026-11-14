@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { MicRecorderView } from '../components/MicRecorder/MicRecorder';
 import type { MicTake } from '../hooks/useMicRecorder';
 import type { RecorderPhase } from '../lib/mic/recorderState';
-import { isRecording, micHumSource } from './humMicSource';
+import { isRecording } from '../lib/mic/recorderState';
+import { micHumSource } from './humMicSource';
 
 const meter = { tempo: 96, ts: { num: 4, den: 4 } };
 const take: MicTake = {
@@ -34,13 +35,13 @@ function view(phase: RecorderPhase, withTake = false): MicRecorderView {
   };
 }
 
-const build = (recorder: MicRecorderView, waitForFile = false) =>
+const build = (recorder: MicRecorderView) =>
   micHumSource({
     recorder,
     ts: meter.ts,
     onUseFile: vi.fn(),
     saveName: () => 'x.wav',
-    waitForFile,
+    save: vi.fn(),
   });
 
 describe('micHumSource', () => {
@@ -85,7 +86,7 @@ describe('micHumSource', () => {
     ).toBe(false);
   });
 
-  it('with a take: ready unless a picked file is still being probed; 録り直す asks (M8)', () => {
+  it('with a take: ready; 録り直す asks (M8)', () => {
     const r = view({ phase: 'take', take: info, end: 'user' }, true);
     const s = build(r);
     expect(s).toMatchObject({
@@ -98,7 +99,6 @@ describe('micHumSource', () => {
     const measured = view({ phase: 'take', take: info, end: 'user' }, true);
     measured.state.remainderMs = 48;
     expect(build(measured).summaryExtra?.value).toBe('48 ms');
-    expect(build(r, true).ready).toBe(false);
     s.retake.onClick();
     expect(r.retake).toHaveBeenCalled();
     expect(s.retake.label).toBe('録り直す');

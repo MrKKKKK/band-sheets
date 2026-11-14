@@ -6,6 +6,7 @@
 import type { MicDevice, MicErrorKind } from './micTypes';
 import { formatClock, formatDurationJa } from '../import/format';
 import type {
+  Meter,
   ReadyNotice,
   RecorderState,
   StopCause,
@@ -117,6 +118,9 @@ export const METER_HINT = '声を出して確かめます';
 
 export const HEADPHONES_NOTE =
   'ヘッドホンをつけてください。クリックの音がマイクに入るのを防ぎます。';
+
+export const VOICE_ONLY_NOTE =
+  '楽器を鳴らさず、歌だけで録ってください（伴奏が入ると音を拾い違えます）。';
 
 /** M3: under ● 録音. */
 export function recordNote(beats: number): string {
@@ -245,3 +249,8 @@ export function announcementFor(
 
 /** M6 → M7: between ■ and the take (the tail is awaited, the file is made). */
 export const FINISHING_STATUS = '録音をまとめています…';
+
+/** The clicks' tempo and time signature, e.g. 「♩= 96 ・ 4/4」. */
+export function meterText(m: Meter): string {
+  return `♩= ${m.tempo} ・ ${m.ts.num}/${m.ts.den}`;
+}

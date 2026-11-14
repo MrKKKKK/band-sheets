@@ -81,8 +81,9 @@ export interface AnalysisRun<R extends AnalysisRequest> {
    * Analyse `file` whose length is already known (a recording the screen made): no length probe and no
    * 「選びました」 announcement. On failure / cancel the pick phase shows the file picked BEFORE (or none), so the
    * picked file and the recording both survive. Reads no render-time state, so it works right after a state change
-   * in the same handler. Does nothing while an analysis runs. A pick whose length is still being read is
-   * discarded (the file comes back with `duration: null`), so callers should wait for the probe.
+   * in the same handler. Does nothing while an analysis runs. A running length probe of the picked file is NOT
+   * cancelled (it has its own generation): its result still lands on the remembered picked file, and on the
+   * pick phase if that is showing the file again after a failure / cancel.
    */
   startFile: (file: File, durationSec: number, request: R) => Promise<void>;
   cancel: () => void;
@@ -97,12 +98,19 @@ export function useAnalysisRun<R extends AnalysisRequest>({
   takeNotice = noticeFor,
 }: AnalysisRunOptions<R>): AnalysisRun<R> {
   type Phase = RunPhase<AnalysisResultMap[R['kind']]>;
-  const [phase, setPhase] = useState<Phase>({
+  const [phase, setPhaseRaw] = useState<Phase>({
     kind: 'pick',
     file: null,
     duration: null,
     notice: null,
   });
+  /** The phase as last set (also right after a set in the same handler / before the next render). */
+  const phaseRef = useRef<Phase>(phase);
+  const setPhase = (next: Phase | ((prev: Phase) => Phase)) => {
+    phaseRef.current =
+      typeof next === 'function' ? next(phaseRef.current) : next;
+    setPhaseRaw(next);
+  };
   const [live, setLive] = useState('');
   const clientRef = useRef<AnalysisClient | null>(injected ?? null);
   /** Bumped by every start / cancel / unmount: late results of an older run are dropped. */
@@ -115,8 +123,10 @@ export function useAnalysisRun<R extends AnalysisRequest>({
   type Picked = { file: File | null; duration: number | null };
   /** The file picked with `pick` (what failure / cancel returns to); kept in a ref so no handler reads a stale render. */
   const pickedRef = useRef<Picked>({ file: null, duration: null });
-  /** Where the running analysis returns to on failure / cancel. */
-  const backRef = useRef<Picked>({ file: null, duration: null });
+  /** Bumped by every pick / unmount: a late length probe of an older pick is dropped. Independent of `runRef`. */
+  const pickGenRef = useRef(0);
+  /** The picked file whose length is still being read (a notice shown meanwhile keeps `probing`). */
+  const probingRef = useRef<File | null>(null);
   const analyzingRef = useRef(false);
 
   const say = useCallback((msg: string) => {
@@ -144,6 +154,7 @@ export function useAnalysisRun<R extends AnalysisRequest>({
   useEffect(
     () => () => {
       runRef.current++;
+      pickGenRef.current++;
       clientRef.current?.cancel();
     },
     [],
@@ -162,14 +173,25 @@ export function useAnalysisRun<R extends AnalysisRequest>({
     focusNext.current = 'notice';
     analyzingRef.current = false;
     pickedRef.current = { file, duration };
-    setPhase({ kind: 'pick', file, duration, notice });
+    setPhase({
+      kind: 'pick',
+      file,
+      duration,
+      ...(file && probingRef.current === file ? { probing: true } : {}),
+      notice,
+    });
     say(notice.message);
   };
 
+  /** A notice on the picked file (what failure / cancel of a run returns to). */
+  const showNoticeOnPicked = (notice: ImportNotice) =>
+    showNotice(pickedRef.current.file, pickedRef.current.duration, notice);
+
   const pick = async (file: File) => {
     if (phase.kind === 'analyzing') return;
-    const run = ++runRef.current;
+    const gen = ++pickGenRef.current;
     pickedRef.current = { file, duration: null };
+    probingRef.current = file;
     // Show the new file at once; starting waits for its length.
     setPhase({
       kind: 'pick',
@@ -179,29 +201,36 @@ export function useAnalysisRun<R extends AnalysisRequest>({
       notice: null,
     });
     const duration = await probe(file).catch(() => null);
-    if (run !== runRef.current) return;
-    if (duration !== null && duration > MAX_DURATION_SEC) {
-      showNotice(null, null, noticeFor('too-long'));
+    if (gen !== pickGenRef.current) return;
+    probingRef.current = null;
+    const tooLong = duration !== null && duration > MAX_DURATION_SEC;
+    // Only the pick phase showing this very file, with no other run's notice, takes the result; otherwise (an
+    // analysis, a review, a failure notice of the recording) only the remembered picked file is updated.
+    const ph = phaseRef.current;
+    const visible = ph.kind === 'pick' && ph.file === file;
+    if (tooLong) {
+      if (visible && !ph.notice) showNotice(null, null, noticeFor('too-long'));
+      else pickedRef.current = { file: null, duration: null };
       return;
     }
     pickedRef.current = { file, duration };
-    setPhase({ kind: 'pick', file, duration, notice: null });
-    say(
-      `${file.name} を選びました${duration !== null ? `。長さ ${formatDurationJa(duration)}` : ''}`,
-    );
+    if (!visible) return;
+    setPhase({ kind: 'pick', file, duration, notice: ph.notice });
+    if (!ph.notice)
+      say(
+        `${file.name} を選びました${duration !== null ? `。長さ ${formatDurationJa(duration)}` : ''}`,
+      );
   };
 
-  /** Runs the analysis of `file`; failure / cancel return to `back`. */
+  /** Runs the analysis of `file`; failure / cancel return to the picked file (`pickedRef`). */
   const analyze = async (
     file: File,
     duration: number | null,
-    back: Picked,
     request: R,
     failNotice: (code: AnalysisErrorCode) => ImportNotice = noticeFor,
   ) => {
     const run = ++runRef.current;
     analyzingRef.current = true;
-    backRef.current = back;
     focusNext.current = 'progress';
     setPhase({ kind: 'analyzing', file, duration, progress: null });
     say(`解析を始めました。${stepText(null)}`);
@@ -223,7 +252,7 @@ export function useAnalysisRun<R extends AnalysisRequest>({
       if (run !== runRef.current) return;
       const rejected = rejectResult?.(result);
       if (rejected) {
-        showNotice(back.file, back.duration, rejected);
+        showNoticeOnPicked(rejected);
         return;
       }
       analyzingRef.current = false;
@@ -233,38 +262,28 @@ export function useAnalysisRun<R extends AnalysisRequest>({
     } catch (e) {
       if (run !== runRef.current) return;
       const code = isAnalysisError(e) ? e.code : 'internal';
+      const back = pickedRef.current;
       if (code === 'too-long' && back.file === file)
         showNotice(null, null, failNotice(code));
-      else showNotice(back.file, back.duration, failNotice(code));
+      else showNoticeOnPicked(failNotice(code));
     }
   };
 
   const start = async (request: R) => {
     if (phase.kind !== 'pick' || !phase.file || phase.probing) return;
-    const { file, duration } = phase;
-    await analyze(file, duration, { file, duration }, request);
+    await analyze(phase.file, phase.duration, request);
   };
 
   const startFile = async (file: File, durationSec: number, request: R) => {
     if (analyzingRef.current) return;
-    await analyze(
-      file,
-      durationSec,
-      { ...pickedRef.current },
-      request,
-      takeNotice,
-    );
+    await analyze(file, durationSec, request, takeNotice);
   };
 
   const cancel = () => {
     if (phase.kind !== 'analyzing') return;
     runRef.current++;
     clientRef.current?.cancel();
-    showNotice(
-      backRef.current.file,
-      backRef.current.duration,
-      noticeFor('cancelled'),
-    );
+    showNoticeOnPicked(noticeFor('cancelled'));
   };
 
   return {

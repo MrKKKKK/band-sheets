@@ -35,6 +35,7 @@
 - `src/lib/csp.test.ts`（`npm test`）: ポリシーの形（`'unsafe-eval'`・`*`・data: がない、blob: は `media-src` だけ、meta で効かないディレクティブがない など）と meta の挿入位置。
 - `npm run check-bundle`: `dist/index.html` の meta が `src/lib/csp.ts` と一致し、どの script / link / style よりも前にあり、インライン `<script>` がないこと。
 - `npm run e2e:csp`（`playwright.csp.config.ts`、ポート 5175）: 本番ビルド（base `/band-sheets/`、解析ハーネスのページも含む）を `vite preview` で配信し、偽の GIS / Drive（`e2e/support/fakeDrive.ts`、本物と同じ URL で応答）でログイン・一覧・新規・保存・開く・編集・保存・エディタの譜面（メロディ・ドラム）・閲覧モードの譜面・フォント読み込み・解析 Worker・録音からの取り込み（S1 → 解析 → S3 → 新しい曲）を通し、`securitypolicyviolation` と CSP のコンソールエラーが 0 件であることを確かめる。インラインスクリプトを差し込むと 1 件検出されることも確認する（検出の仕組みが動いている証拠）。
+- マイク録音の worklet は同じオリジンのモジュール（`?worker&url`）として読むので、`script-src 'self'` で足りる（`blob:` は使わない）。`e2e:csp` のマイクのテストが違反 0 件を確かめる。
 
 ## デプロイ後の手動確認（本物の Google）
 
