@@ -24,8 +24,9 @@ Private terms are read at RUNTIME from the gitignored recordings folder (nothing
     "humming note sequence (k of n runs)" (once per file / diff / message). T15: the runs are also compared by their
     interval sequence (differences between consecutive pitches), so a transposed or octave-shifted copy of a run is
     found as well ("... transposed form"); interval windows with fewer than 3 distinct intervals are not used.
-  * spike 5 drums / spike 6 bass: the original names in recordings/drm-ids.local.json and bas-ids.local.json (read
-    like ids.local.json) and the stems of the files in drm-inbox/, drm-originals/, bas-inbox/ and bas-originals/.
+  * spike 5 drums / spike 6 bass / spike 7 chords: the original names in recordings/drm-ids.local.json,
+    bas-ids.local.json and chd-ids.local.json (read like ids.local.json) and the stems of the files in drm-inbox/,
+    drm-originals/, bas-inbox/ and bas-originals/.
 Chord runs that are a window of a generic loop (GENERIC_LOOPS, e.g. I-vi-IV-V of the T0 test signal) in any key are
 allowed: they identify nothing and are used by tests.
 Matching ignores case and treats space / _ / - / . as the same. Anonymous names (rec, rec-01 ...) and very short
@@ -56,7 +57,7 @@ _PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 _CHORD_TOKEN = re.compile(r"([A-G])([#b]?)(.*)")
 SKIP_DIRS = {"out", "recordings", "node_modules", ".git", "soundfonts", "__pycache__"}
 SEP = r"[\s_\-.]+"
-IDS_FILES = ("ids.local.json", "hum-ids.local.json", "drm-ids.local.json", "bas-ids.local.json")
+IDS_FILES = ("ids.local.json", "hum-ids.local.json", "drm-ids.local.json", "bas-ids.local.json", "chd-ids.local.json")
 
 
 def _norm(t):

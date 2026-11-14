@@ -261,6 +261,11 @@ class TestDrumBassSources(unittest.TestCase):
             write(os.path.join(self.rec, name), json.dumps({"recordings": {"x-01": {"original": orig}}}))
         self.assertEqual(self.terms(), ["test song a", "test song b"])
 
+    def test_chd_ids_file_is_read_not_a_term(self):
+        # spike 7: the registry's own name must not become a term (the plan names the file)
+        write(os.path.join(self.rec, "chd-ids.local.json"), json.dumps({"recordings": {"x-01": {"original": "Test Song I.wav"}}}))
+        self.assertEqual(self.terms(), ["test song i"])
+
     def test_original_files_list_read_for_any_ids_file(self):
         write(os.path.join(self.rec, "drm-ids.local.json"),
               json.dumps({"recordings": {"x-01": {"originalFiles": ["Test Song C.wav", "Test Song C.txt"]}}}))
