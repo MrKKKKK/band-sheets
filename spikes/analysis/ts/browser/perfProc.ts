@@ -1,6 +1,5 @@
 /**
- * Node-side helpers of the browser perf specs (spike 6 T12 bassPerf.spec.ts; the same code is still copied in
- * drumPerf.spec.ts and humPerf.spec.ts, which can move here in a separate refactoring PR): write a 16-bit mono wav, and
+ * Node-side helpers of the browser perf specs (bassPerf, drumPerf, humPerf, bench): write a 16-bit mono wav, and
  * read the Chromium renderer processes' VmRSS from /proc (Linux, devcontainer). No network.
  */
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';

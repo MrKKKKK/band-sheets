@@ -6,33 +6,15 @@
  * out/drum/t13/). Per (length, level): one fresh page = 1 cold run + 2 warm runs. Result: out/drum/t13/perf.json.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { rendererRssMb, writeWav16 } from './perfProc';
 import { decodeWav } from './wav';
 
 const DRUM = join(import.meta.dirname, '../../out/drum');
 const OUT = join(DRUM, 't13');
 const ORIGIN = 'http://127.0.0.1:5185';
 const LEVELS = ['S-3', 'S-9', 'S-ext'] as const;
-
-function writeWav16(path: string, x: Float32Array, sr: number): void {
-  const data = x.length * 2;
-  const b = Buffer.alloc(44 + data);
-  b.write('RIFF', 0, 'ascii');
-  b.writeUInt32LE(36 + data, 4);
-  b.write('WAVEfmt ', 8, 'ascii');
-  b.writeUInt32LE(16, 16);
-  b.writeUInt16LE(1, 20);
-  b.writeUInt16LE(1, 22);
-  b.writeUInt32LE(sr, 24);
-  b.writeUInt32LE(sr * 2, 28);
-  b.writeUInt16LE(2, 32);
-  b.writeUInt16LE(16, 34);
-  b.write('data', 36, 'ascii');
-  b.writeUInt32LE(data, 40);
-  for (let i = 0; i < x.length; i++) b.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(x[i] * 32768))), 44 + i * 2);
-  writeFileSync(path, b);
-}
 
 const files: Record<number, string> = {};
 let bpm = 100;
@@ -62,26 +44,6 @@ function makeWavs(): { sources: string[]; bpm: number; files: Record<number, str
     writeWav16(files[min], out, sr);
   }
   return { sources: src.map((v) => v.name), bpm, files };
-}
-
-function rendererRssMb(): { max: number; sum: number } {
-  let max = 0;
-  let sum = 0;
-  for (const pid of readdirSync('/proc')) {
-    if (!/^\d+$/.test(pid)) continue;
-    try {
-      if (!readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes('--type=renderer')) continue;
-      const mm = /VmRSS:\s+(\d+) kB/.exec(readFileSync(`/proc/${pid}/status`, 'utf8'));
-      if (mm) {
-        const mb = Number(mm[1]) / 1024;
-        max = Math.max(max, mb);
-        sum += mb;
-      }
-    } catch {
-      /* gone */
-    }
-  }
-  return { max, sum };
 }
 
 interface Summary {
