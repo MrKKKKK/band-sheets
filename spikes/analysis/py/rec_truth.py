@@ -48,6 +48,17 @@ SUFFIX_QUALITY = {
 }
 
 
+# Spike 7 (opt-in `originalQuality`): the suffixes whose collapsed quality loses what the chord was. Every other suffix
+# in SUFFIX_QUALITY keeps its collapsed quality as the original (C -> maj, Dm7 -> min7); a suffix outside the table is
+# kept verbatim in both fields. '2' stays '2' (sus2 or add9: the annotation does not say).
+ORIGINAL_QUALITY = {
+    "add9": "add9", "add2": "add9", "6": "6", "2": "2", "5": "5",
+    "m6": "m6", "madd9": "madd9", "madd2": "madd9", "m9": "m9",
+    "9": "9", "maj9": "maj9", "7sus4": "7sus4", "sus": "sus4",
+    "aug7": "aug7", "+7": "aug7", "dim7": "dim7",
+}
+
+
 # well-formed suffix outside the table: a sequence of quality / extension / alteration tokens
 _SUFFIX_RE = re.compile(r"(?:maj|min|dim|aug|sus[24]?|add\d+|[mM]|[+\-\u00b0\u00f8^]|[#b]?\d+|\([#b+\-]?\d+(?:[,#b]?\d*)*\))+")
 
@@ -68,6 +79,14 @@ def parse_chord(text):
     return m.group(1), quality, m.group(3)
 
 
+def original_quality_of(text):
+    """The quality of a chord text before it is collapsed to the scorer's vocabulary ('Am6' -> 'm6', 'C6' -> '6',
+    'Dm7' -> 'min7'). Same errors as parse_chord."""
+    root, quality, _ = parse_chord(text)
+    m = re.fullmatch(r"([A-G][#b]?)([^/]*)(?:/([A-G][#b]?))?", text.strip())
+    return ORIGINAL_QUALITY.get(m.group(2), quality)
+
+
 def _r(x):
     return round(float(x), 4)
 
@@ -76,8 +95,9 @@ def _key_text(key):
     return key if re.fullmatch(r"[A-G][#b]?m?", key) else None
 
 
-def build_truth(ann, audio_sec, t0, tempo, name="rec"):
-    """t0 = time of the first beat (the first pickup beat when pickupBeats > 0, else bar 0 beat 0)."""
+def build_truth(ann, audio_sec, t0, tempo, name="rec", original_quality=False):
+    """t0 = time of the first beat (the first pickup beat when pickupBeats > 0, else bar 0 beat 0).
+    original_quality=True adds `originalQuality` to every timed chord (spike 7); the default output is unchanged."""
     num, den = ann["timeSignature"]
     eps = ann["eighthsPerBar"]
     eighth = 30.0 / tempo
@@ -123,8 +143,11 @@ def build_truth(ann, audio_sec, t0, tempo, name="rec"):
                 pos += n
                 continue
             root, quality, bass = parse_chord(text)
-            chords.append({"start": _r(t0 + pos * eighth), "end": _r(t0 + (pos + n) * eighth), "root": root,
-                           "quality": quality, "bass": bass, "text": text, "confidence": 1})
+            chord = {"start": _r(t0 + pos * eighth), "end": _r(t0 + (pos + n) * eighth), "root": root,
+                     "quality": quality, "bass": bass, "text": text, "confidence": 1}
+            if original_quality:
+                chord["originalQuality"] = original_quality_of(text)
+            chords.append(chord)
             pos += n
         return pos
 
@@ -282,9 +305,9 @@ def register_recording(rec_dir, src, held_out, style=None, now=None):
     return rid
 
 
-def emit(ann, wav, name, out, fit, held_out, take=None):
+def emit(ann, wav, name, out, fit, held_out, take=None, original_quality=False):
     """Write out/rec/<name>.truth.json and merge the entry into out/rec/manifest.rec.json. Returns both paths."""
-    truth = build_truth(ann, fit["audioSec"], fit["t0"], fit["tempo"], name)
+    truth = build_truth(ann, fit["audioSec"], fit["t0"], fit["tempo"], name, original_quality=original_quality)
     outdir = os.path.join(out, "rec")
     os.makedirs(outdir, exist_ok=True)
     tpath = os.path.join(outdir, f"{name}.truth.json")
@@ -329,6 +352,7 @@ def main(argv=None):
     ap.add_argument("annotation")
     ap.add_argument("--out", default="out")
     ap.add_argument("--no-fit", action="store_true", help="use firstSoundSec / tempo as annotated")
+    ap.add_argument("--original-quality", action="store_true", help="add originalQuality to every chord (spike 7)")
     a = ap.parse_args(argv)
     ann = json.load(open(a.annotation))
     base = os.path.basename(a.annotation)
@@ -342,7 +366,7 @@ def main(argv=None):
     if a.no_fit:
         fit.update(t0=ann["firstSoundSec"], tempo=ann["tempo"])
     held = bool(reg["heldOut"]) if reg else False
-    tpath, mpath = emit(ann, wav, name, a.out, fit, held)
+    tpath, mpath = emit(ann, wav, name, a.out, fit, held, original_quality=a.original_quality)
     print(f"wrote {tpath}, {mpath}")
     print(f"fit: t0={fit['t0']:.4f}s (annotated {ann['firstSoundSec']}) tempo={fit['tempo']:.3f} (annotated {ann['tempo']}) "
           f"residualMedian={fit['residualMedianMs']:.1f}ms onsets={fit['nOnsets']}")
