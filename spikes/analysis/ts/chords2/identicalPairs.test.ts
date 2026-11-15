@@ -1,8 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  IDENTICAL_PAIRS_DRAFT,
+  IDENTICAL_PAIRS,
+  OTHER_ROWS,
   SYMMETRIC_EXCLUDED,
-  TRUTH_DRAFT,
+  TRUTH_ROWS,
   identicalGroups,
   stageQualities,
   templates,
@@ -53,23 +56,23 @@ function kinds(stage: Stage): { cross: string[]; same: string[] } {
       continue;
     }
     expect(g).toHaveLength(2); // every cross-quality group is a pair
-    for (const p of IDENTICAL_PAIRS_DRAFT) {
+    for (const p of IDENTICAL_PAIRS) {
       const a = g.find((s) => s.quality === p.a);
       const b = g.find((s) => s.quality === p.b);
       if (a && b && (a.root + p.offset) % 12 === b.root) cross.add(`${p.a}>${p.b}+${p.offset}`);
     }
-    if (!IDENTICAL_PAIRS_DRAFT.some((p) => qs.includes(p.a) && qs.includes(p.b))) cross.add(`UNLISTED:${qs.join('/')}`);
+    if (!IDENTICAL_PAIRS.some((p) => qs.includes(p.a) && qs.includes(p.b))) cross.add(`UNLISTED:${qs.join('/')}`);
   }
   return { cross: [...cross].sort(), same: [...same].sort() };
 }
 
 const ORDER: Stage[] = ['V0', 'V1', 'V2', 'V3'];
 const listedUpTo = (stage: Stage) =>
-  IDENTICAL_PAIRS_DRAFT.filter((p) => ORDER.indexOf(p.stage) <= ORDER.indexOf(stage))
+  IDENTICAL_PAIRS.filter((p) => ORDER.indexOf(p.stage) <= ORDER.indexOf(stage))
     .map((p) => `${p.a}>${p.b}+${p.offset}`)
     .sort();
 
-describe('identical-note pairs (DRAFT, spike 7 T2)', () => {
+describe('identical-note pairs (spike 7 T2)', () => {
   it.each(ORDER)('stage %s: listed pairs are exactly the identical pitch-class sets', (stage) => {
     const k = kinds(stage);
     expect(k.cross).toEqual(listedUpTo(stage));
@@ -77,16 +80,16 @@ describe('identical-note pairs (DRAFT, spike 7 T2)', () => {
   });
 
   it('every pair is identical on all 12 roots', () => {
-    for (const p of IDENTICAL_PAIRS_DRAFT)
+    for (const p of IDENTICAL_PAIRS)
       for (let r = 0; r < 12; r++) expect(pcSet(r, p.a)).toBe(pcSet((r + p.offset) % 12, p.b));
   });
 
   it('truth rows: truth and candidate are the two readings of one listed pair, conflict flag matches the bass', () => {
-    for (const row of TRUTH_DRAFT) {
+    for (const row of TRUTH_ROWS) {
       const t = chord(row.truth);
       const c = chord(row.candidate);
       expect(pcSet(t.root, t.quality), row.id).toBe(pcSet(c.root, c.quality));
-      const listed = IDENTICAL_PAIRS_DRAFT.some(
+      const listed = IDENTICAL_PAIRS.some(
         (p) => (p.a === t.quality && p.b === c.quality) || (p.a === c.quality && p.b === t.quality),
       );
       expect(listed, row.id).toBe(true);
@@ -95,10 +98,18 @@ describe('identical-note pairs (DRAFT, spike 7 T2)', () => {
   });
 
   it('about a third of the rows are conflict cases (plan §2.3), every pair has at least one', () => {
-    const n = TRUTH_DRAFT.length;
-    const conflicts = TRUTH_DRAFT.filter((r) => r.conflict).length;
+    const n = TRUTH_ROWS.length;
+    const conflicts = TRUTH_ROWS.filter((r) => r.conflict).length;
     expect(conflicts / n).toBeGreaterThanOrEqual(0.3);
     for (const letter of ['A', 'B', 'C'])
-      expect(TRUTH_DRAFT.some((r) => r.id.startsWith(letter) && r.conflict)).toBe(true);
+      expect(TRUTH_ROWS.some((r) => r.id.startsWith(letter) && r.conflict)).toBe(true);
+  });
+
+  it('the doc gives a reason for exactly the rows of this table', () => {
+    const md = readFileSync(join(import.meta.dirname, '../../../../docs/audio-spike7-t2-truth.md'), 'utf8');
+    const mdIds = [...md.matchAll(/^\| ([A-CP]\d+) +\|/gm)].map((m) => m[1]).sort();
+    const tsIds = [...TRUTH_ROWS, ...OTHER_ROWS].map((r) => r.id).sort();
+    expect(new Set(tsIds).size).toBe(tsIds.length);
+    expect(mdIds).toEqual(tsIds);
   });
 });
