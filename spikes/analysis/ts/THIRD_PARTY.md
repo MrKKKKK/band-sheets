@@ -88,3 +88,14 @@ audio; never committed, never bundled into the app. Details: `spikes/analysis/DR
 
 `render/drum/flac.ts` (FLAC decoder) is our own code written from the format specification (RFC 9639); no
 third-party decoder code was read or copied.
+
+## Piano samples for spike 7's synthetic data (not shipped, not in git)
+
+Downloaded by `spikes/analysis/fetch-piano-samples.sh` (every file SHA-256 pinned, from a pinned commit) into the
+gitignored `spikes/analysis/pianokits/`. Used only by `render/chords2/` to render local held-out test audio; never
+committed, never bundled into the app.
+
+- "Upright Piano" (Upright No. 1) from VS Chamber Orchestra 2: Community Edition 1.1.0 by Versilian Studios LLC /
+  Sam Gossner; sampled by Simon Dalzell (Ivy Audio). Repository license CC0 1.0 Universal
+  (https://github.com/sgossner/VSCO-2-CE, commit 4403009). Credit is not required by CC0; the readme asks for it, so
+  it is given here.
