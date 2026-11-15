@@ -4,60 +4,12 @@
  * rows; docs/audio-spike7-t2-truth.md gives the reason per row ID (a test keeps the IDs in sync).
  * `src` cites the theory note 「和声法ノート v3」 by § (v3 の追記 2026-11: §1.4, §3.5, §3.7, §3.8, §6.7).
  *
- * NEW_TEMPLATES is the interval data T3 needs for the chords2 vocabulary; when T3 writes that vocabulary,
- * it should own these templates and this file should import them (one place, DRY).
+ * The stages, qualities and interval templates live in ./vocab (T3, the chords2 vocabulary); they are
+ * re-exported here so this file's users keep one import.
  */
-import { intervals } from '../dsp/vocab';
+import { templates, type Stage } from './vocab';
 
-export type Stage = 'V0' | 'V1' | 'V2' | 'V3';
-
-/** v1a state qualities (ts/dsp/vocab.ts v2 + sevenths; power '5' is off). */
-const V0_QUALITIES = ['maj', 'min', '7', 'maj7', 'min7', 'dim', 'aug', 'sus4', 'm7b5', 'dim7'] as const;
-
-/** Plan §2.2. Each stage adds these qualities on top of the previous stage. */
-export const STAGE_ADDS: Record<Stage, readonly string[]> = {
-  V0: V0_QUALITIES,
-  V1: ['mM7', 'm6', '6'],
-  V2: ['sus2', '7sus4', 'add9', 'madd9'],
-  V3: ['9', 'm9', 'maj9'],
-};
-const STAGE_ORDER: readonly Stage[] = ['V0', 'V1', 'V2', 'V3'];
-
-/**
- * Interval templates of the new qualities. V3: the no-5th form is a second template of the same quality (§2.2).
- * 7sus4 deliberately has no no-5th template: with one, D7sus4 (no 5th) = Gsus4 = Csus2 would make a triple
- * (plan §2.2 V2 risk); adding it means extending the pair rule to triples first.
- */
-export const NEW_TEMPLATES: Record<string, readonly (readonly number[])[]> = {
-  mM7: [[0, 3, 7, 11]],
-  m6: [[0, 3, 7, 9]],
-  '6': [[0, 4, 7, 9]],
-  sus2: [[0, 2, 7]],
-  '7sus4': [[0, 5, 7, 10]],
-  add9: [[0, 2, 4, 7]],
-  madd9: [[0, 2, 3, 7]],
-  '9': [
-    [0, 2, 4, 7, 10],
-    [0, 2, 4, 10],
-  ],
-  m9: [
-    [0, 2, 3, 7, 10],
-    [0, 2, 3, 10],
-  ],
-  maj9: [
-    [0, 2, 4, 7, 11],
-    [0, 2, 4, 11],
-  ],
-};
-
-export function templates(quality: string): readonly (readonly number[])[] {
-  return NEW_TEMPLATES[quality] ?? [intervals(quality)];
-}
-
-export function stageQualities(stage: Stage): string[] {
-  const upTo = STAGE_ORDER.slice(0, STAGE_ORDER.indexOf(stage) + 1);
-  return upTo.flatMap((s) => [...STAGE_ADDS[s]]);
-}
+export { NEW_TEMPLATES, STAGE_ADDS, stageQualities, templates, type Stage } from './vocab';
 
 export interface PcState {
   root: number;
