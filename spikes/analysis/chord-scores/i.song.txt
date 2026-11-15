@@ -1,0 +1,20 @@
+{title: 録音用 i（sus2・add9 のポップス）}
+{tempo: 92}
+{time: 4/4}
+{key: G}
+
+{start_of_verse: A}
+|[Gadd9]--------|[Dsus2]----[D]----|[Emadd9]--------|[Cadd9]----[Csus2]----|
+{end_of_verse}
+
+{start_of_verse: B}
+|[Amadd9]----[D7sus4]----|[D7]----[Gsus2]----|[G6]----[Gadd9]----|[Cmaj9]----[D7sus4]----|
+{end_of_verse}
+
+{start_of_verse: C}
+|[Cmaj9]----[Bm7]----|[Em9]----[A9]----|[Amadd9]----[D7sus4]----|[Gsus2]----[G/B]----|
+{end_of_verse}
+
+{start_of_verse: D}
+|[Cadd9]----[B7]----|[Esus2]----[Emadd9]----|[Amadd9]----[D7sus4]----|[Gadd9]--------|
+{end_of_verse}

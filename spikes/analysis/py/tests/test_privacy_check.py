@@ -277,6 +277,27 @@ class TestDrumBassSources(unittest.TestCase):
             write(os.path.join(self.rec, sub, fn), "x")
         self.assertEqual(self.terms(), ["test song d", "test song e", "test song f", "test song g"])
 
+    def test_stems_of_chd_folders_and_anonymous_chd_ids(self):
+        for sub, fn in (("chd-inbox", "Test Song J.wav"), ("chd-originals", "Test Song K.txt"),
+                        ("chd-originals", "chd-11-k.txt")):
+            write(os.path.join(self.rec, sub, fn), "x")
+        write(os.path.join(self.rec, "chd-14-n.wav"), "x")
+        self.assertEqual(self.terms(), ["test song j", "test song k"])
+
+    def test_heldout_score_runs_found_without_echo(self):
+        """Spike 7: chord runs of the gitignored held-out scores must not reach tracked files (any of the two forms)."""
+        run = ["Ebmaj7", "Abm6", "Bb7sus4", "Bb7", "Ebsus2", "Cm7"]
+        write(os.path.join(self.rec, P.HELDOUT_SCORES, "k.song.txt"),
+              "{title: x}\n|" + "|".join(f"[{c}]--------" for c in run) + "|\n")
+        write(os.path.join(self.rec, P.HELDOUT_SCORES, "k.txt"), "bpm: 80\n| " + " | ".join(run) + " |\n")
+        root = os.path.join(self.t.name, "src")
+        write(os.path.join(root, "ok.md"), "| Ebmaj7 Abm6 | Bb7sus4 |\n")
+        write(os.path.join(root, "leak.md"), "x " + " → ".join(run) + "\n")
+        bad = P.check(root, self.rec, check_log=False)
+        self.assertEqual(len(bad), 1)
+        self.assertIn("leak.md", bad[0])
+        self.assertNotIn("Abm6", bad[0])
+
     def test_zero_terms_fails(self):
         root = os.path.join(self.t.name, "src")
         write(os.path.join(root, "a.md"), "nothing\n")

@@ -1,0 +1,20 @@
+{title: 録音用 g（転回形・ベースのクリシェ）}
+{tempo: 84}
+{time: 4/4}
+{key: C}
+
+{start_of_verse: A}
+|[C]----[C/D]----|[C/E]----[F]----|[G/B]----[Am]----|[Am7/G]----[F]----|
+{end_of_verse}
+
+{start_of_verse: B}
+|[F]----[C6/E]----|[Dm7]----[G7]----|[C]----[C6/E]----|[Fsus2]----[Fm6]----|
+{end_of_verse}
+
+{start_of_verse: C}
+|[C/G]----[Am]----|[AmM7/G#]----[Am7/G]----|[Am6/F#]----[Fmaj7]----|[Dm7]----[G7sus4]----|
+{end_of_verse}
+
+{start_of_verse: D}
+|[C]----[Am7]----|[Gsus4/D]----[G7]----|[F/A]----[G/B]----|[C6]--------|
+{end_of_verse}
