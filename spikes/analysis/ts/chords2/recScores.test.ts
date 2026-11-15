@@ -11,6 +11,7 @@ import {
   BARS,
   BARS_PER_LINE,
   coverage,
+  degreeOverlap,
   DEV,
   DEV_DIR,
   HELDOUT,
@@ -26,9 +27,13 @@ import {
 } from './recScores';
 import { newQualities } from './vocab';
 
-/** Floors (docs/audio-spike7-t6.md §3): every new quality in >= 5 bars per split, >= 60 `/X` points per split. */
+/** Floors (plan §3.2, user decision 2026-11-15): per split, >= 20 bars per stage, >= 5 per new quality, >= 60 `/X` points. */
+const MIN_PER_STAGE = 20;
 const MIN_BARS_WITH = 5;
 const MIN_SLASH_POINTS = 60;
+/** A held-out take is not its dev counterpart moved to another key: bars equal in degrees (16 bars). */
+const MAX_SAME_DEGREE_BARS = 10;
+const MAX_SAME_DEGREE_PLACE = 2;
 
 describe('helpers', () => {
   it('reads chords, bass and pitch-class right hands', () => {
@@ -48,12 +53,20 @@ describe('helpers', () => {
     expect(hintProblem({ chord: 'Cmaj9', right: ['E', 'B', 'D', 'G'], left: 'C' })).toBe('right hand wider than a ninth');
   });
   it('counts coverage', () => {
-    const s = readScore('{time: 4/4}\n|[C6/E]----[Am7]----|[C6]--------|\n');
+    const s = readScore('{time: 4/4}\n|[C6/E]----[Am7]----|[C6]--------|[Am]----[AmM7/G#]----|\n');
     const c = coverage([s]);
     expect(c.barsWith['6']).toBe(2);
     expect(c.barsLong['6']).toBe(1.5);
-    expect(c.slashPoints).toBe(4);
+    expect(c.barsWith.mM7).toBe(0); // the G# is only in the bass: counted apart
+    expect(c.bassOnly).toBe(1);
+    expect(c.stage.V1).toBe(2);
+    expect(c.slashPoints).toBe(8);
     expect(c.pairs['6/min7']).toEqual({ all: 3, conflict: 1 });
+  });
+  it('compares bars as degrees', () => {
+    const a = readScore('{key: C}\n|[C]--------|[Dm7]----[G7]----|\n');
+    const b = readScore('{key: D}\n|[Em7]----[A7]----|[D]--------|\n');
+    expect(degreeOverlap(a, b)).toEqual({ anywhere: 2, samePlace: 0 });
   });
 });
 
@@ -102,6 +115,7 @@ function checkTakes(dir: string, letters: readonly string[], readme: string, nam
     const c = coverage(letters.map((l) => scoreOf(dir, l)));
     const low = Object.entries(c.barsWith).filter(([, n]) => n < MIN_BARS_WITH).map(([q]) => q);
     expect(low).toEqual([]);
+    for (const n of Object.values(c.stage)) expect(n).toBeGreaterThanOrEqual(MIN_PER_STAGE);
     expect(c.slashPoints).toBeGreaterThanOrEqual(MIN_SLASH_POINTS);
     for (const p of Object.values(c.pairs)) expect(p.conflict).toBeGreaterThan(0);
     for (const p of Object.values(c.pairs)) expect(p.all).toBeGreaterThan(p.conflict);
@@ -114,4 +128,8 @@ describe('dev scores (chord-scores/)', () => {
 
 describe.skipIf(!existsSync(HELDOUT_DIR))('held-out scores (gitignored; counts only)', () => {
   checkTakes(HELDOUT_DIR, HELDOUT, join(HELDOUT_DIR, 'README.local.md'), false);
+  it('are not their dev counterparts in another key (bars compared as degrees)', () => {
+    const ov = HELDOUT.map((l, i) => degreeOverlap(scoreOf(DEV_DIR, DEV[i]), scoreOf(HELDOUT_DIR, l)));
+    expect(ov.filter((o) => o.anywhere > MAX_SAME_DEGREE_BARS || o.samePlace > MAX_SAME_DEGREE_PLACE).length).toBe(0);
+  });
 });

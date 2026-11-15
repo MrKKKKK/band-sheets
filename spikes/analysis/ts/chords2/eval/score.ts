@@ -13,10 +13,15 @@
  *  - 名前 (コード名の当たり): root, quality and /X all match (both without /X, or the same bass pitch class).
  *  - 区間単位: each truth segment with a scored point is one unit; it is a hit when at least half of its scored points
  *    (by weight) are hits. The Wilson interval (z = 1.96) is on these units (plan §3.3 "区間単位の数で Wilson").
+ *  - ベースにだけある音 (user decision 2026-11-15, plan §5): when the note that makes a truth chord's quality is only in
+ *    the bass (`AmM7/G#` = Am over G#, `Am7/G`, `Am6/F#`; and the other way round `C/D` = `Cadd9/D`, `Am/G` = `Am7/G`),
+ *    both names are a hit (name, edit counts), and those points are left out of `byQuality` and counted in `bassOnly`
+ *    instead. `{ bassOnly: false }` turns this off (spike 6's scorer has no such rule: the parity test uses it).
  */
 import { noteToPc, beatWindows, normalizeTruthSlash, type ScoreBeat, type ScoreChord } from '../../bass/score';
 import { at } from '../../bass/evalCommon';
 import { fMeasure } from '../../drum/score';
+import { templates, stageQualities } from '../vocab';
 import { fullQuality, mapDown } from './mapDown';
 
 export type Vocab = 'full' | 'down';
@@ -54,6 +59,39 @@ export function resultQuality(c: EvalChord, vocab: Vocab): string {
   return vocab === 'full' ? c.quality : (mapDown(c.quality) ?? UNMAPPED);
 }
 
+export interface ScoreOptions {
+  /** the ベースにだけある音 rule (default true) */
+  bassOnly?: boolean;
+}
+
+const V3 = stageQualities('V3');
+const pcKey = (xs: Iterable<number>): string => [...new Set(xs)].sort((a, b) => a - b).join(',');
+const sets = (q: string): string[] => templates(q).map((t) => pcKey(t));
+
+/**
+ * The other name of a truth chord whose quality-making note is only in the bass (full-vocabulary quality names), or
+ * null. `rel` = the bass in semitones above the root. A: the quality has a template that is a 3-note quality's template
+ * plus `rel` (AmM7/G# -> min). B: a 3-note quality whose template lacks `rel`, and the quality with that note added
+ * (C/D -> add9, Am/G -> min7). A bass that is an ordinary chord tone (C/E, C6/E, Fm6/C) has no other name.
+ */
+export function bassOnlyAlternative(quality: string, rel: number): string | null {
+  if (!V3.includes(quality)) return null;
+  const triads = V3.filter((q) => templates(q).some((t) => t.length === 3));
+  for (const t of templates(quality)) {
+    if (t.length < 4 || !t.includes(rel)) continue;
+    const rest = pcKey(t.filter((i) => i !== rel));
+    const alt = triads.find((q) => sets(q).includes(rest));
+    if (alt) return alt;
+  }
+  for (const t of templates(quality)) {
+    if (t.length !== 3 || t.includes(rel)) continue;
+    const plus = pcKey([...t, rel]);
+    const alt = V3.find((q) => q !== quality && sets(q).includes(plus));
+    if (alt) return alt;
+  }
+  return null;
+}
+
 /* ------------------------------------------------------------ Wilson */
 
 export interface Interval {
@@ -83,10 +121,21 @@ interface Point {
   rRoot: number | null;
   tBass: number | null;
   rBass: number | null;
+  /** the other truth name (in `vocab`) under the ベースにだけある音 rule, or null */
+  tAlt: string | null;
+}
+
+/** The other truth quality in `vocab` (ベースにだけある音), or null. */
+function truthAlt(tc: EvalChord, vocab: Vocab, on: boolean): string | null {
+  const b = bassPcOf(tc);
+  const q = fullQuality(tc.originalQuality ?? tc.quality);
+  if (!on || b === null || q === null) return null;
+  const alt = bassOnlyAlternative(q, (b - noteToPc(tc.root) + 12) % 12);
+  return alt === null ? null : vocab === 'full' ? alt : mapDown(alt);
 }
 
 /** Scored points, plus the weight of truth points that were not scored (dropped quality). */
-function scoredPoints(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab): { pts: Point[]; droppedPoints: number } {
+function scoredPoints(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab, on: boolean): { pts: Point[]; droppedPoints: number } {
   const tt = track(normalizeTruthSlash(truth) as EvalChord[]);
   const rt = track(result);
   const pts: Point[] = [];
@@ -112,6 +161,7 @@ function scoredPoints(truth: readonly EvalChord[], result: readonly EvalChord[],
         rRoot: rc ? noteToPc(rc.root) : null,
         tBass: bassPcOf(tc),
         rBass: bassPcOf(rc),
+        tAlt: truthAlt(tc, vocab, on),
       });
     }
   return { pts, droppedPoints };
@@ -172,13 +222,15 @@ export interface ChordScores {
   slash: { truthSlash: number; resultSlash: number; hit: number; recall: number | null; precision: number | null; f: number };
   /** truth has no /X: the share where the result has one (of all such points / of those with a result chord) */
   wrongSlash: { noSlashTruth: number; falseSlash: number; rate: number | null; onChordPoints: Rate };
-  /** per quality of the vocabulary: recall (truth side) and precision (result side) of root + quality */
+  /** per quality of the vocabulary: recall (truth side) and precision (result side) of root + quality; the bassOnly points are left out */
   byQuality: Record<string, QualityRow>;
+  /** points whose truth has a ベースにだけある音 (both names hit): the name hits on them, kept apart from byQuality */
+  bassOnly: { points: Rate; units: UnitRate };
 }
 
-export function scoreChords(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab): ChordScores {
-  const { pts, droppedPoints } = scoredPoints(truth, result, beats, vocab);
-  const nameOk = (p: Point): boolean => p.rc !== null && p.rRoot === p.tRoot && p.rq === p.tq && p.rBass === p.tBass;
+export function scoreChords(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab, opts: ScoreOptions = {}): ChordScores {
+  const { pts, droppedPoints } = scoredPoints(truth, result, beats, vocab, opts.bassOnly ?? true);
+  const nameOk = (p: Point): boolean => p.rc !== null && p.rRoot === p.tRoot && (p.rq === p.tq || (p.tAlt !== null && p.rq === p.tAlt)) && p.rBass === p.tBass;
   const rootOk = (p: Point): boolean => p.rRoot === p.tRoot;
   const slashRoot = tally(pts, rootOk, (p) => p.tBass !== null);
   let truthSlash = 0, resultSlash = 0, slashHit = 0, noSlash = 0, falseSlash = 0, noSlashChord = 0, falseSlashChord = 0, noChord = 0;
@@ -207,6 +259,7 @@ export function scoreChords(truth: readonly EvalChord[], result: readonly EvalCh
     r.rate = r.hit / r.n;
   };
   for (const p of pts) {
+    if (p.tAlt !== null) continue;
     const both = p.rRoot === p.tRoot && p.rq === p.tq;
     bump(row(p.tq).truth, both);
     if (p.rq !== null) bump(row(p.rq).result, both);
@@ -222,6 +275,7 @@ export function scoreChords(truth: readonly EvalChord[], result: readonly EvalCh
     slash: { truthSlash, resultSlash, hit: slashHit, recall, precision, f: recall && precision ? fMeasure(precision, recall) : 0 },
     wrongSlash: { noSlashTruth: noSlash, falseSlash, rate: noSlash ? falseSlash / noSlash : null, onChordPoints: rate(falseSlashChord, noSlashChord) },
     byQuality,
+    bassOnly: tally(pts, nameOk, (p) => p.tAlt !== null),
   };
 }
 
@@ -248,10 +302,10 @@ interface Label {
 }
 
 /** Spike 6's editCounts (ts/bass/score.ts) over `vocab`: beats with no truth chord or an unscored truth quality are skipped. */
-export function editCounts(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab): EditCounts {
+export function editCounts(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab, opts: ScoreOptions = {}): EditCounts {
   const tt = track(normalizeTruthSlash(truth) as EvalChord[]);
   const rt = track(result);
-  const tl: { root: number; q: string; bass: number | null }[] = [];
+  const tl: { root: number; q: string; bass: number | null; alt: string | null }[] = [];
   const rl: (Label | null)[] = [];
   let piece = -1;
   let prevKey: string | null = null;
@@ -259,7 +313,7 @@ export function editCounts(truth: readonly EvalChord[], result: readonly EvalCho
     const tc = at(tt, w[1]);
     const tq = tc ? truthQuality(tc, vocab) : null;
     if (!tc || tq === null) continue;
-    tl.push({ root: noteToPc(tc.root), q: tq, bass: bassPcOf(tc) });
+    tl.push({ root: noteToPc(tc.root), q: tq, bass: bassPcOf(tc), alt: truthAlt(tc, vocab, opts.bassOnly ?? true) });
     const rc = at(rt, w[1]);
     if (!rc) {
       rl.push(null);
@@ -292,7 +346,7 @@ export function editCounts(truth: readonly EvalChord[], result: readonly EvalCho
     c.merge += counts.size - 1;
     const dom = [...counts.values()].reduce((a, b) => (b.n > a.n ? b : a));
     const t = tl[i];
-    if (!dom.l || dom.l.root !== t.root || dom.l.q !== t.q) {
+    if (!dom.l || dom.l.root !== t.root || (dom.l.q !== t.q && dom.l.q !== t.alt)) {
       c.name++;
       if (dom.l?.cands.includes(`${t.root}|${t.q}`)) c.nameFixableByCandidate++;
     }
@@ -313,8 +367,8 @@ export interface EditDiff {
   /** (without - with) / nBeats * 100; positive = the bass analysis saves edits. null without scored beats. */
   savedPer100Beats: number | null;
 }
-export function editDiff(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab): EditDiff {
-  const withBass = editCounts(truth, result, beats, vocab);
-  const withoutBass = editCounts(truth, result.map((c) => ({ ...c, bass: null })), beats, vocab);
+export function editDiff(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab, opts: ScoreOptions = {}): EditDiff {
+  const withBass = editCounts(truth, result, beats, vocab, opts);
+  const withoutBass = editCounts(truth, result.map((c) => ({ ...c, bass: null })), beats, vocab, opts);
   return { withBass, withoutBass, savedPer100Beats: withBass.nBeats ? ((withoutBass.total - withBass.total) / withBass.nBeats) * 100 : null };
 }

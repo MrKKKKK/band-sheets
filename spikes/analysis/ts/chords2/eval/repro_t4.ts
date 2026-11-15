@@ -55,8 +55,8 @@ for (const v of tuning) {
       const rc = at(res, x);
       if (rc && noteToPc(rc.root) === noteToPc(tc.root) && mapVocab(rc.quality) === mapVocab(tc.quality)) sum.nameSpike6 += 0.5;
     }
-  const b = scoreChords(t.chords, res, t.beats, 'down');
-  const e = editCounts(t.chords, res, t.beats, 'down');
+  const b = scoreChords(t.chords, res, t.beats, 'down', { bassOnly: false }); // spike 6's rules
+  const e = editCounts(t.chords, res, t.beats, 'down', { bassOnly: false });
   sum2.points += b.nPoints; sum2.slashTruth += b.slash.truthSlash; sum2.slashResult += b.slash.resultSlash; sum2.slashHit += b.slash.hit;
   sum2.noSlash += b.wrongSlash.noSlashTruth; sum2.falseSlash += b.wrongSlash.falseSlash; sum2.editTotal += e.total; sum2.editBeats += e.nBeats;
   // name hit with /X ignored = root and quality: the same rule when the result has no /X (v1a results here)

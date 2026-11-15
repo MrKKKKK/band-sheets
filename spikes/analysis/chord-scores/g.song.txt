@@ -8,7 +8,7 @@
 {end_of_verse}
 
 {start_of_verse: B}
-|[F]----[C6/E]----|[Dm7]----[G7]----|[C]----[C6/E]----|[Fsus2]----[Fm6]----|
+|[F]----[C6/E]----|[Dm7]----[G7]----|[C]----[C6/E]----|[Fsus2]----[Fm6/Ab]----|
 {end_of_verse}
 
 {start_of_verse: C}

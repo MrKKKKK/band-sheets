@@ -8,7 +8,7 @@
 {end_of_verse}
 
 {start_of_verse: B}
-|[Bbmaj9]----[Am9]----|[Dmadd9]----[G9]----|[Gm9]----[C9]----|[Fmaj9]--------|
+|[Bbmaj9]----[Am7]----|[Dmadd9]----[G9]----|[Gm9]----[C9]----|[Fmaj9]--------|
 {end_of_verse}
 
 {start_of_verse: C}

@@ -10,7 +10,7 @@ bpm: 92
 クリック: あり
 楽譜と違って弾いた小節: 
 # 以下は正解のコード（変えない）。1 小節に 2 つあるときは前半・後半。
-| Gadd9 | Dsus2 D | Emadd9 | Cadd9 Csus2 |
+| Gadd9 | Dsus2 D/F# | Emadd9 | Cadd9 Csus2 |
 | Amadd9 D7sus4 | D7 Gsus2 | G6 Gadd9 | Cmaj9 D7sus4 |
 | Cmaj9 Bm7 | Em9 A9 | Amadd9 D7sus4 | Gsus2 G/B |
-| Cadd9 B7 | Esus2 Emadd9 | Amadd9 D7sus4 | Gadd9 |
+| Cadd9 B7/D# | Esus2 Emadd9 | Amadd9 D7sus4 | Gadd9 |

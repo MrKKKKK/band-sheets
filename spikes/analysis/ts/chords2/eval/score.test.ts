@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { editCounts as editCounts6, normalizeTruthSlash, scoreBass, type ScoreBeat, type ScoreChord } from '../../bass/score';
-import { editCounts, editDiff, scoreChords, wilson, type EvalChord } from './score';
+import { bassOnlyAlternative, editCounts, editDiff, scoreChords, wilson, type EvalChord } from './score';
 
 // 120 BPM, 8 beats; every beat has two points (0.125 / 0.375 into the beat) of weight 0.5: 16 points = 8.0 in all.
 const beats: ScoreBeat[] = Array.from({ length: 8 }, (_, i) => ({ t: i * 0.5 }));
@@ -101,6 +101,47 @@ describe('hand calculation', () => {
   });
 });
 
+describe('ベースにだけある音 (both names are a hit, kept out of byQuality)', () => {
+  it('finds the other name only when the quality-making note is in the bass alone', () => {
+    expect(bassOnlyAlternative('mM7', 11)).toBe('min'); // AmM7/G# = Am over G#
+    expect(bassOnlyAlternative('min7', 10)).toBe('min'); // Am7/G
+    expect(bassOnlyAlternative('m6', 9)).toBe('min'); // Am6/F#
+    expect(bassOnlyAlternative('maj', 2)).toBe('add9'); // C/D = Cadd9/D
+    expect(bassOnlyAlternative('min', 10)).toBe('min7'); // Am/G = Am7/G
+    expect(bassOnlyAlternative('maj', 10)).toBe('7'); // C/Bb
+    expect(bassOnlyAlternative('7sus4', 10)).toBe('sus4');
+    expect(bassOnlyAlternative('maj', 4)).toBeNull(); // C/E: an ordinary inversion
+    expect(bassOnlyAlternative('6', 4)).toBeNull(); // C6/E
+    expect(bassOnlyAlternative('m6', 7)).toBeNull(); // Fm6/C
+    expect(bassOnlyAlternative('sus4', 7)).toBeNull(); // Gsus4/D
+    expect(bassOnlyAlternative('9', 2)).toBeNull(); // 5 notes: never "a triad + the bass"
+    expect(bassOnlyAlternative('13', 2)).toBeNull();
+  });
+  const truth = [ch(0, 2, 'A', 'mM7', 'G#', { originalQuality: 'mM7' }), ch(2, 4, 'C', 'maj', 'E')];
+  it('either name of the bass-only chord is a name hit, in 全 and 落', () => {
+    for (const q of ['mM7', 'min']) {
+      const full = scoreChords(truth, [ch(0, 2, 'A', q, 'G#'), ch(2, 4, 'C', 'maj', 'E')], beats, 'full');
+      expect(full.name.points.rate).toBe(1);
+      expect(full.bassOnly.points).toEqual({ hit: 4, n: 4, rate: 1 });
+      expect(editCounts(truth, [ch(0, 2, 'A', q, 'G#'), ch(2, 4, 'C', 'maj', 'E')], beats, 'full').name).toBe(0);
+    }
+    const wrong = scoreChords(truth, [ch(0, 2, 'A', 'min7', 'G#'), ch(2, 4, 'C', 'maj', 'E')], beats, 'full');
+    expect(wrong.bassOnly.points.hit).toBe(0);
+    const off = scoreChords(truth, [ch(0, 2, 'A', 'min', 'G#'), ch(2, 4, 'C', 'maj', 'E')], beats, 'full', { bassOnly: false });
+    expect(off.name.points.rate).toBe(0.5);
+    expect(off.bassOnly.points.n).toBe(0);
+    const t2 = [ch(0, 4, 'C', 'maj', 'D')]; // C/D written as a triad: Cadd9/D is a hit too, in 落 that is maj
+    expect(scoreChords(t2, [ch(0, 4, 'C', 'add9', 'D')], beats, 'full').name.points.rate).toBe(1);
+    expect(scoreChords(t2, [ch(0, 4, 'C', 'add9', 'D')], beats, 'down').name.points.rate).toBe(1);
+  });
+  it('the bass-only points are not in byQuality (truth or result side)', () => {
+    const s = scoreChords(truth, [ch(0, 2, 'A', 'min', 'G#'), ch(2, 4, 'C', 'maj', 'E')], beats, 'full');
+    expect(s.byQuality.mM7).toBeUndefined();
+    expect(s.byQuality.min).toBeUndefined();
+    expect(s.byQuality.maj.truth).toEqual({ hit: 4, n: 4, rate: 1 });
+  });
+});
+
 /* ---- parity with spike 6's scorer (ts/bass/score.ts): same inputs, 落 = spike 6's numbers ---- */
 
 function rng(seed: number): () => number {
@@ -137,14 +178,14 @@ describe('parity with ts/bass/score.ts', () => {
       const result = randomChart(r, 4, true);
       const tn = normalizeTruthSlash(truth);
       const a = scoreBass(tn, result, beats);
-      const b = scoreChords(truth, result, beats, 'down');
+      const b = scoreChords(truth, result, beats, 'down', { bassOnly: false }); // spike 6 has no ベースにだけある音 rule
       expect(b.nPoints).toBe(a.nPoints);
       expect(b.slash).toEqual(a.slash);
       expect(b.wrongSlash.noSlashTruth).toBe(a.wrongSlash.noSlashTruth);
       expect(b.wrongSlash.falseSlash).toBe(a.wrongSlash.falseSlash);
       expect(b.wrongSlash.rate).toBe(a.wrongSlash.rate);
       const e6 = editCounts6(tn, result, beats);
-      const e = editCounts(truth, result, beats, 'down');
+      const e = editCounts(truth, result, beats, 'down', { bassOnly: false });
       const { nameFixableByCandidate: _n, ...rest } = e;
       expect(rest).toEqual(e6);
     }

@@ -15,8 +15,9 @@ import { parseSong } from '../../../../src/lib/parseSong';
 import { isRawLine } from '../../../../src/lib/song';
 import { noteToPc } from '../bass/score';
 import { parseReading, type Reading } from './eval/pairs';
+import { bassOnlyAlternative } from './eval/score';
 import { IDENTICAL_PAIRS } from './identicalPairs';
-import { newQualities, templates } from './vocab';
+import { newQualities, STAGE_ADDS, templates, type Stage } from './vocab';
 
 export const ANALYSIS = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const DEV_DIR = join(ANALYSIS, 'chord-scores');
@@ -143,9 +144,17 @@ export function hintProblem(h: Hint): string | null {
 }
 
 export interface Coverage {
-  /** Bars in which the quality sounds / its length in bars (new qualities of V1-V3 only). */
+  /**
+   * Bars in which the quality sounds / its length in bars (new qualities of V1-V3 only). A chord whose quality-making
+   * note is only in the bass (`AmM7/G#`; score.ts ベースにだけある音) is not counted here but in `bassOnly`, because
+   * the scorer leaves it out of the per-quality numbers.
+   */
   barsWith: Record<string, number>;
   barsLong: Record<string, number>;
+  /** Sum of `barsWith` over the qualities a stage adds (plan §3.2: >= 20 per stage). */
+  stage: Record<'V1' | 'V2' | 'V3', number>;
+  /** Chords under the ベースにだけある音 rule. */
+  bassOnly: number;
   /** Scoring points (2 per beat) of chords with a `/X` other than the root. */
   slashPoints: number;
   /** Chords that are one reading of an identical pair (`6/min7` ...): all / the 食い違う例 (bass not the root). */
@@ -163,13 +172,16 @@ export function coverage(scores: readonly Score[]): Coverage {
   const barsLong = Object.fromEntries(qs.map((q) => [q, 0]));
   const pairs = Object.fromEntries(IDENTICAL_PAIRS.map((p) => [`${p.a}/${p.b}`, { all: 0, conflict: 0 }]));
   let slashPoints = 0;
+  let bassOnly = 0;
   for (const s of scores) {
     for (const bar of s.bars) {
       const total = bar.reduce((a, c) => a + c.length, 0);
       const seen = new Set<string>();
       for (const sc of bar) {
         const c = parseChordText(sc.text);
-        if (c.quality in barsWith) {
+        const only = c.bass !== null && bassOnlyAlternative(c.quality, (c.bass - c.root + 12) % 12) !== null;
+        if (only) bassOnly++;
+        else if (c.quality in barsWith) {
           barsLong[c.quality] += sc.length / total;
           if (!seen.has(c.quality)) barsWith[c.quality]++;
           seen.add(c.quality);
@@ -183,7 +195,32 @@ export function coverage(scores: readonly Score[]): Coverage {
       }
     }
   }
-  return { barsWith, barsLong, slashPoints, pairs };
+  const sum = (st: Stage): number => STAGE_ADDS[st].reduce((a, q) => a + barsWith[q], 0);
+  return { barsWith, barsLong, stage: { V1: sum('V1'), V2: sum('V2'), V3: sum('V3') }, bassOnly, slashPoints, pairs };
+}
+
+const KEY_TONIC = /^([A-G][#b]?)m?$/;
+/** A bar as degrees above the key's tonic (`Am`-key `Dm7` -> `5|min7|-`): to compare takes in different keys. */
+export function degreeBars(s: Score): string[] {
+  const m = KEY_TONIC.exec(s.key ?? '');
+  if (!m) throw new Error('score without a key');
+  const tonic = noteToPc(m[1]);
+  const deg = (pc: number): number => (pc - tonic + 12) % 12;
+  return s.bars.map((bar) =>
+    bar
+      .map(({ text }) => {
+        const c = parseChordText(text);
+        return `${deg(c.root)}|${c.quality}|${c.bass === null ? '-' : deg(c.bass)}`;
+      })
+      .join(' '),
+  );
+}
+
+/** Bars of `held` (in degrees) that also occur in `dev`: anywhere / at the same bar number. */
+export function degreeOverlap(dev: Score, held: Score): { anywhere: number; samePlace: number } {
+  const d = degreeBars(dev);
+  const h = degreeBars(held);
+  return { anywhere: h.filter((b) => d.includes(b)).length, samePlace: h.filter((b, i) => d[i] === b).length };
 }
 
 export const readText = (p: string): string => readFileSync(p, 'utf8');
@@ -197,8 +234,14 @@ function table(): string {
   const cov = splits.map(([name, s]) => [name, coverage(s)] as const);
   out.push(`| 種類 | ${cov.map(([n]) => `${n}: 出る小節（鳴る長さ）`).join(' | ')} |`, `| --- | ${cov.map(() => '---').join(' | ')} |`);
   for (const q of newQualities('V3')) out.push(`| \`${q}\` | ${cov.map(([, c]) => `${c.barsWith[q]}（${c.barsLong[q]}）`).join(' | ')} |`);
+  for (const st of ['V1', 'V2', 'V3'] as const) out.push(`| ${st} の合計 | ${cov.map(([, c]) => String(c.stage[st])).join(' | ')} |`);
+  out.push(`| ベースにだけある音の和音 | ${cov.map(([, c]) => String(c.bassOnly)).join(' | ')} |`);
   out.push(`| \`/X\` の点 | ${cov.map(([, c]) => String(c.slashPoints)).join(' | ')} |`);
   for (const p of Object.keys(cov[0][1].pairs)) out.push(`| 組 \`${p}\`: 全 / 食い違う | ${cov.map(([, c]) => `${c.pairs[p].all} / ${c.pairs[p].conflict}`).join(' | ')} |`);
+  if (splits.length > 1) {
+    const ov = HELDOUT.map((_, i) => degreeOverlap(dev[i], splits[1][1][i]));
+    out.push('', `度数で同じ小節（ホールドアウト / 対応する開発用、16 小節中、どこか / 同じ位置）: ${ov.map((o) => `${o.anywhere} / ${o.samePlace}`).join('、')}`);
+  }
   return out.join('\n');
 }
 

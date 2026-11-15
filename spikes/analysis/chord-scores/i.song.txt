@@ -4,7 +4,7 @@
 {key: G}
 
 {start_of_verse: A}
-|[Gadd9]--------|[Dsus2]----[D]----|[Emadd9]--------|[Cadd9]----[Csus2]----|
+|[Gadd9]--------|[Dsus2]----[D/F#]----|[Emadd9]--------|[Cadd9]----[Csus2]----|
 {end_of_verse}
 
 {start_of_verse: B}
@@ -16,5 +16,5 @@
 {end_of_verse}
 
 {start_of_verse: D}
-|[Cadd9]----[B7]----|[Esus2]----[Emadd9]----|[Amadd9]----[D7sus4]----|[Gadd9]--------|
+|[Cadd9]----[B7/D#]----|[Esus2]----[Emadd9]----|[Amadd9]----[D7sus4]----|[Gadd9]--------|
 {end_of_verse}
