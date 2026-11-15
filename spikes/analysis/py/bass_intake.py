@@ -22,6 +22,9 @@ For every take this script
 An imported take (its WAV exists) is refused unless --reintake (dev) / --reintake-held-out; the id and the flag never
 change. Names, equipment, chords and timings are not printed. The audio is never analysed here, and the audio of the
 held-out takes must never be analysed before the final look.
+
+Spike 7 (py/chd_intake.py) runs the same steps with another `Source` (letters, registry, log input, templates, truth
+with `originalQuality`, registry/log `split`). Every function takes `src=BASS`; the defaults are spike 6's behaviour.
 """
 import argparse
 import datetime
@@ -31,18 +34,42 @@ import re
 import shutil
 import sys
 import unicodedata
+from dataclasses import dataclass
+from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import drum_intake as D  # noqa: E402  (parse_bar_ranges, registry helpers' style)
 import intake as I  # noqa: E402
 import rec_truth as RT  # noqa: E402
 
-IDS_FILE = "bas-ids.local.json"
-INBOX = "recordings/bas-inbox"
-SCORES = "bass-scores"  # committed templates (self-made songs), relative to spikes/analysis
 TARGET_SR = I.TARGET_SR
-LETTERS = "abcdef"
-HELD_OUT = frozenset("ef")
+
+
+@dataclass(frozen=True)
+class Source:
+    """What differs between the piano-take intakes. Ids are <prefix>-NN-<letter>, NN = the letter's place in the
+    alphabet (a = 01), so the letters of two sources never share an id."""
+    prefix: str  # id prefix
+    letters: str  # accepted file names (one letter each)
+    held_out: frozenset  # letters of the held-out takes
+    ids_file: str  # registry in the recordings folder
+    inbox: str
+    scores: str  # committed templates (self-made songs), relative to spikes/analysis
+    heldout_scores: Optional[str]  # gitignored templates of the held-out takes (None: in `scores` too)
+    log_input: str  # `input` of the heldout-log lines
+    manifest: str  # out/rec/<manifest>
+    originals: str  # recordings/<originals>/ keeps the dropped files
+    original_quality: bool  # truth chords also keep `originalQuality` (rec_truth, spike 7)
+    split: bool  # registry entries and log lines also carry `split` ('dev' / 'heldOut', spike 7 guard)
+
+    def dev_letters(self):
+        return [x for x in self.letters if x not in self.held_out]
+
+
+BASS = Source(prefix="bas", letters="abcdef", held_out=frozenset("ef"), ids_file="bas-ids.local.json",
+              inbox="recordings/bas-inbox", scores="bass-scores", heldout_scores=None, log_input="bass",
+              manifest="manifest.bass.json", originals="bas-originals", original_quality=False, split=False)
+IDS_FILE = BASS.ids_file  # read by py/tools/bass_rec_fit.py
 # Template-only lines parse_txt does not know. Handled here, never passed on.
 OWN_KEYS = {"ホールドアウト": "heldout", "機材": "gear", "楽譜と違って弾いた小節": "excluded", "クリック": "click"}
 # `開始:` check margins (see start_check)
@@ -55,15 +82,19 @@ class BassError(ValueError):
     pass
 
 
-def held_out_of(letter):
-    return letter in HELD_OUT
+def held_out_of(letter, src=BASS):
+    return letter in src.held_out
 
 
-def rec_id(letter):
-    return f"bas-{LETTERS.index(letter) + 1:02d}-{letter}"
+def rec_id(letter, src=BASS):
+    return f"{src.prefix}-{ord(letter) - ord('a') + 1:02d}-{letter}"
 
 
-def parse_bass_txt(text, letter):
+def _split(held_out):
+    return "heldOut" if held_out else "dev"
+
+
+def parse_bass_txt(text, letter, src=BASS):
     """-> annotation dict (rec_truth.build_truth input) + startSec, excludedBars, gear, style. Raises BassError.
     `クリック:` is validated (あり / なし) and then IGNORED: it says the player heard a click in the headphones, the
     recording has none, so source.click is always False. `機材:` is free text kept in the truth (not printed).
@@ -94,8 +125,8 @@ def parse_bass_txt(text, letter):
         h = own["heldout"][1].strip().lower()
         if h not in I.TRUE | I.FALSE:
             raise BassError(f"{own['heldout'][0]} 行目: ホールドアウトは はい / いいえ で書いてください")
-        if (h in I.TRUE) != held_out_of(letter):
-            raise BassError("ホールドアウトの印が決め（e・f がホールドアウト）と違います")
+        if (h in I.TRUE) != held_out_of(letter, src):
+            raise BassError(f"ホールドアウトの印が決め（{'・'.join(sorted(src.held_out))} がホールドアウト）と違います")
     if "click" in own:
         try:
             I._bool(own["click"][1], own["click"][0], "クリック")
@@ -114,13 +145,15 @@ def parse_bass_txt(text, letter):
     return ann
 
 
-def check_against_template(ann, scores_dir, letter):
-    """The chords / tempo / time signature / key must equal the committed template (they are the truth)."""
-    p = os.path.join(scores_dir, f"{letter}.txt")
+def check_against_template(ann, scores_dir, letter, src=BASS, heldout_dir=None):
+    """The chords / tempo / time signature / key must equal the template (they are the truth): the committed one in
+    `scores_dir`, or for a held-out take the gitignored one in `heldout_dir` when the source keeps them apart."""
+    apart = bool(heldout_dir) and held_out_of(letter, src)
+    p = os.path.join(heldout_dir if apart else scores_dir, f"{letter}.txt")
     if not os.path.exists(p):
-        raise BassError("楽譜の雛形（bass-scores/x.txt）がありません")
+        raise BassError(f"楽譜の雛形（{src.heldout_scores if apart else src.scores}/x.txt）がありません")
     with open(p, encoding="utf-8") as f:
-        ref = parse_bass_txt(f.read(), letter)
+        ref = parse_bass_txt(f.read(), letter, src)
     for k in ("tempo", "timeSignature", "key", "bars"):
         if ann.get(k) != ref.get(k):
             raise BassError("コードの行・bpm・拍子・キーが楽譜の雛形と違います（変えないでください）")
@@ -150,16 +183,16 @@ def start_check(start, audio_sec, bpm, num, n_bars):
 
 # ---------------------------------------------------------------- registry / logs
 
-def _load_ids(rec_dir):
-    p = os.path.join(rec_dir, IDS_FILE)
+def _load_ids(rec_dir, src=BASS):
+    p = os.path.join(rec_dir, src.ids_file)
     if os.path.exists(p):
         with open(p, encoding="utf-8") as f:
             return json.load(f)
     return {"version": 1, "recordings": {}}
 
 
-def _save_ids(rec_dir, ids):
-    with open(os.path.join(rec_dir, IDS_FILE), "w", encoding="utf-8") as f:
+def _save_ids(rec_dir, ids, src=BASS):
+    with open(os.path.join(rec_dir, src.ids_file), "w", encoding="utf-8") as f:
         json.dump(ids, f, indent=1, ensure_ascii=False)
 
 
@@ -167,18 +200,21 @@ def _now():
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 
-def _log(out, kind, rid, held_out, style):
+def _log(out, kind, rid, held_out, style, src=BASS):
     d = os.path.join(out, "results")
     os.makedirs(d, exist_ok=True)
+    line = {"time": _now(), "kind": kind, "input": src.log_input, "take": rid, "song": rid, "heldOut": held_out}
+    if src.split:
+        line["split"] = _split(held_out)
+    line.update({"style": style, "variants": [rid]})
     with open(os.path.join(d, "heldout-log.jsonl"), "a") as f:
-        f.write(json.dumps({"time": _now(), "kind": kind, "input": "bass", "take": rid, "song": rid,
-                            "heldOut": held_out, "style": style, "variants": [rid]}) + "\n")
+        f.write(json.dumps(line) + "\n")
 
 
-def _merge_manifest(out, entry):
+def _merge_manifest(out, entry, src=BASS):
     d = os.path.join(out, "rec")
     os.makedirs(d, exist_ok=True)
-    p = os.path.join(d, "manifest.bass.json")
+    p = os.path.join(d, src.manifest)
     man = {"variants": []}
     if os.path.exists(p):
         with open(p, encoding="utf-8") as f:
@@ -189,15 +225,15 @@ def _merge_manifest(out, entry):
         json.dump(man, f, indent=1)
 
 
-def build_truth(ann, rid, held_out, audio_sec, check_state):
-    t = RT.build_truth(ann, audio_sec, ann["startSec"], ann["tempo"], name=rid)
+def build_truth(ann, rid, held_out, audio_sec, check_state, src=BASS):
+    t = RT.build_truth(ann, audio_sec, ann["startSec"], ann["tempo"], name=rid, original_quality=src.original_quality)
     t.update({"name": rid, "heldOut": held_out, "style": ann["style"], "gear": ann["gear"],
               "startSec": ann["startSec"], "excludedBars": ann["excludedBars"], "startCheck": check_state,
               "nBars": len(ann["bars"])})
     return t
 
 
-def _write_truth(truth, rec_dir, out):
+def _write_truth(truth, rec_dir, out, src=BASS):
     rid = truth["name"]
     for d in (rec_dir, os.path.join(out, "rec")):
         os.makedirs(d, exist_ok=True)
@@ -207,13 +243,14 @@ def _write_truth(truth, rec_dir, out):
                           "heldOut": truth["heldOut"], "style": truth["style"], "bpm": truth["beats"] and
                           round(60.0 / (truth["beats"][1]["t"] - truth["beats"][0]["t"]), 3),
                           "startSec": truth["startSec"], "durationSec": truth["source"]["audioSec"],
-                          "excludedBars": truth["excludedBars"], "startCheck": truth["startCheck"]})
+                          "excludedBars": truth["excludedBars"], "startCheck": truth["startCheck"]}, src)
 
 
-def process_take(base, t, rec_dir, out, scores_dir, reintake=False, reintake_held_out=False, skip_start=False, log=print):
+def process_take(base, t, rec_dir, out, scores_dir, reintake=False, reintake_held_out=False, skip_start=False, log=print,
+                 src=BASS, heldout_dir=None):
     """Returns the take id. Raises BassError."""
-    if base.lower() not in tuple(LETTERS):
-        raise BassError("ファイル名は a〜f のどれかにしてください")
+    if base.lower() not in tuple(src.letters):
+        raise BassError(f"ファイル名は {src.letters[0]}〜{src.letters[-1]} のどれかにしてください")
     letter = base.lower()
     if not t["audio"]:
         raise BassError("音声ファイルがありません")
@@ -222,11 +259,11 @@ def process_take(base, t, rec_dir, out, scores_dir, reintake=False, reintake_hel
     if not t["txt"]:
         raise BassError(".txt がありません")
     with open(t["txt"], encoding="utf-8") as f:
-        ann = parse_bass_txt(f.read(), letter)
-    check_against_template(ann, scores_dir, letter)
-    rid, held_out = rec_id(letter), held_out_of(letter)
+        ann = parse_bass_txt(f.read(), letter, src)
+    check_against_template(ann, scores_dir, letter, src, heldout_dir)
+    rid, held_out = rec_id(letter, src), held_out_of(letter, src)
     path = next(iter(t["audio"].values()))
-    ids = _load_ids(rec_dir)
+    ids = _load_ids(rec_dir, src)
     done = os.path.exists(os.path.join(rec_dir, rid + ".wav"))
     if done and not (reintake_held_out if held_out else reintake):
         raise BassError("すでに取り込み済みです（やり直すときは " +
@@ -234,9 +271,12 @@ def process_take(base, t, rec_dir, out, scores_dir, reintake=False, reintake_hel
     # registry + log BEFORE the audio is opened
     os.makedirs(rec_dir, exist_ok=True)
     if done or rid not in ids["recordings"]:
-        ids["recordings"].setdefault(rid, {"letter": letter, "heldOut": held_out, "registeredAt": _now()})
-        _save_ids(rec_dir, ids)
-        _log(out, "reintake" if done else "register", rid, held_out, letter)
+        entry = {"letter": letter, "heldOut": held_out, "registeredAt": _now()}
+        if src.split:
+            entry["split"] = _split(held_out)
+        ids["recordings"].setdefault(rid, entry)
+        _save_ids(rec_dir, ids, src)
+        _log(out, "reintake" if done else "register", rid, held_out, letter, src)
     try:
         y = I.decode_audio(path)
     except I.IntakeError as e:
@@ -249,8 +289,8 @@ def process_take(base, t, rec_dir, out, scores_dir, reintake=False, reintake_hel
     state = {"ok": ok, "skipped": bool(skip_start and not ok), **info}
     import soundfile as sf
     sf.write(os.path.join(rec_dir, rid + ".wav"), y, TARGET_SR, subtype="PCM_24")
-    _write_truth(build_truth(ann, rid, held_out, audio_sec, state), rec_dir, out)
-    odir = os.path.join(rec_dir, "bas-originals")
+    _write_truth(build_truth(ann, rid, held_out, audio_sec, state, src), rec_dir, out, src)
+    odir = os.path.join(rec_dir, src.originals)
     os.makedirs(odir, exist_ok=True)
     shutil.move(path, os.path.join(odir, rid + os.path.splitext(path)[1].lower()))
     shutil.move(t["txt"], os.path.join(odir, rid + ".txt"))
@@ -260,23 +300,23 @@ def process_take(base, t, rec_dir, out, scores_dir, reintake=False, reintake_hel
     return rid
 
 
-def reparse(rec_dir, out, scores_dir, only=(), log=print):
-    """--reparse: re-read bas-originals/<id>.txt for the imported takes (all when `only` is empty) and rewrite the
-    truth (the start check runs again against the stored length). Ids, flags, WAVs and the registry are untouched;
-    the log gets kind "reparse". -> number of failures."""
-    ids = _load_ids(rec_dir)["recordings"]
+def reparse(rec_dir, out, scores_dir, only=(), log=print, src=BASS, heldout_dir=None):
+    """--reparse: re-read <originals>/<id>.txt for the imported takes (all of this source when `only` is empty) and
+    rewrite the truth (the start check runs again against the stored length). Ids, flags, WAVs and the registry are
+    untouched; the log gets kind "reparse". -> number of failures."""
+    ids = _load_ids(rec_dir, src)["recordings"]
     fails = 0
-    for rid in sorted(only or ids):
+    for rid in sorted(only or [r for r in ids if r.startswith(src.prefix + "-")]):
         try:
             if rid not in ids:
                 raise BassError("登録にありません")
-            txt = os.path.join(rec_dir, "bas-originals", rid + ".txt")
+            txt = os.path.join(rec_dir, src.originals, rid + ".txt")
             if not os.path.exists(txt):
-                raise BassError(".txt が bas-originals にありません")
+                raise BassError(f".txt が {src.originals} にありません")
             letter = ids[rid]["letter"]
             with open(txt, encoding="utf-8") as f:
-                ann = parse_bass_txt(f.read(), letter)
-            check_against_template(ann, scores_dir, letter)
+                ann = parse_bass_txt(f.read(), letter, src)
+            check_against_template(ann, scores_dir, letter, src, heldout_dir)
             with open(os.path.join(rec_dir, rid + ".truth.json"), encoding="utf-8") as f:
                 old = json.load(f)
             dur = old["source"]["audioSec"]
@@ -284,8 +324,8 @@ def reparse(rec_dir, out, scores_dir, only=(), log=print):
             if not ok and not old["startCheck"].get("skipped"):
                 raise BassError(f"開始の確かめに通りません: {why}")
             state = {"ok": ok, "skipped": bool(not ok), **info}
-            _write_truth(build_truth(ann, rid, bool(ids[rid]["heldOut"]), dur, state), rec_dir, out)
-            _log(out, "reparse", rid, bool(ids[rid]["heldOut"]), letter)
+            _write_truth(build_truth(ann, rid, bool(ids[rid]["heldOut"]), dur, state, src), rec_dir, out, src)
+            _log(out, "reparse", rid, bool(ids[rid]["heldOut"]), letter, src)
             log(f"{rid}: 正解を作り直しました、外す小節 {len(ann['excludedBars'])}")
         except (BassError, OSError, KeyError, ValueError) as ex:
             fails += 1
@@ -293,11 +333,13 @@ def reparse(rec_dir, out, scores_dir, only=(), log=print):
     return fails
 
 
-def gear_warnings(rec_dir):
+def gear_warnings(rec_dir, src=BASS):
     """Held-out takes (e, f) should use a different piano timbre from a-d (the user writes it in `機材:`); an empty
-    `機材:` cannot be compared. Warn only; nothing about the value is printed."""
+    `機材:` cannot be compared. Only this source's takes are compared. Warn only; nothing about the value is printed."""
     dev, held, empty = set(), set(), 0
-    for rid, e in _load_ids(rec_dir)["recordings"].items():
+    for rid, e in _load_ids(rec_dir, src)["recordings"].items():
+        if not rid.startswith(src.prefix + "-"):
+            continue
         p = os.path.join(rec_dir, rid + ".truth.json")
         if not os.path.exists(p):
             continue
@@ -311,39 +353,42 @@ def gear_warnings(rec_dir):
     if empty:
         w.append(f"「機材:」が空の録音が {empty} 本あります（ホールドアウトの音色が別かどうか確かめられません）")
     if dev & held:
-        w.append("ホールドアウト（e・f）の「機材:」が開発用（a〜d）と同じです（別の音色で録る方針）")
+        d = src.dev_letters()
+        w.append(f"ホールドアウト（{'・'.join(sorted(src.held_out))}）の「機材:」が開発用（{d[0]}〜{d[-1]}）と同じです（別の音色で録る方針）")
     return w
 
 
-def main(argv=None):
+def main(argv=None, src=BASS):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--inbox", default=INBOX)
+    ap.add_argument("--inbox", default=src.inbox)
     ap.add_argument("--out", default="out")
     ap.add_argument("--recordings", default=None, help="default: parent of --inbox")
-    ap.add_argument("--scores", default=SCORES, help="the committed templates (default bass-scores)")
+    ap.add_argument("--scores", default=src.scores, help=f"the committed templates (default {src.scores})")
+    ap.add_argument("--heldout-scores", default=src.heldout_scores, help="the gitignored held-out templates, if apart")
     ap.add_argument("--privacy-root", default=None, help="scan this tree instead of the repository (tests)")
     ap.add_argument("--no-privacy-check", action="store_true")
     ap.add_argument("--reintake", action="store_true", help="allow importing an imported DEV take again")
     ap.add_argument("--reintake-held-out", action="store_true", help="allow the same for a held-out take (explicit)")
     ap.add_argument("--skip-start-check", action="store_true", help="import although the `開始:` check fails (recorded)")
-    ap.add_argument("--reparse", nargs="*", metavar="ID", help="rebuild the truth from bas-originals (all, or the ids)")
+    ap.add_argument("--reparse", nargs="*", metavar="ID", help=f"rebuild the truth from {src.originals} (all, or the ids)")
     a = ap.parse_args(argv)
     rec_dir = a.recordings or os.path.dirname(os.path.abspath(a.inbox))
     if a.reparse is not None:
-        return 1 if reparse(rec_dir, a.out, a.scores, a.reparse) else 0
+        return 1 if reparse(rec_dir, a.out, a.scores, a.reparse, src=src, heldout_dir=a.heldout_scores) else 0
     os.makedirs(a.inbox, exist_ok=True)
     takes = I.scan_inbox(a.inbox)
     if not takes:
-        print("bas-inbox が空です。a.wav … f.wav と同じ名前の .txt を入れてください。")
+        print(f"{os.path.basename(src.inbox)} が空です。{src.letters[0]}.wav … {src.letters[-1]}.wav と同じ名前の .txt を入れてください。")
         return 0
     fails = 0
     for base, t in takes.items():
         try:
-            process_take(base, t, rec_dir, a.out, a.scores, a.reintake, a.reintake_held_out, a.skip_start_check)
+            process_take(base, t, rec_dir, a.out, a.scores, a.reintake, a.reintake_held_out, a.skip_start_check,
+                         src=src, heldout_dir=a.heldout_scores)
         except BassError as e:
             fails += 1
             print(f"[{base[:1]}] 取り込めませんでした: {e}  (inbox に残してあります)")
-    for w in gear_warnings(rec_dir):
+    for w in gear_warnings(rec_dir, src):
         print("注意:", w)
     if not a.no_privacy_check:
         import privacy_check
