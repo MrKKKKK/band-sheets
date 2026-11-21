@@ -1,4 +1,4 @@
-{title: 録音用 h（内声のクリシェ）}
+{title: Spike7 録音用 h（内声のクリシェ）}
 {tempo: 72}
 {time: 4/4}
 {key: Am}
