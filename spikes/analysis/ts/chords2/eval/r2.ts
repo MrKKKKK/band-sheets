@@ -215,10 +215,12 @@ export function report(title: string, files: Scored[]): void {
     t9Run('T8-eq (spike 6 R3: segBass .918, P/R/F .843/.269/.408, wrong/X .023, cliche .750, saved 1.95)', bassT8(), ad.map((f) => f.t9), false, false, lv);
     t9Run('G2 default (spike 6 R3: segBass .918, P/R/F .907/.244/.384, wrong/X .011)', bassG2(), ad.map((f) => f.t9), false, false, lv);
   }
-  console.log('\n## bass stage (spike 6 t9_sweep scorer) on every file of this run');
+  // v1a segments only: the truth-segment ceiling would hand the bass stage truth qualities v1a does not know (mM7 ...)
+  console.log('\n## bass stage (spike 6 t9_sweep scorer, v1a segments only) on every file of this run');
   const lvAll = [...files.map((f) => f.letter), 'ALL'];
-  t9Run('T8-eq', bassT8(), files.map((f) => f.t9), false, false, lvAll);
-  t9Run('G2 default', bassG2(), files.map((f) => f.t9), false, false, lvAll);
+  const v1aOnly = files.map((f) => ({ ...f.t9, ceiling: false }));
+  t9Run('T8-eq', bassT8(), v1aOnly, false, false, lvAll);
+  t9Run('G2 default', bassG2(), v1aOnly, false, false, lvAll);
 }
 
 function gitState(argv: string[]) {
