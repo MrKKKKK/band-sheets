@@ -180,7 +180,7 @@ export function report(title: string, files: Scored[]): void {
   out.push(table('直す手数 / 100 拍 全', cols, per((v, r, g) => { const s = S(v, r, g); return `${f1(s.editsPer100)} (${f1(s.editsFixablePer100)})`; }, 'full')));
   out.push(table('ベースにだけある音 bassOnly（全。当たった区間 / 区間）', cols, per((v, r, g) => { const s = S(v, r, g); return s.bassOnly.units ? `${s.bassOnly.unitHit}/${s.bassOnly.units}` : '-'; }, 'full')));
   out.push(table('採点した点数（全 / 落、重みつき）', cols, per((_v, r, g) => `${S('full', r, g).nPoints} / ${S('down', r, g).nPoints}`, 'full')));
-  out.push(table('正解の種類がその段階の語彙に無い点（全。点 / 採点した点）', cols, STAGES.map((st) => [`${st}（v1a・ベースの行は V0）`, cols.map((g) => { const x = outside[`${st}|${g}`]; return x?.n ? `${x.out}/${x.n} = ${f3(x.out / x.n)}` : '-'; })])));
+  out.push(table('正解の種類がその段階の語彙に無い点（全。点 / 採点した点。v1a・ベースの行は V0 を見る）', cols, STAGES.map((st) => [st, cols.map((g) => { const x = outside[`${st}|${g}`]; return x?.n ? `${x.out}/${x.n} = ${f3(x.out / x.n)}` : '-'; })])));
   const takes = files.map((f) => `take:${f.id}`);
   out.push(table('録音ごとの名前の当たり 落（点の割合）', files.map((f) => f.letter), per((v, r, g) => f3(S(v, r, g).name.rate), 'down', takes)));
   out.push(table('録音ごとの誤った /X 落', files.map((f) => f.letter), per((v, r, g) => f3(S(v, r, g).wrongSlash), 'down', takes)));
