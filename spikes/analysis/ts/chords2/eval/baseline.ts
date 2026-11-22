@@ -26,14 +26,14 @@ import { applyBass } from '../../bass/analyze';
 import { bassConfigHash, enabledBassConfig, type BassConfig } from '../../bass/config';
 import { argOf, at, json } from '../../bass/evalCommon';
 import { lowCqt } from '../../bass/lowCqt';
-import { noteToPc, type ScoreBeat } from '../../bass/score';
+import type { ScoreBeat } from '../../bass/score';
 import { analyze as analyze2 } from '../analyze';
 import { chords2ConfigHash, resolveChords2Config } from '../config';
 import { newQualities, suffix, type Stage } from '../vocab';
 import { addConfusion, addFile, newAgg, newConfusion, summarize, type Agg, type Confusion } from './baselineAgg';
 import { frontEnd, toEvalChords } from './frontEnd';
 import { prepareInput } from './input';
-import { bassOnlyReading, pairReadings, parseReading, scorePairs, soundOnlyReading, type PairItem, type Reading } from './pairs';
+import { bassOnlyReading, pairUnits, readingOf, scorePairs, soundOnlyReading, type PairItem } from './pairs';
 import { editCounts, scoreChords, type EvalChord, type Vocab } from './score';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -50,14 +50,14 @@ export const v2Config = (stage: Stage) => resolveChords2Config({ stage });
 
 /* ------------------------------------------------------------ material */
 
-interface Item {
+export interface Item {
   name: string;
   set: 'chords2' | 'spike6' | 'spike0';
   level: string;
   wav: string;
   truth: string;
 }
-interface Truth {
+export interface Truth {
   beats: ScoreBeat[];
   chords: EvalChord[];
   chords2?: { variant?: { split?: string; heldOut?: boolean }; segments?: { start: number; end: number; rows?: { id: string; truth: string; candidate: string; conflict: boolean }[] }[] };
@@ -79,7 +79,7 @@ export function items(): Item[] {
 }
 
 /** The truth file is read only after its own flags say tuning / not held out. */
-function loadTruth(it: Item): Truth {
+export function loadTruth(it: Item): Truth {
   const t = json<Truth>(it.truth);
   if (it.set === 'chords2' && (t.chords2?.variant?.split !== 'tuning' || t.chords2.variant.heldOut)) throw new Error(`${it.name}: truth is not tuning`);
   if (it.set === 'spike6' && (t.bass?.variant?.split !== 'tuning' || t.bass.variant.heldOut || t.bass.variant.timbre === 'C')) throw new Error(`${it.name}: truth is not tuning`);
@@ -207,23 +207,14 @@ function cmdReport(argv: string[]): void {
       addConfusion((conf[`${row}|${c.level}`] ??= newConfusion()), t.chords, c.rows[row], t.beats, 'full');
     }
     if (c.level === 'pair')
-      for (const seg of t.chords2?.segments ?? [])
-        for (const row of seg.rows ?? []) {
-          const mid = (seg.start + seg.end) / 2;
-          const truth = parseReading(row.truth.split('/')[0]);
-          const pair = pairReadings(truth);
-          const base = { id: row.id, conflict: row.conflict, truth };
-          for (const id of ROWS) {
-            const rc = at(c.rows[id], mid);
-            const got: Reading | null = rc ? { root: noteToPc(rc.root), quality: rc.quality } : null;
-            (pairItemsByRow[id] ??= []).push({ ...base, got });
-          }
-          if (pair) {
-            const bassPc = row.truth.includes('/') ? noteToPc(row.truth.split('/')[1]) : truth.root; // the row's bass (TRUTH_ROWS): the slash note, else the root
-            pairRef.soundOnly.push({ ...base, got: soundOnlyReading(pair) });
-            pairRef.bassOnly.push({ ...base, got: bassOnlyReading(pair, bassPc) });
-          }
+      for (const u of pairUnits(t.chords2?.segments)) {
+        const base = { id: u.id, conflict: u.conflict, truth: u.truth };
+        for (const id of ROWS) (pairItemsByRow[id] ??= []).push({ ...base, got: readingOf(at(c.rows[id], u.mid)) });
+        if (u.pair) {
+          pairRef.soundOnly.push({ ...base, got: soundOnlyReading(u.pair) });
+          pairRef.bassOnly.push({ ...base, got: bassOnlyReading(u.pair, u.trueBass) });
         }
+      }
   }
   const S = (v: Vocab, row: RowId, g: string) => summarize(A[key(v, row, g)] ?? newAgg());
   const cols = [...groups, 'ALL'];

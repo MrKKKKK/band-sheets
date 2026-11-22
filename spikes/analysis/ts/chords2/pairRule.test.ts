@@ -15,6 +15,7 @@ import type { BarKey } from '../dsp/keytrack';
 import { analyze, chordName } from './analyze';
 import { resolveChords2Config } from './config';
 import { parseReading } from './eval/pairs';
+import { withPairRule } from './pairRule.testSupport';
 import { TRUTH_ROWS } from './identicalPairs';
 import {
   applyDecisions,
@@ -208,7 +209,8 @@ describe('scope: stages, aug / dim7 (ROOT_TIE), non-pair readings', () => {
     const input = { chroma, n, perBeat: 1, barKeys: [0, 1, 2, 3].map((bar) => ({ ...keyOf('C', 0.8), bar })), barOfBeat: Array.from({ length: n }, (_, i) => Math.floor(i / 4)) };
     const off = analyze(input, resolveChords2Config({ stage: 'V1' }));
     expect(off.segments.map((s) => s.quality)).toEqual(['aug', 'dim7']);
-    for (const pairRule of ['context', 'bassRoot']) expect(analyze(input, resolveChords2Config({ stage: 'V1', pairRule })).segments).toEqual(off.segments);
+    for (const rule of ['context', 'bassRoot'] as const) expect(withPairRule(off, resolveChords2Config({ stage: 'V1' }), rule, input.barKeys, input.barOfBeat).segments).toEqual(off.segments);
+    expect(() => analyze(input, resolveChords2Config({ stage: 'V1', pairRule: 'context' }))).toThrow(/pairRule/); // the rule runs in pipeline.ts only
   });
 });
 
@@ -253,8 +255,11 @@ describe('through analyze()', () => {
   frames.forEach((f, t) => f.forEach(([p, v]) => (chroma[p * n + t] = v)));
   const barOfBeat = Array.from({ length: n }, (_, i) => Math.floor(i / 4));
   const barKeys: BarKey[] = Array.from({ length: n / 4 }, (_, bar) => ({ bar, tonic: 9, mode: 'minor', confidence: 0.9 }));
-  const run = (pairRule: string) => analyze({ chroma, n, perBeat: 1, barKeys, barOfBeat }, resolveChords2Config({ stage: 'V1', pairRule }));
-  it.each(['context', 'bassRoot'])('%s: the cliche ends on Am6 (root continuation), F#m7b5 is the candidate', (rule) => {
+  const run = (pairRule: 'off' | 'context' | 'bassRoot') => {
+    const cfg = resolveChords2Config({ stage: 'V1' });
+    return withPairRule(analyze({ chroma, n, perBeat: 1, barKeys, barOfBeat }, cfg), cfg, pairRule, barKeys, barOfBeat);
+  };
+  it.each(['context', 'bassRoot'] as const)('%s: the cliche ends on Am6 (root continuation), F#m7b5 is the candidate', (rule) => {
     const off = run('off').segments;
     const on = run(rule).segments;
     expect(off.map((x) => chordName(x.root, x.quality))).toEqual(['Am', 'AmM7', 'Am7', 'F#m7b5']);

@@ -1,4 +1,7 @@
 /**
+ * NOT ADOPTED (G2, user 2026-11-22: none of M1-M3; spike 6's bass config stays). Kept as switches (bass.method, default
+ * 'off'); nothing in the app calls this file.
+ *
  * Spike 7 T8: method B "use the bass for the root" (docs/audio-spike7-plan.md §2.1, G1 decision 8; docs/audio-spike7-t8.md).
  *
  * v1a reads full-band chroma, so a low bass note and its 3rd harmonic (its 5th) push the chord built on the bass
@@ -24,7 +27,7 @@
  * Ground truth is never read here. No network: computation only.
  */
 import { bassChords, type V1aChord } from '../bass/analyze';
-import { enabledBassConfig, type BassConfig } from '../bass/config';
+import type { BassConfig } from '../bass/config';
 import type { LowCqt } from '../bass/lowCqt';
 import { trebleChroma } from '../bass/redecide';
 import { segmentBass, type SegmentBass } from '../bass/segmentBass';
@@ -33,10 +36,10 @@ import { chordName, NOTE_NAMES } from '../dsp/chords';
 import type { PriorRows } from '../dsp/chords';
 import { intervals, type ChordState } from '../dsp/vocab';
 import { templates } from './vocab';
-import { bassValues, type BassMethodValues, type Chords2Config } from './config';
+import { appBassConfig, bassValues, type BassMethodValues, type Chords2Config } from './config';
 
-/** Spike 6 marks used by every T8 method: G2 default (split on, weakMinConfidence 0.4) without `redecideRoot`. */
-export const marksConfig = (): BassConfig => enabledBassConfig({ cliche: { redecideRoot: false } });
+/** Spike 6 marks used by every T8 method: G2 default (split on, weakMinConfidence 0.4) without `redecideRoot` (= config.ts appBassConfig). */
+export const marksConfig = appBassConfig;
 
 /**
  * M1: the chroma the templates are scored on, [12, n]: max(0, full - w * bass). `bass` is v1a's bass-band chroma per

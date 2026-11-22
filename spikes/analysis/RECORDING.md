@@ -300,4 +300,5 @@ docker run --rm -u 1000:1000 -e HOME=/tmp -e NUMBA_CACHE_DIR=/work/out/.numba-ca
 - 雛形: 開発用は `chord-scores/<x>.txt`（git）、ホールドアウトは `recordings/chd-heldout-scores/<x>.txt`（gitignore。git・報告・ログに中身を出さない。`privacy_check` がこの雛形の 6 つ続きのコードを git の中から探す）。
 - 正解の各和音に `originalQuality`（`rec_truth.py --original-quality` と同じ。`AmM7` → `mM7`、`Am6` → `m6`）。マニフェストは `out/rec/manifest.chords2.json`、元のファイルは `recordings/chd-originals/`。
 - **ホールドアウトは 1 文字に 2 本**（2026-11-22、ユーザー）: ファイル名は `k-jp`（3 つ目の音色）と `k-cp`（開発用と同じ音色）、id は `chd-11-k-jp`・`chd-11-k-cp`。どちらもホールドアウトで、雛形は同じ `k.txt`（inbox の `.txt` は 1 本ずつ、`機材:` だけ違う）。開発用 g〜j は今までどおり文字だけ。登録簿の行に `variant` が入る。
+- **ホールドアウト（k〜n の `jp`・`cp` 8 本）は開けないまま次のスパイクに残す**（スパイク 7 のまとめ、2026-11-22。T15 はやらない）。登録簿とログの `register` 12 行は取り込みの時点で書いてあり、解析で音を読んだことは無い。
 - 機材の警告は g〜j と k〜n の間だけで比べる（a〜f は見ない。k〜n は a〜f とも違う音色で録る決まりは README に書いた）。開発用の音色で弾いた `cp` は比べない。

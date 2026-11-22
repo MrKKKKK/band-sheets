@@ -8,14 +8,23 @@
  * chords2ConfigHash() = SHA-256 (first 12 hex) over the canonical JSON (same helpers as ts/dsp/config.ts,
  * ts/bass/config.ts); the v1a chords values are part of it, so the hash changes when any value changes.
  */
+import { enabledBassConfig, type BassConfig } from '../bass/config';
 import { DEFAULT_CHORDS_CONFIG, type ChordsConfig } from '../dsp/chords';
 import { pyCanonicalJson, sha256Hex } from '../dsp/config';
 import { DEFAULT_THEORY_PRIOR } from '../dsp/harmony';
 import type { Stage } from './vocab';
 
-/** B method of plan §2.1 (T8, bass.ts). 'off' = no bass feature. */
+/**
+ * NOT ADOPTED (G2, user 2026-11-22): none of M1-M3 goes to the app; spike 6's bass config (`appBassConfig()`) stays.
+ * The methods stay here as switches (default 'off') for a later spike.
+ * B method of plan §2.1 (T8, bass.ts). 'off' = no bass feature.
+ */
 export type BassMethod = 'off' | 'M1' | 'M2' | 'M3';
-/** Identical-pair rule of plan §2.3. 'off' = the Viterbi reading stays. Implemented by T9. */
+/**
+ * Identical-pair rule of plan §2.3. 'off' = the Viterbi reading stays. NOT ADOPTED (G3, 2026-11-22: V1 is not adopted).
+ * The rule is applied in ONE place only: pipeline.ts `pairsAfterBass` (after the bass marks; T10's form). analyze()
+ * refuses a config with a rule on. The value is part of the config hash, so a row's hash tells which rule it ran.
+ */
 export type PairRule = 'off' | 'context' | 'bassRoot';
 
 /**
@@ -70,6 +79,7 @@ export const DEFAULT_CHORDS2_CONFIG: Chords2Config = deepFreeze({
 });
 
 /**
+ * NOT ADOPTED (G2, 2026-11-22). Kept as switches.
  * T8 (tuning split only: the T7 tuning material without pair / V2 / V3, 151 files; docs/audio-spike7-t8.md). Rule,
  * fixed before reading the grids: among values whose fixed truth segments outnumber the broken ones (name, 落, vs the
  * T8-form baseline), the most G1 lines passed on the tuning numbers, ties -> the higher /X-point root on B1.
@@ -87,6 +97,7 @@ export const DEFAULT_BASS_METHOD_VALUES: BassMethodValues = deepFreeze({
 });
 
 /**
+ * NOT ADOPTED (G3, 2026-11-22: V1 is not adopted, no V2). Kept as a switch.
  * T10 (tuning split only: all 397 T7 tuning files; docs/audio-spike7-t10.md): the V1 values the look ran. Rule, fixed
  * before reading the grid (eval/t10.ts rank, on the pair rule 'bassRoot' rows): regression LR / L0-L3+LV >= G2 - .01 and
  * new-quality output <= 2 % on synthetic without new qualities; then the most of {V1 recall >= .60, precision >= .80};
@@ -96,6 +107,14 @@ export const DEFAULT_BASS_METHOD_VALUES: BassMethodValues = deepFreeze({
  * a narrower grid cannot close a gap of that size (plan §5 stop rule; docs/audio-spike7-t10.md).
  */
 export const T10_V1_OVERRIDES = { stage: 'V1', newQualityMargin: 0.025, newSeventh: { weight: 1.0, margin: -0.02 } } as const;
+
+/**
+ * The bass config the app takes from spike 7 (spike 6 conclusion 4, docs/audio-spike6-plan.md; user 2026-11-22): spike
+ * 6's G2 config (slash marks, cliche split, weakMinConfidence 0.4) WITHOUT `cliche.redecideRoot`. Hash 77cc49d1ca67
+ * (pinned in config.test.ts). Its numbers on the tuning synthetic sets are in docs/audio-spike7-t17.md; on the dev /
+ * recording material it was never measured (no new look). The same config as bass.ts `marksConfig()`.
+ */
+export const appBassConfig = (): BassConfig => enabledBassConfig({ cliche: { redecideRoot: false } });
 
 /** The B method values of a config (throws when the method is off: nothing should read them then). */
 export function bassValues(cfg: Chords2Config): BassMethodValues {

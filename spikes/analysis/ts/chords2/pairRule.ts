@@ -1,7 +1,9 @@
 /**
  * Spike 7 T9: the identical-pair reading (docs/audio-spike7-plan.md §2.3, decision 8; theory note §3.7, §3.8, §6.7).
  *
- * A post-pass that runs once after the v2 Viterbi (and M3, which leaves identical pairs alone). Every segment whose
+ * A post-pass. T10's form (pipeline.ts `pairsAfterBass`) runs it AFTER the spike 6 bass marks; that is the only form the
+ * app-side code uses (NOT ADOPTED, G3 2026-11-22). The segment form here (applyDecisions, segmentBassPc) is T9's
+ * measurement form, used by eval/t9_pairs.ts and the tests only. Every segment whose
  * reading is one reading of an identical pair of the stage (IDENTICAL_PAIRS: C6 = Am7, Am6 = F#m7b5, Csus2 = Gsus4)
  * is re-decided between the two readings with these points only (they are not added to the HMM, so nothing is
  * counted twice). Left to right: the previous segment is the reading already decided here, the next one is the
@@ -153,7 +155,7 @@ export type Chords2Segment = ChordSegment & { chordCandidates?: Reading[] };
 /**
  * Bass note b the rule reads for a segment. With the B method off there is no bass stage: null (no bass points).
  * With a B method on, the segment's chord contains b (M3, plan §2.1): b = the slash bass, else the root.
- * T10 checks this against T8's output.
+ * T9's form only: T10 does not call this (pipeline.ts takes b from the marks, else spike 6's B-1 bass).
  */
 export function segmentBassPc(seg: ChordSegment, bassMethod: string): number | null {
   if (bassMethod === 'off' || seg.root === null) return null;

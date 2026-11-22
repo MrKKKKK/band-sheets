@@ -29,7 +29,7 @@ import { applyDecisions, resolvePairs, segmentKeys } from '../pairRule';
 import { bassT8, f3, ci, table } from './baseline';
 import { frontEnd, toEvalChords } from './frontEnd';
 import { prepareInput } from './input';
-import { bassOnlyReading, pairReadings, parseReading, scorePairs, soundOnlyReading, type PairItem, type Reading } from './pairs';
+import { bassOnlyReading, pairUnits, readingOf, sameReading, scorePairs, soundOnlyReading, type PairItem } from './pairs';
 import type { EvalChord } from './score';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -120,8 +120,6 @@ function cmdRun(argv: string[]): void {
   console.log(`shard ${shard.join('/')}: ${done} files written`);
 }
 
-const readingOf = (c: EvalChord | undefined): Reading | null => (c ? { root: noteToPc(c.root), quality: c.quality } : null);
-const same = (a: Reading | null, b: Reading) => a !== null && a.root === b.root && a.quality === b.quality;
 
 function cmdReport(): void {
   const byName = new Map(items().map((i) => [i.name, i]));
@@ -135,26 +133,22 @@ function cmdReport(): void {
       const it = byName.get(c.name);
       if (!it) throw new Error(`${c.name}: not a tuning pair item`);
       const t = loadTruth(it);
-      for (const seg of t.chords2?.segments ?? [])
-        for (const row of seg.rows ?? []) {
-          const truth = parseReading(row.truth.split('/')[0]);
-          const pair = pairReadings(truth);
-          if (!pair || (stage === 'V1' && truth.quality.startsWith('sus'))) continue; // sus2 / sus4 exist from V2
-          const mid = (seg.start + seg.end) / 2;
-          const base = { id: row.id, conflict: row.conflict, truth };
-          const off = readingOf(at(c.rows[`${stage}|off`], mid));
-          const asPair = same(off, pair[0]) || same(off, pair[1]);
-          const groups = asPair ? ['all', 'pair'] : ['all'];
-          for (const g of groups) {
-            for (const v of VARIANTS) push(`${g}|${v}`, { ...base, got: readingOf(at(c.rows[`${stage}|${v}`], mid)) });
-            const trueBass = row.truth.includes('/') ? noteToPc(row.truth.split('/')[1]) : truth.root;
-            const eb = at(c.rows[`${stage}|estBass`], mid);
-            push(`${g}|soundOnly`, { ...base, got: soundOnlyReading(pair) });
-            push(`${g}|bassOnlyTrue`, { ...base, got: bassOnlyReading(pair, trueBass) });
-            push(`${g}|bassOnlyEst`, { ...base, got: eb ? bassOnlyReading(pair, Number(eb.root)) : null });
-            push(`${g}|estBassRight`, { ...base, got: eb && Number(eb.root) === trueBass ? truth : null });
-          }
+      for (const u of pairUnits(t.chords2?.segments)) {
+        const pair = u.pair;
+        if (!pair || (stage === 'V1' && u.truth.quality.startsWith('sus'))) continue; // sus2 / sus4 exist from V2
+        const base = { id: u.id, conflict: u.conflict, truth: u.truth };
+        const off = readingOf(at(c.rows[`${stage}|off`], u.mid));
+        const asPair = sameReading(off, pair[0]) || sameReading(off, pair[1]);
+        const groups = asPair ? ['all', 'pair'] : ['all'];
+        for (const g of groups) {
+          for (const v of VARIANTS) push(`${g}|${v}`, { ...base, got: readingOf(at(c.rows[`${stage}|${v}`], u.mid)) });
+          const eb = at(c.rows[`${stage}|estBass`], u.mid);
+          push(`${g}|soundOnly`, { ...base, got: soundOnlyReading(pair) });
+          push(`${g}|bassOnlyTrue`, { ...base, got: bassOnlyReading(pair, u.trueBass) });
+          push(`${g}|bassOnlyEst`, { ...base, got: eb ? bassOnlyReading(pair, Number(eb.root)) : null });
+          push(`${g}|estBassRight`, { ...base, got: eb && Number(eb.root) === u.trueBass ? u.truth : null });
         }
+      }
     }
     const LABEL: [string, string][] = [
       ['off', 'v2（規則なし）'],
@@ -179,7 +173,7 @@ function cmdReport(): void {
     const ids = [...new Set((by['all|off'] ?? []).map((x) => x.id))].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
     const rate = (k: string, id: string) => {
       const xs = (by[k] ?? []).filter((x) => x.id === id);
-      return xs.length ? `${xs.filter((x) => same(x.got, x.truth)).length}/${xs.length}` : '-';
+      return xs.length ? `${xs.filter((x) => sameReading(x.got, x.truth)).length}/${xs.length}` : '-';
     };
     out.push(table(`${stage}: 行ごと（組として読めた数 / 全部、規則の当たり / 組として読めた数）`, ['組として読めた', 'context 推定', 'bassRoot 推定', 'context 正しい', 'bassRoot 正しい'], ids.map((id) => [
       id,

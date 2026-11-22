@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { BarKey } from '../dsp/keytrack';
 import { analyze } from './analyze';
 import { resolveChords2Config } from './config';
+import { withPairRule } from './pairRule.testSupport';
 import type { Stage } from './vocab';
 
 function rng(seed: number): () => number {
@@ -40,13 +41,12 @@ function randomKeys(nBars: number, seed: number): BarKey[] {
   return out;
 }
 
-function run(stage: Stage, seed: number, perBeat: 1 | 2, pairRule: string) {
+function run(stage: Stage, seed: number, perBeat: 1 | 2, pairRule: 'off' | 'context') {
   const nb = 64;
   const n = nb * perBeat;
-  return analyze(
-    { chroma: randomChroma(n, seed), n, perBeat, barKeys: randomKeys(nb / 4, seed + 7), barOfBeat: Array.from({ length: nb }, (_, i) => Math.floor(i / 4)) },
-    resolveChords2Config({ stage, pairRule }),
-  );
+  const input = { chroma: randomChroma(n, seed), n, perBeat, barKeys: randomKeys(nb / 4, seed + 7), barOfBeat: Array.from({ length: nb }, (_, i) => Math.floor(i / 4)) };
+  const cfg = resolveChords2Config({ stage });
+  return withPairRule(analyze(input, cfg), cfg, pairRule, input.barKeys, input.barOfBeat); // the T9 segment form (analyze() no longer applies the rule)
 }
 
 /** SHA-256 (first 16 hex) of the segments (with candidates) and the columns' readings of one seeded input. */

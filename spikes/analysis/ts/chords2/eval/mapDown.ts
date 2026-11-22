@@ -3,7 +3,7 @@
  * in docs/audio-spike7-t2-note-proposal.md). A quality of the full vocabulary ("全") is mapped to the v1a vocabulary (the 11
  * names of ts/bass/score.ts `mapVocab`, which mirrors py/score.py `map_vocab`) so a v2 result can be compared with v1a.
  *
- * The rule is `mapVocab` plus these table rows (the only differences from spike 6's mapping are mM7 / madd9 handling):
+ * The rule is `mapVocab` plus these table rows (the only difference from spike 6's mapping is mM7 -> min; madd9 -> min is in `mapVocab` too):
  *   mM7 -> min (spike 6 dropped it), m6 -> min, madd9 -> min, 6 -> maj, add9 -> maj, 9 -> 7, m9 -> min7, maj9 -> maj7,
  *   7sus4 -> sus4, and sus2 -> null: NOT counted (v1a never emits a 5, so mapping it to 5 would make every baseline lose).
  * null = the chord is dropped from the "落" scoring (truth) or counts as no match (result).

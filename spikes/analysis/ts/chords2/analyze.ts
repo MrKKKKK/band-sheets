@@ -9,7 +9,7 @@
  * New code only where v2 differs: multi-template scores, the gate for the new qualities, the Viterbi over the
  * expanded states (a copy of v1a's, which is not exported and frozen), names.
  */
-import { checkConfig, mergeChords, type ColumnChord, type PriorRows } from '../dsp/chords';
+import { checkConfig, mergeChords, NOTE_NAMES, type ColumnChord, type PriorRows } from '../dsp/chords';
 import type { MemTracker } from '../dsp/core/mem';
 import type { BarKey } from '../dsp/keytrack';
 import { chordPosterior, segmentCandidates } from '../dsp/posterior';
@@ -17,11 +17,10 @@ import * as v1 from '../dsp/vocab';
 import type { ChordState } from '../dsp/vocab';
 import { bassValues, type Chords2Config } from './config';
 import { collapsePosterior, ExpandedPrior, m2Expand, scoreChroma } from './bass';
-import { applyDecisions, resolvePairs, segmentBassPc, segmentKeys, type Chords2Segment } from './pairRule';
+import type { Chords2Segment } from './pairRule';
 import { FamilyPrior } from './prior';
 import * as vocab from './vocab';
 
-const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
 // Copies of v1a's hand-set emission constants (not exported from the frozen ts/dsp/chords.ts); the V0 golden test
 // fails if they drift.
 const BETA = 20.0;
@@ -42,7 +41,7 @@ export interface Chords2Input {
 
 export interface Chords2Output {
   columns: ColumnChord[];
-  /** with pairRule on, identical-pair segments carry the other reading in `chordCandidates` (plan §2.3) */
+  /** `chordCandidates` is set only by the identical-pair rule, which analyze() does not run (pipeline.ts pairsAfterBass does) */
   segments: Chords2Segment[];
   states: ChordState[];
 }
@@ -57,6 +56,8 @@ export function chordName(root: number | null, quality: string, bass: number | n
 function checkSwitches(cfg: Chords2Config): void {
   checkConfig(cfg.chords);
   if (cfg.chords.confidence !== 'posterior') throw new Error('chords2: only chords.confidence=posterior is supported');
+  // One place applies the identical-pair rule (T17): pipeline.ts pairsAfterBass, after the bass marks (T10's form).
+  if (cfg.pairRule !== 'off') throw new Error("chords2: analyze() does not apply pairRule; use pipeline.ts pairsAfterBass (config.ts PairRule)");
 }
 
 /** Weighted cosine scores [nStates, n] (chords._scores with the new qualities and multi-template states). */
@@ -234,13 +235,13 @@ export function estimateColumns(input: Chords2Input, cfg: Chords2Config): { colu
   return { columns, states: sts };
 }
 
-/** The v2 chord stage: columns, merged segments (with the top-k candidates, then the §2.3 pair post-pass), and the state list. */
+/** The v2 chord stage: columns, merged segments (with the top-k candidates), and the state list. */
 export function analyze(input: Chords2Input, cfg: Chords2Config): Chords2Output {
   const { columns, states } = estimateColumns(input, cfg);
   const segs = mergeChords(columns, cfg.chords, input.perBeat);
   const n = columns.length;
   const k = states.length;
-  let segments = segs;
+  let segments: Chords2Segment[] = segs;
   if (cfg.chords.candidates && n > 0) {
     const post = new Float64Array(k * n);
     for (let t = 0; t < n; t++) {
@@ -250,12 +251,6 @@ export function analyze(input: Chords2Input, cfg: Chords2Config): Chords2Output 
     segments = segs.map((seg) =>
       seg.root === null ? seg : { ...seg, candidates: segmentCandidates(post, states, n, seg.startBeat, seg.endBeat, cfg.chords.candidates_k) },
     );
-  }
-  if (cfg.pairRule !== 'off') {
-    const bass = segments.map((s) => segmentBassPc(s, cfg.bass.method));
-    const keys = segmentKeys(segments, input.barKeys, input.barOfBeat);
-    const decisions = resolvePairs(segments.map((s, i) => ({ root: s.root, quality: s.quality, bass: bass[i], key: keys[i] })), cfg.pairRule, cfg.stage);
-    return { columns, segments: applyDecisions(segments, decisions, bass), states };
   }
   return { columns, segments, states };
 }

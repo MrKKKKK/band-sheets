@@ -42,6 +42,32 @@ export const soundOnlyReading = (pair: readonly [Reading, Reading]): Reading => 
 /** ベースだけ: the reading rooted on the bass; else 音だけ. */
 export const bassOnlyReading = (pair: readonly [Reading, Reading], bassPc: number): Reading => pair.find((r) => r.root === bassPc) ?? soundOnlyReading(pair);
 
+/** The reading of a result chord (null = none), and equality of a reading with a pair member. Shared by the eval tools. */
+export const readingOf = (c: { root: string; quality: string } | undefined): Reading | null => (c ? { root: noteToPc(c.root), quality: c.quality } : null);
+export const sameReading = (a: Reading | null, b: Reading): boolean => a !== null && a.root === b.root && a.quality === b.quality;
+
+/** One truth-table row of an identical-pair segment, as the eval tools need it (T17: the one place that parses them). */
+export interface PairUnit {
+  id: string;
+  conflict: boolean;
+  truth: Reading;
+  /** both readings of the truth's identical pair (truth first); null = the truth is in no pair */
+  pair: [Reading, Reading] | null;
+  /** middle of the truth segment, in seconds: where the result chord is read */
+  mid: number;
+  /** the row's bass (TRUTH_ROWS): the slash note, else the root */
+  trueBass: number;
+}
+export function pairUnits(segments: readonly { start: number; end: number; rows?: readonly { id: string; truth: string; conflict: boolean }[] }[] | undefined): PairUnit[] {
+  const out: PairUnit[] = [];
+  for (const seg of segments ?? [])
+    for (const row of seg.rows ?? []) {
+      const truth = parseReading(row.truth.split('/')[0]);
+      out.push({ id: row.id, conflict: row.conflict, truth, pair: pairReadings(truth), mid: (seg.start + seg.end) / 2, trueBass: row.truth.includes('/') ? noteToPc(row.truth.split('/')[1]) : truth.root });
+    }
+  return out;
+}
+
 export interface PairItem {
   id: string;
   conflict: boolean;

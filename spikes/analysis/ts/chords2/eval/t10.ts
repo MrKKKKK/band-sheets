@@ -22,7 +22,6 @@ import { bassChords } from '../../bass/analyze';
 import { bassConfigHash } from '../../bass/config';
 import { argOf, at } from '../../bass/evalCommon';
 import { lowCqt } from '../../bass/lowCqt';
-import { noteToPc } from '../../bass/score';
 import { decodeWav } from '../../browser/wav';
 import { MemTracker } from '../../dsp/core/mem';
 import { toMono } from '../../dsp/core/resample';
@@ -37,7 +36,7 @@ import { frontEnd, toEvalChords } from './frontEnd';
 import { choosePairRule, fixedBroken, handEditsPer100, newQualityOutput, seventhAsTriad } from './gate';
 import { beginLook, commitArg, committedBlock, git, readRegistry, ROOT } from './guard';
 import { prepareInput } from './input';
-import { pairReadings, parseReading, scorePairs, soundOnlyReading, bassOnlyReading, type PairItem, type Reading } from './pairs';
+import { bassOnlyReading, pairUnits, readingOf, sameReading, scorePairs, soundOnlyReading, type PairItem } from './pairs';
 import { devTakes } from './r2';
 import { editCounts, scoreChords, truthQuality, type EvalChord, type Vocab } from './score';
 import { devSynItems, groupsOf, L_POOL, loadTruth, readCache, recItems, runJobs, type Item, type Truth } from './t8';
@@ -56,6 +55,13 @@ export interface V1Cfg {
 }
 export const v1Config = (margin: number, newSeventh?: NewSeventh): Chords2Config =>
   resolveChords2Config({ stage: 'V1', newQualityMargin: margin, ...(newSeventh ? { newSeventh } : {}) });
+
+/**
+ * The config of a pair-rule row, for its hash only: runFile runs analyze() with pairRule 'off' and applies the rule in
+ * `pairsAfterBass`, so the hash of the config alone says nothing about the rule. With this the hash of the row does.
+ * 'off' is the config itself (same hash as before T17); 'context' / 'bassRoot' have their own.
+ */
+export const rowConfig = (cfg: Chords2Config, rule: 'off' | (typeof RULES)[number]): Chords2Config => ({ ...cfg, pairRule: rule });
 
 /** The row ids of one V1 config (the pair rule after the marks, and candidates-only of both rules). */
 export const v1RowIds = (key: string): string[] => [`${key}|off`, ...RULES.flatMap((r) => [`${key}|${r}`, `${key}|${r}|cand`])];
@@ -174,11 +180,8 @@ export interface Tally {
   sev: Record<string, Count>; // `${row}|${group}`: 7 -> maj a, min7 -> min b
   nq: Record<string, Count>; // `${row}|${group}`: new-quality points a over scored points n
   pairs: Record<string, PairItem[]>; // `${row}|${subset}` subset all | pair (read as a pair by the off row)
-  ms: Record<string, number[]>;
 }
 
-const readingOf = (c: EvalChord | undefined): Reading | null => (c ? { root: noteToPc(c.root), quality: c.quality } : null);
-const sameR = (a: Reading | null, b: Reading) => a !== null && a.root === b.root && a.quality === b.quality;
 const add = (o: Record<string, Count>, k: string, a: number, b: number, n: number) => {
   const x = (o[k] ??= { a: 0, b: 0, n: 0 });
   x.a += a;
@@ -187,7 +190,7 @@ const add = (o: Record<string, Count>, k: string, a: number, b: number, n: numbe
 };
 
 export function tally(files: { c: Cached; t: T10Truth }[], rowIds: readonly string[], offRowFor: (row: string) => string | null): Tally {
-  const T: Tally = { agg: {}, fb: {}, sev: {}, nq: {}, pairs: {}, ms: {} };
+  const T: Tally = { agg: {}, fb: {}, sev: {}, nq: {}, pairs: {} };
   for (const { c, t } of files) {
     const gs = groupsT10(c, t);
     for (const row of rowIds) {
@@ -208,30 +211,24 @@ export function tally(files: { c: Cached; t: T10Truth }[], rowIds: readonly stri
         add(T.sev, `${row}|${g}`, sv.d7AsMaj, sv.m7AsMin, 0);
         add(T.nq, `${row}|${g}`, nq.points, 0, nq.n);
       }
-      (T.ms[row] ??= []).push(c.ms[row] ?? 0);
       // identical pairs (plan §2.3, synthetic truth-table rows; V1 pairs only: sus2 / sus4 exist from V2)
       const off = offRowFor(row);
       if (c.kind !== 'syn' || !off) continue;
-      for (const seg of t.chords2?.segments ?? [])
-        for (const pr of seg.rows ?? []) {
-          const truth = parseReading(pr.truth.split('/')[0]);
-          const pair = pairReadings(truth);
-          if (!pair || truth.quality.startsWith('sus')) continue;
-          const mid = (seg.start + seg.end) / 2;
-          const base = { id: pr.id, conflict: pr.conflict, truth };
-          const offR = readingOf(at(c.rows[off], mid));
-          const subsets = sameR(offR, pair[0]) || sameR(offR, pair[1]) ? ['all', 'pair'] : ['all'];
-          const trueBass = pr.truth.includes('/') ? noteToPc(pr.truth.split('/')[1]) : truth.root;
-          for (const sub of subsets) {
-            (T.pairs[`${row}|${sub}`] ??= []).push({ ...base, got: readingOf(at(res, mid)) });
-            if (row === off) {
-              // references (plan §2.3; pairs.ts), once per config: <key>|soundOnly, <key>|bassOnlyTrue
-              const key = off.split('|')[0];
-              (T.pairs[`${key}|soundOnly|${sub}`] ??= []).push({ ...base, got: soundOnlyReading(pair) });
-              (T.pairs[`${key}|bassOnlyTrue|${sub}`] ??= []).push({ ...base, got: bassOnlyReading(pair, trueBass) });
-            }
+      for (const u of pairUnits(t.chords2?.segments)) {
+        if (!u.pair || u.truth.quality.startsWith('sus')) continue;
+        const base = { id: u.id, conflict: u.conflict, truth: u.truth };
+        const offR = readingOf(at(c.rows[off], u.mid));
+        const subsets = sameReading(offR, u.pair[0]) || sameReading(offR, u.pair[1]) ? ['all', 'pair'] : ['all'];
+        for (const sub of subsets) {
+          (T.pairs[`${row}|${sub}`] ??= []).push({ ...base, got: readingOf(at(res, u.mid)) });
+          if (row === off) {
+            // references (plan §2.3; pairs.ts), once per config: <key>|soundOnly, <key>|bassOnlyTrue
+            const key = off.split('|')[0];
+            (T.pairs[`${key}|soundOnly|${sub}`] ??= []).push({ ...base, got: soundOnlyReading(u.pair) });
+            (T.pairs[`${key}|bassOnlyTrue|${sub}`] ??= []).push({ ...base, got: bassOnlyReading(u.pair, u.trueBass) });
           }
         }
+      }
     }
   }
   return T;
@@ -434,7 +431,8 @@ function lookReport(items: Item[], dir: string): string {
   const pb = pairScore(T, `${TUNED.key}|bassRoot`).conflict.hit;
   out.push(`\n## G3 の組の規則（G1 で先に決めた選び方）: 食い違う例の当たり context ${pc}、bassRoot ${pb}、差 ${pc - pb} → ${choosePairRule(pc, pb)}`);
   const med = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
-  out.push(`\nrow time per file, median ms: ${LOOK_ROWS.map((r) => `${r} ${med(T.ms[r] ?? []).toFixed(1)}`).join(', ')}`);
+  const msKeys = [...new Set(files.flatMap((f) => Object.keys(f.c.ms)))];
+  out.push(`\nstage time per file, median ms (runFile's own names): ${msKeys.map((k) => `${k} ${med(files.map((f) => f.c.ms[k] ?? 0)).toFixed(1)}`).join(', ')}`);
   return out.join('\n');
 }
 
@@ -460,7 +458,7 @@ async function look(argv: string[]): Promise<void> {
   const jobs = Number(argOf(argv, '--jobs') ?? '6');
   const takes = devTakes(readRegistry());
   const syn = devSynItems();
-  const hashes = [chords2ConfigHash(), chords2ConfigHash(TUNED.cfg), bassConfigHash(bassT8()), bassConfigHash(bassG2())];
+  const hashes = [chords2ConfigHash(), ...(['off', ...RULES] as const).map((r) => chords2ConfigHash(rowConfig(TUNED.cfg, r))), bassConfigHash(bassT8()), bassConfigHash(bassG2())];
   const { finish, line } = beginLook(
     {
       look: LOOK,

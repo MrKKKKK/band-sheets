@@ -1,4 +1,8 @@
 /**
+ * NOT ADOPTED (G2 / G3, 2026-11-22): the pair rule and the V1 stage are kept as switches; the app takes spike 6's bass
+ * config (config.ts appBassConfig) only. This file is the ONE place the identical-pair rule is applied (analyze()
+ * refuses `pairRule` on), so a config's `pairRule` value says which rule a row ran.
+ *
  * Spike 7 T10: the stages after the chords2 chord stage for the adopted bass config (G2, user 2026-11-22: none of
  * M1-M3; spike 6's G2-default bass stage on the chords2 segments), in this order (docs/audio-spike7-t10.md):
  *

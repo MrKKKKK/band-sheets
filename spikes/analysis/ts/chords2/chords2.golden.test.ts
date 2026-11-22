@@ -9,7 +9,8 @@ import { DEFAULT_CHORDS_CONFIG as v1cfg, mergeSegments } from '../dsp/chords';
 import { estimateChordsPass2 } from '../dsp/harmony';
 import type { BarKey } from '../dsp/keytrack';
 import { analyze } from './analyze';
-import { DEFAULT_CHORDS2_CONFIG, chords2ConfigHash, resolveChords2Config } from './config';
+import { bassConfigHash, enabledBassConfig } from '../bass/config';
+import { appBassConfig, DEFAULT_CHORDS2_CONFIG, chords2ConfigHash, resolveChords2Config } from './config';
 
 function rng(seed: number): () => number {
   let a = seed >>> 0;
@@ -103,7 +104,22 @@ describe('config', () => {
     expect(analyze(inp, resolveChords2Config({ bass: { method: 'M3' } })).segments).toEqual(analyze(inp, DEFAULT_CHORDS2_CONFIG).segments);
     expect(c({ bass: { method: 'M1' } })).toThrow(/bassChroma/);
     expect(c({ bass: { method: 'M2' } })).toThrow(/bassChroma/);
-    expect(c({ pairRule: 'context' })).not.toThrow();
+    expect(c({ pairRule: 'context' })).toThrow(/pairRule/); // applied by pipeline.ts pairsAfterBass only (T17)
+  });
+});
+
+describe('T17: app bass config and the pair rule in the hash', () => {
+  it('appBassConfig = spike 6 G2 config without redecideRoot, hash pinned', () => {
+    const c = appBassConfig();
+    expect(c.enabled).toBe(true);
+    expect(c.cliche).toMatchObject({ split: true, redecideRoot: false });
+    expect(bassConfigHash(c)).toBe('77cc49d1ca67');
+    expect(bassConfigHash(enabledBassConfig())).toBe('e5b432a11e3c'); // spike 6's G2 (with redecideRoot), unchanged
+  });
+  it('the pairRule value is part of the chords2 hash; off keeps the earlier hashes', () => {
+    const v1 = (pairRule: string) => chords2ConfigHash(resolveChords2Config({ stage: 'V1', pairRule }));
+    expect(v1('off')).toBe('6b3456aceb5e');
+    expect(new Set([v1('off'), v1('context'), v1('bassRoot')]).size).toBe(3);
   });
 });
 
