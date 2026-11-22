@@ -9,13 +9,14 @@
  * New code only where v2 differs: multi-template scores, the gate for the new qualities, the Viterbi over the
  * expanded states (a copy of v1a's, which is not exported and frozen), names.
  */
-import { checkConfig, mergeChords, type ChordSegment, type ColumnChord, type PriorRows } from '../dsp/chords';
+import { checkConfig, mergeChords, type ColumnChord, type PriorRows } from '../dsp/chords';
 import type { MemTracker } from '../dsp/core/mem';
 import type { BarKey } from '../dsp/keytrack';
 import { chordPosterior, segmentCandidates } from '../dsp/posterior';
 import * as v1 from '../dsp/vocab';
 import type { ChordState } from '../dsp/vocab';
 import type { Chords2Config } from './config';
+import { applyDecisions, resolvePairs, segmentBassPc, segmentKeys, type Chords2Segment } from './pairRule';
 import { FamilyPrior } from './prior';
 import * as vocab from './vocab';
 
@@ -38,7 +39,8 @@ export interface Chords2Input {
 
 export interface Chords2Output {
   columns: ColumnChord[];
-  segments: ChordSegment[];
+  /** with pairRule on, identical-pair segments carry the other reading in `chordCandidates` (plan §2.3) */
+  segments: Chords2Segment[];
   states: ChordState[];
 }
 
@@ -53,7 +55,6 @@ function checkSwitches(cfg: Chords2Config): void {
   checkConfig(cfg.chords);
   if (cfg.chords.confidence !== 'posterior') throw new Error('chords2: only chords.confidence=posterior is supported');
   if (cfg.bass.method !== 'off') throw new Error(`chords2: bass.method=${cfg.bass.method} is not implemented yet (T8)`);
-  if (cfg.pairRule !== 'off') throw new Error(`chords2: pairRule=${cfg.pairRule} is not implemented yet (T9)`);
 }
 
 /** Weighted cosine scores [nStates, n] (chords._scores with the new qualities and multi-template states). */
@@ -217,7 +218,7 @@ export function estimateColumns(input: Chords2Input, cfg: Chords2Config): { colu
   return { columns, states: sts };
 }
 
-/** The v2 chord stage: columns, merged segments (with the top-k candidates), and the state list. */
+/** The v2 chord stage: columns, merged segments (with the top-k candidates, then the §2.3 pair post-pass), and the state list. */
 export function analyze(input: Chords2Input, cfg: Chords2Config): Chords2Output {
   const { columns, states } = estimateColumns(input, cfg);
   const segs = mergeChords(columns, cfg.chords, input.perBeat);
@@ -233,6 +234,12 @@ export function analyze(input: Chords2Input, cfg: Chords2Config): Chords2Output 
     segments = segs.map((seg) =>
       seg.root === null ? seg : { ...seg, candidates: segmentCandidates(post, states, n, seg.startBeat, seg.endBeat, cfg.chords.candidates_k) },
     );
+  }
+  if (cfg.pairRule !== 'off') {
+    const bass = segments.map((s) => segmentBassPc(s, cfg.bass.method));
+    const keys = segmentKeys(segments, input.barKeys, input.barOfBeat);
+    const decisions = resolvePairs(segments.map((s, i) => ({ root: s.root, quality: s.quality, bass: bass[i], key: keys[i] })), cfg.pairRule, cfg.stage);
+    return { columns, segments: applyDecisions(segments, decisions, bass), states };
   }
   return { columns, segments, states };
 }

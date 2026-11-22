@@ -97,10 +97,10 @@ describe('config', () => {
     expect(() => resolveChords2Config({ nope: 1 })).toThrow(/unknown chords2 config key/);
     expect(() => resolveChords2Config({ stage: 'V9' })).toThrow(/stage/);
   });
-  it('switches that T8 / T9 will implement throw until then', () => {
+  it('switches that T8 will implement throw until then (pairRule is T9, pairRule.test.ts)', () => {
     const c = (o: unknown) => () => analyze({ chroma: randomChroma(8, 1), n: 8, perBeat: 1, barKeys: [], barOfBeat: barsOf(8, 0) }, resolveChords2Config(o));
     expect(c({ bass: { method: 'M3' } })).toThrow(/T8/);
-    expect(c({ pairRule: 'context' })).toThrow(/T9/);
+    expect(c({ pairRule: 'context' })).not.toThrow();
   });
 });
 
