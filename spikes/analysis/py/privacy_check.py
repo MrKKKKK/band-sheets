@@ -259,7 +259,7 @@ def collect_all(rec_dir):
             if not seq or seq[-1] != c[0]:
                 seq.append(c[0])
         runs |= _runs(seq)
-    anon = r"(rec|chart|hum|drm|bas|chd)( \d+)?( [a-n]\d*)?( max)?( (block|rec|rechard))?"
+    anon = r"(rec|chart|hum|drm|bas|chd)( \d+)?( [a-n]\d*)?( (jp|cp))?( max)?( (block|rec|rechard))?"  # jp/cp: chd_intake variants
     good = sorted({_norm(t) for t in terms if len(_norm(t)) >= 4 and not re.fullmatch(anon, _norm(t))})
     return good, sorted(runs), lyric_grams(lyric_lines)
 

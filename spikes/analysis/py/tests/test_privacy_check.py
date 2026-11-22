@@ -279,7 +279,8 @@ class TestDrumBassSources(unittest.TestCase):
 
     def test_stems_of_chd_folders_and_anonymous_chd_ids(self):
         for sub, fn in (("chd-inbox", "Test Song J.wav"), ("chd-originals", "Test Song K.txt"),
-                        ("chd-originals", "chd-11-k.txt")):
+                        ("chd-originals", "chd-11-k.txt"), ("chd-originals", "chd-12-l-jp.txt"),
+                        ("chd-originals", "chd-12-l-cp.wav")):
             write(os.path.join(self.rec, sub, fn), "x")
         write(os.path.join(self.rec, "chd-14-n.wav"), "x")
         self.assertEqual(self.terms(), ["test song j", "test song k"])

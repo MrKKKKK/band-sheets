@@ -10,7 +10,11 @@ Same steps as py/bass_intake.py (RECORDING.md §9, §10) with the CHORDS2 source
     with the log line (kind "register", input "chords2", `split`) BEFORE the audio file is opened;
   * the dev templates are committed (chord-scores/<x>.txt); the held-out templates live in the gitignored
     recordings/chd-heldout-scores/ (never in git, never printed);
-  * the truth keeps the original quality of every chord (rec_truth `originalQuality`: `AmM7` -> mM7, `C6` -> 6).
+  * the truth keeps the original quality of every chord (rec_truth `originalQuality`: `AmM7` -> mM7, `C6` -> 6);
+  * every held-out letter has two takes (user decision 2026-11-22), files k-jp / k-cp, ids chd-11-k-jp / chd-11-k-cp,
+    both held out and both checked against the one template k.txt: jp = the third piano timbre (the planned hold-out),
+    cp = the dev timbre (same as g-j and spike 6 a-f), so T15 can tell "unknown score" from "unknown timbre". Dev
+    takes g-j stay one per letter (chd-07-g ...). The gear warning leaves the cp takes out.
 """
 import os
 import sys
@@ -23,7 +27,7 @@ HELDOUT_SCORES = "recordings/chd-heldout-scores"  # gitignored (recordings/); pr
 CHORDS2 = B.Source(prefix="chd", letters="ghijklmn", held_out=frozenset("klmn"), ids_file="chd-ids.local.json",
                    inbox="recordings/chd-inbox", scores="chord-scores", heldout_scores=HELDOUT_SCORES,
                    log_input="chords2", manifest="manifest.chords2.json", originals="chd-originals",
-                   original_quality=True, split=True)
+                   original_quality=True, split=True, variants=("jp", "cp"), dev_timbre_variant="cp")
 
 
 def main(argv=None):

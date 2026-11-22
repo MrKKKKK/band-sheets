@@ -24,7 +24,7 @@ change. Names, equipment, chords and timings are not printed. The audio is never
 held-out takes must never be analysed before the final look.
 
 Spike 7 (py/chd_intake.py) runs the same steps with another `Source` (letters, registry, log input, templates, truth
-with `originalQuality`, registry/log `split`). Every function takes `src=BASS`; the defaults are spike 6's behaviour.
+with `originalQuality`, registry/log `split`, two timbre variants per held-out letter: k-jp / k-cp -> chd-11-k-jp ...). Every function takes `src=BASS`; the defaults are spike 6's behaviour.
 """
 import argparse
 import datetime
@@ -61,6 +61,10 @@ class Source:
     originals: str  # recordings/<originals>/ keeps the dropped files
     original_quality: bool  # truth chords also keep `originalQuality` (rec_truth, spike 7)
     split: bool  # registry entries and log lines also carry `split` ('dev' / 'heldOut', spike 7 guard)
+    # Timbre variants of every held-out letter (spike 7, user decision 2026-11-22): files <letter>-<variant>, ids
+    # <prefix>-NN-<letter>-<variant>, all held out. Empty: one take per letter, named by the letter only.
+    variants: tuple = ()
+    dev_timbre_variant: Optional[str] = None  # the variant played in the dev timbre on purpose (no gear warning)
 
     def dev_letters(self):
         return [x for x in self.letters if x not in self.held_out]
@@ -86,8 +90,23 @@ def held_out_of(letter, src=BASS):
     return letter in src.held_out
 
 
-def rec_id(letter, src=BASS):
-    return f"{src.prefix}-{ord(letter) - ord('a') + 1:02d}-{letter}"
+def rec_id(letter, src=BASS, variant=None):
+    return f"{src.prefix}-{ord(letter) - ord('a') + 1:02d}-{letter}" + (f"-{variant}" if variant else "")
+
+
+def parse_base(base, src=BASS):
+    """File stem -> (letter, variant or None). A held-out letter of a source with `variants` needs one of them
+    (`k-jp`); every other take is the letter alone. Raises BassError."""
+    letter, _, variant = base.lower().partition("-")
+    if letter not in tuple(src.letters):
+        raise BassError(f"ファイル名は {src.letters[0]}〜{src.letters[-1]} のどれかにしてください")
+    if src.variants and held_out_of(letter, src):
+        if variant not in src.variants:
+            raise BassError(f"ホールドアウトのファイル名は {letter}-{' / '.join(src.variants)} のどれかにしてください")
+        return letter, variant
+    if variant:
+        raise BassError(f"ファイル名は {letter} だけにしてください（-{variant} は付けません）")
+    return letter, None
 
 
 def _split(held_out):
@@ -249,9 +268,7 @@ def _write_truth(truth, rec_dir, out, src=BASS):
 def process_take(base, t, rec_dir, out, scores_dir, reintake=False, reintake_held_out=False, skip_start=False, log=print,
                  src=BASS, heldout_dir=None):
     """Returns the take id. Raises BassError."""
-    if base.lower() not in tuple(src.letters):
-        raise BassError(f"ファイル名は {src.letters[0]}〜{src.letters[-1]} のどれかにしてください")
-    letter = base.lower()
+    letter, variant = parse_base(base, src)
     if not t["audio"]:
         raise BassError("音声ファイルがありません")
     if len(t["audio"]) > 1:
@@ -261,7 +278,7 @@ def process_take(base, t, rec_dir, out, scores_dir, reintake=False, reintake_hel
     with open(t["txt"], encoding="utf-8") as f:
         ann = parse_bass_txt(f.read(), letter, src)
     check_against_template(ann, scores_dir, letter, src, heldout_dir)
-    rid, held_out = rec_id(letter, src), held_out_of(letter, src)
+    rid, held_out = rec_id(letter, src, variant), held_out_of(letter, src)
     path = next(iter(t["audio"].values()))
     ids = _load_ids(rec_dir, src)
     done = os.path.exists(os.path.join(rec_dir, rid + ".wav"))
@@ -274,6 +291,8 @@ def process_take(base, t, rec_dir, out, scores_dir, reintake=False, reintake_hel
         entry = {"letter": letter, "heldOut": held_out, "registeredAt": _now()}
         if src.split:
             entry["split"] = _split(held_out)
+        if variant:
+            entry["variant"] = variant
         ids["recordings"].setdefault(rid, entry)
         _save_ids(rec_dir, ids, src)
         _log(out, "reintake" if done else "register", rid, held_out, letter, src)
@@ -335,10 +354,11 @@ def reparse(rec_dir, out, scores_dir, only=(), log=print, src=BASS, heldout_dir=
 
 def gear_warnings(rec_dir, src=BASS):
     """Held-out takes (e, f) should use a different piano timbre from a-d (the user writes it in `機材:`); an empty
-    `機材:` cannot be compared. Only this source's takes are compared. Warn only; nothing about the value is printed."""
+    `機材:` cannot be compared. Only this source's takes are compared; a held-out variant played in the dev timbre on
+    purpose (src.dev_timbre_variant) is left out. Warn only; nothing about the value is printed."""
     dev, held, empty = set(), set(), 0
     for rid, e in _load_ids(rec_dir, src)["recordings"].items():
-        if not rid.startswith(src.prefix + "-"):
+        if not rid.startswith(src.prefix + "-") or (src.dev_timbre_variant and e.get("variant") == src.dev_timbre_variant):
             continue
         p = os.path.join(rec_dir, rid + ".truth.json")
         if not os.path.exists(p):

@@ -77,10 +77,22 @@ class TestTemplates(unittest.TestCase):
 
     def test_ids(self):
         self.assertEqual([B.rec_id(x, SRC) for x in "gn"], ["chd-07-g", "chd-14-n"])
+        self.assertEqual([B.rec_id("k", SRC, v) for v in SRC.variants], ["chd-11-k-jp", "chd-11-k-cp"])
         self.assertEqual(sorted(SRC.held_out), list("klmn"))
 
+    def test_file_names_with_variants(self):
+        self.assertEqual([B.parse_base(b, SRC) for b in ("g", "J", "k-jp", "n-CP")],
+                         [("g", None), ("j", None), ("k", "jp"), ("n", "cp")])
+        for bad in ("k", "k-xx", "g-cp", "a", "kk-jp"):
+            with self.assertRaises(B.BassError):
+                B.parse_base(bad, SRC)
+        self.assertEqual(B.parse_base("e", B.BASS), ("e", None))  # spike 6: no variants
+        with self.assertRaises(B.BassError):
+            B.parse_base("e-jp", B.BASS)
 
-def txt(letter, held=None, chords="| Am AmM7 | Am7 Am6 |\n| C6 | Csus2 |\n", gear=""):
+
+def txt(base, held=None, chords="| Am AmM7 | Am7 Am6 |\n| C6 | Csus2 |\n", gear=""):
+    letter = base[:1]
     h = ("はい" if letter in "klmn" else "いいえ") if held is None else held
     return (f"# chd-?-{letter}\nbpm: 120\n拍子: 4/4\nキー: C\nホールドアウト: {h}\n開始: 2秒\n機材: {gear}\n"
             f"クリック: あり\n楽譜と違って弾いた小節: \n{chords}")
@@ -107,9 +119,9 @@ class TestIntake(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.d)
 
-    def put(self, letter, text=None):
-        tone(os.path.join(self.inbox, f"{letter}.wav"), 12.0)
-        wr(os.path.join(self.inbox, f"{letter}.txt"), txt(letter) if text is None else text)
+    def put(self, base, text=None):
+        tone(os.path.join(self.inbox, f"{base}.wav"), 12.0)
+        wr(os.path.join(self.inbox, f"{base}.txt"), txt(base) if text is None else text)
 
     def run_main(self, *extra):
         return C.main(["--inbox", self.inbox, "--out", self.out, "--scores", self.scores, "--heldout-scores", self.held,
@@ -120,27 +132,41 @@ class TestIntake(unittest.TestCase):
         return [json.loads(x) for x in rd(p).splitlines()] if os.path.exists(p) else []
 
     def test_registry_log_truth(self):
-        for L in "gk":
-            self.put(L, txt(L, gear="Piano X" if L == "g" else "Piano Y"))
+        # g and k-cp in the dev timbre on purpose, k-jp in the third timbre: no gear warning
+        for b, gear in (("g", "Piano X"), ("k-jp", "Piano Y"), ("k-cp", "Piano X")):
+            self.put(b, txt(b, gear=gear))
         self.assertEqual(self.run_main(), 0)
         ids = json.loads(rd(os.path.join(self.rec, SRC.ids_file)))["recordings"]
         self.assertEqual(ids["bas-01-a"], {"letter": "a", "heldOut": False, "split": "dev"})  # kept
         self.assertEqual((ids["chd-07-g"]["split"], ids["chd-07-g"]["heldOut"]), ("dev", False))
-        self.assertEqual((ids["chd-11-k"]["split"], ids["chd-11-k"]["heldOut"]), ("heldOut", True))
+        self.assertNotIn("variant", ids["chd-07-g"])
+        for v in ("jp", "cp"):
+            e = ids[f"chd-11-k-{v}"]
+            self.assertEqual((e["letter"], e["variant"], e["split"], e["heldOut"]), ("k", v, "heldOut", True))
         self.assertEqual([(x["take"], x["kind"], x["input"], x["split"], x["heldOut"]) for x in self.log()],
                          [("chd-07-g", "register", "chords2", "dev", False),
-                          ("chd-11-k", "register", "chords2", "heldOut", True)])
-        tr = json.loads(rd(os.path.join(self.rec, "chd-11-k.truth.json")))
-        self.assertEqual([c["originalQuality"] for c in tr["chords"]], ["min", "mM7", "min7", "m6", "6", "sus2"])
+                          ("chd-11-k-cp", "register", "chords2", "heldOut", True),
+                          ("chd-11-k-jp", "register", "chords2", "heldOut", True)])
+        for v in ("jp", "cp"):
+            tr = json.loads(rd(os.path.join(self.rec, f"chd-11-k-{v}.truth.json")))
+            self.assertEqual((tr["name"], tr["heldOut"], tr["style"]), (f"chd-11-k-{v}", True, "k"))
+            self.assertEqual([c["originalQuality"] for c in tr["chords"]], ["min", "mM7", "min7", "m6", "6", "sus2"])
         self.assertTrue(os.path.exists(os.path.join(self.rec, SRC.originals, "chd-07-g.txt")))
+        self.assertTrue(os.path.exists(os.path.join(self.rec, SRC.originals, "chd-11-k-jp.wav")))
         man = json.loads(rd(os.path.join(self.out, "rec", SRC.manifest)))
-        self.assertEqual([v["name"] for v in man["variants"]], ["chd-07-g", "chd-11-k"])
+        self.assertEqual([v["name"] for v in man["variants"]], ["chd-07-g", "chd-11-k-cp", "chd-11-k-jp"])
         self.assertEqual(B.gear_warnings(self.rec, SRC), [])
+
+    def test_heldout_letter_without_variant_is_refused(self):
+        self.put("k")
+        self.put("g-cp")
+        self.assertEqual(self.run_main(), 1)
+        self.assertEqual(self.log(), [])
 
     def test_heldout_template_must_come_from_the_local_folder(self):
         os.remove(os.path.join(self.held, "k.txt"))
         shutil.copy(os.path.join(self.scores, "g.txt"), os.path.join(self.scores, "k.txt"))
-        self.put("k")
+        self.put("k-jp")
         self.assertEqual(self.run_main(), 1)
         self.assertEqual(self.log(), [])
 
@@ -157,7 +183,7 @@ class TestIntake(unittest.TestCase):
 
     def test_reparse_only_this_source_and_gear(self):
         self.put("g", txt("g", gear="Piano X"))
-        self.put("k", txt("k", gear="Piano X"))
+        self.put("k-jp", txt("k-jp", gear="Piano X"))
         self.run_main()
         self.assertEqual(self.run_main("--reparse"), 0)  # bas-01-a (registry only) is not this source's take
         self.assertEqual([x["kind"] for x in self.log()][-2:], ["reparse", "reparse"])
