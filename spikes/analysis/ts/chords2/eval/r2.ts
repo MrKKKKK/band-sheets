@@ -27,12 +27,15 @@ import { newQualities, stageQualities, suffix, type Stage } from '../vocab';
 import { addConfusion, addFile, newAgg, newConfusion, summarize, type Agg, type Confusion } from './baselineAgg';
 import { bassG2, bassT8, ci, f1, f3, items as tuningItems, ROW_LABEL, ROWS, runRows, STAGES, table, v2Config, type RowId } from './baseline';
 import { beginLook, commitArg, committedBlock, git, readRegistry, ROOT, type Registry } from './guard';
+import { handEditsPer100, newQualityOutput, seventhAsTriad } from './gate';
 import { prepareInput } from './input';
 import { bassOnlyReading, pairReadings, scorePairs, soundOnlyReading, type PairItem, type Reading } from './pairs';
 import { editCounts, scoreChords, truthQuality, type EvalChord, type Vocab } from './score';
 
 export const LOOK = 'dev-1' as const;
 export const TASK = 'R2';
+/** The vocabulary stage of each row (G1 gate columns). */
+const ROW_STAGE: Record<RowId, Stage> = { v1a: 'V0', bassT8: 'V0', bassG2: 'V0', V0: 'V0', V1: 'V1', V2: 'V2', V3: 'V3' };
 
 interface RecTruth {
   name?: string;
@@ -134,6 +137,9 @@ export function report(title: string, files: Scored[]): void {
   const rootHit: Record<string, { hit: number; n: number }> = {};
   const outside: Record<string, { out: number; n: number }> = {};
   const pairs: Record<string, PairItem[]> = { soundOnly: [], bassOnly: [] };
+  // G1 gate columns (gate.ts): 7th read as a triad, new-quality output on the spike 6 takes (a-f: every one is false)
+  const sev: Record<string, { d7AsMaj: number; m7AsMin: number }> = {};
+  const nqo: Record<string, { points: number; n: number }> = {};
   for (const f of files) {
     const t = f.truth;
     for (const row of ROWS) {
@@ -156,6 +162,18 @@ export function report(title: string, files: Scored[]): void {
         x.out += o.out;
         x.n += o.n;
       }
+    for (const row of ROWS) {
+      const x = seventhAsTriad(t.chords, f.rows[row], t.beats);
+      const a = (sev[row] ??= { d7AsMaj: 0, m7AsMin: 0 });
+      a.d7AsMaj += x.d7AsMaj;
+      a.m7AsMin += x.m7AsMin;
+      if (f.group === 'a-d' || f.group === 'e-f') {
+        const o = newQualityOutput(t.chords, f.rows[row], t.beats, ROW_STAGE[row]);
+        const b = (nqo[row] ??= { points: 0, n: 0 });
+        b.points += o.points;
+        b.n += o.n;
+      }
+    }
     const pu = pairUnits(t.chords, f.rows);
     for (const [r, xs] of Object.entries(pu.byRow)) (pairs[r] ??= []).push(...xs);
     pairs.soundOnly.push(...pu.soundOnly);
@@ -184,6 +202,11 @@ export function report(title: string, files: Scored[]): void {
   const takes = files.map((f) => `take:${f.id}`);
   out.push(table('録音ごとの名前の当たり 落（点の割合）', files.map((f) => f.letter), per((v, r, g) => f3(S(v, r, g).name.rate), 'down', takes)));
   out.push(table('録音ごとの誤った /X 落', files.map((f) => f.letter), per((v, r, g) => f3(S(v, r, g).wrongSlash), 'down', takes)));
+  out.push(table('手で直す数 / 100 拍（候補から選べば直せる数を除く。落 / 全）', cols, per((_v, r, g) => `${f1(handEditsPer100(S('down', r, g)))} / ${f1(handEditsPer100(S('full', r, g)))}`, 'full')));
+  out.push(table('7th を 3 和音に読んだ点（ALL、ルートが合った点。全）と、a〜f で新しい種類を出した点', ['7→maj', 'm7→m', 'a〜f の新しい種類'], ROWS.map((r) => {
+    const o = nqo[r];
+    return [ROW_LABEL[r], [String(sev[r]?.d7AsMaj ?? 0), String(sev[r]?.m7AsMin ?? 0), o?.n ? `${o.points}/${o.n} = ${f3(o.points / o.n)}` : '-']];
+  })));
   const qs = newQualities('V3');
   out.push(table('新しい種類ごとの再現率 / 適合率（全、ALL。括弧は正解側の点数。ベースにだけある音の点は除く）', qs.map((q) => suffix(q)), ROWS.map((r) => [ROW_LABEL[r], qs.map((q) => { const x = A[key('full', r, 'ALL')]?.byQuality[q]; return x ? `${f3(x.t.n ? x.t.hit / x.t.n : null)}/${f3(x.r.n ? x.r.hit / x.r.n : null)} (${x.t.n})` : '-'; })])));
   const pairRows: [string, PairItem[]][] = [...ROWS.map((r) => [ROW_LABEL[r], pairs[r] ?? []] as [string, PairItem[]]), ['参考: 音だけ', pairs.soundOnly], ['参考: ベースだけ（正しいベース）', pairs.bassOnly]];
