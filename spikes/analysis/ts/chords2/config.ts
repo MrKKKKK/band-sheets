@@ -32,6 +32,11 @@ export interface BassMethodValues {
 }
 const METHOD_KEYS = ['m1', 'm2', 'm3'] as const;
 
+export interface NewSeventh {
+  weight: number;
+  margin: number;
+}
+
 export interface Chords2Config {
   name: string;
   /** Vocabulary stage (§2.2): V0 = v1a's 120 states, V1 156, V2 204, V3 240. */
@@ -41,6 +46,12 @@ export interface Chords2Config {
   pairRule: PairRule;
   /** Clear-win margin a new quality must beat the best base quality by (like v1a `vocab_margin`). */
   newQualityMargin: number;
+  /**
+   * T10: the 7th guard of the new 4-note states (score x weight >= best triad + margin, like v1a's seventh_weight /
+   * seventh_margin, which v1a's own states keep). Present only when set, so configs without it keep their T3 / T7 hashes;
+   * absent = v1a's seventh_weight / seventh_margin.
+   */
+  newSeventh?: NewSeventh;
   /** chords.theory_prior of v1a (the 2nd-pass transition prior strength). */
   theoryPrior: number;
   /** v1a's chords section (Viterbi, vocabulary gate, posterior); read only. */
@@ -74,6 +85,17 @@ export const DEFAULT_BASS_METHOD_VALUES: BassMethodValues = deepFreeze({
   m2: { trebleWeight: 1, bassWeight: 0.1, rootBonus: 0.05 },
   m3: { margin: 0.05 },
 });
+
+/**
+ * T10 (tuning split only: all 397 T7 tuning files; docs/audio-spike7-t10.md): the V1 values the look ran. Rule, fixed
+ * before reading the grid (eval/t10.ts rank, on the pair rule 'bassRoot' rows): regression LR / L0-L3+LV >= G2 - .01 and
+ * new-quality output <= 2 % on synthetic without new qualities; then the most of {V1 recall >= .60, precision >= .80};
+ * then precision, recall, hand edits. Round 1 grid newQualityMargin -.05 .. .1 x newSeventh (none, w 1 / 1.02 / 1.05 m 0,
+ * w 1 m -.02): every value passes the first two and none reaches either V1 line (best precision .450, recall .061;
+ * the loosest gates reach recall .196 at precision .172). The top: margin .025, newSeventh w 1 m -.02. No round 2:
+ * a narrower grid cannot close a gap of that size (plan §5 stop rule; docs/audio-spike7-t10.md).
+ */
+export const T10_V1_OVERRIDES = { stage: 'V1', newQualityMargin: 0.025, newSeventh: { weight: 1.0, margin: -0.02 } } as const;
 
 /** The B method values of a config (throws when the method is off: nothing should read them then). */
 export function bassValues(cfg: Chords2Config): BassMethodValues {
@@ -114,17 +136,25 @@ export function resolveChords2Config(overrides: unknown = {}): Chords2Config {
     }
     return out;
   };
+  // newSeventh: optional (see Chords2Config), checked here and left out of the merge
+  const { newSeventh, ...rest } = overrides as Json;
+  if (newSeventh !== undefined) {
+    if (!isObj(newSeventh) || Object.keys(newSeventh).sort().join() !== 'margin,weight' || !Number.isFinite(newSeventh.weight) || !Number.isFinite(newSeventh.margin))
+      throw new Error(`chords2 config newSeventh: expected { weight, margin } numbers, got ${JSON.stringify(newSeventh)}`);
+  }
+  const ov: Json = rest;
   // bass: the method values exist only with a method on (see BassMethodValues), so they are merged against their own defaults
-  const ovBass = isObj(overrides.bass) ? overrides.bass : undefined;
+  const ovBass = isObj(ov.bass) ? ov.bass : undefined;
   const ovVals: Json = {};
   const bassRest: Json = {};
   for (const [k, v] of Object.entries(ovBass ?? {})) ((METHOD_KEYS as readonly string[]).includes(k) ? ovVals : bassRest)[k] = v;
-  const cfg = merge(DEFAULT_CHORDS2_CONFIG as unknown as Json, ovBass ? { ...overrides, bass: bassRest } : overrides, '') as unknown as Chords2Config;
+  const cfg = merge(DEFAULT_CHORDS2_CONFIG as unknown as Json, ovBass ? { ...ov, bass: bassRest } : ov, '') as unknown as Chords2Config;
   if (cfg.bass.method !== 'off') cfg.bass = { ...cfg.bass, ...(merge(DEFAULT_BASS_METHOD_VALUES as unknown as Json, ovVals, 'bass.') as unknown as BassMethodValues) };
   else if (Object.keys(ovVals).length) throw new Error('chords2 config bass: method values need a bass.method other than off');
   if (!['V0', 'V1', 'V2', 'V3'].includes(cfg.stage)) throw new Error(`chords2 config stage: ${String(cfg.stage)}`);
   if (!['off', 'M1', 'M2', 'M3'].includes(cfg.bass.method)) throw new Error(`chords2 config bass.method: ${String(cfg.bass.method)}`);
   if (!['off', 'context', 'bassRoot'].includes(cfg.pairRule)) throw new Error(`chords2 config pairRule: ${String(cfg.pairRule)}`);
+  if (newSeventh !== undefined) cfg.newSeventh = { weight: Number((newSeventh as Json).weight), margin: Number((newSeventh as Json).margin) };
   return deepFreeze(cfg);
 }
 

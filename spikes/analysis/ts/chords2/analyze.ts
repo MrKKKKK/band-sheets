@@ -102,16 +102,19 @@ function scores(chroma: Float64Array, n: number, sts: readonly ChordState[], cfg
       }
     }
   }
-  // seventh gate: v1a's 4-note states plus the new states with a template of 4 or more notes (provisional, T10-T12)
+  // seventh gate: v1a's 4-note states plus the new states with a template of 4 or more notes; the new states use
+  // cfg.newSeventh when set (T10), else v1a's seventh_weight / seventh_margin
   const sev = sts.map((st, i) => (i < n0 ? v1.intervals(st.quality).length === 4 : nTones[i] >= 4));
+  const sevW = (i: number) => (i >= n0 && cfg.newSeventh ? cfg.newSeventh.weight : c.seventh_weight);
+  const sevM = (i: number) => (i >= n0 && cfg.newSeventh ? cfg.newSeventh.margin : c.seventh_margin);
   if (sev.some(Boolean)) {
     for (let t = 0; t < n; t++) {
       let bestTriad = -Infinity;
       for (let i = 0; i < k; i++) if (!sev[i]) bestTriad = Math.max(bestTriad, s[i * n + t]);
       for (let i = 0; i < k; i++) {
         if (!sev[i]) continue;
-        const s7 = s[i * n + t] * c.seventh_weight;
-        s[i * n + t] = s7 >= bestTriad + c.seventh_margin ? s7 : 0;
+        const s7 = s[i * n + t] * sevW(i);
+        s[i * n + t] = s7 >= bestTriad + sevM(i) ? s7 : 0;
       }
     }
   }

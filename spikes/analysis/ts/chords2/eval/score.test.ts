@@ -90,6 +90,22 @@ describe('hand calculation', () => {
     expect(e).toMatchObject({ name: 1, nameFixableByCandidate: 1, total: 1 });
     expect(editCounts(t, [ch(0, 4, 'A', 'min7')], beats, 'full').nameFixableByCandidate).toBe(0);
   });
+  it('candidates: only the shown ones count (cap 2 besides the answer; the answer and repeats skipped)', () => {
+    const t = [ch(0, 4, 'C', '6')];
+    const c = (root: string, quality: string) => ({ root, quality });
+    // answer and a repeat do not take a slot: C6 is the 2nd shown candidate
+    const r = [ch(0, 4, 'A', 'min7', null, { candidates: [c('A', 'min7'), c('C', 'maj'), c('C', 'maj'), c('C', '6')] })];
+    expect(editCounts(t, r, beats, 'full').nameFixableByCandidate).toBe(1);
+    // third shown candidate: past the cap
+    const r3 = [ch(0, 4, 'A', 'min7', null, { candidates: [c('C', 'maj'), c('E', 'min'), c('C', '6')] })];
+    expect(editCounts(t, r3, beats, 'full').nameFixableByCandidate).toBe(0);
+  });
+  it('candidates: the ベースにだけある音 other name also fixes a name edit', () => {
+    const t = [ch(0, 4, 'A', 'mM7', 'G#')]; // AmM7/G# = Am over G#: Am is a hit too
+    const r = [ch(0, 4, 'C', 'maj', 'G#', { candidates: [{ root: 'A', quality: 'min' }] })];
+    expect(editCounts(t, r, beats, 'full')).toMatchObject({ name: 1, nameFixableByCandidate: 1 });
+    expect(editCounts(t, r, beats, 'full', { bassOnly: false }).nameFixableByCandidate).toBe(0);
+  });
   it('editDiff: stripping the result bass costs a slashAdd', () => {
     const d = editDiff(truth, result, beats, 'full');
     expect(d.withBass.total).toBe(1);

@@ -109,7 +109,7 @@ export function runFile(y: Float32Array, specs: readonly RowSpec[]): FileRows {
 
 /* ------------------------------------------------------------ material */
 
-interface Truth {
+export interface Truth {
   beats: ScoreBeat[];
   chords: EvalChord[];
   chords2?: { variant?: { split?: string; heldOut?: boolean } };
@@ -118,7 +118,7 @@ interface Truth {
   heldOut?: boolean;
   excludedBars?: number[];
 }
-interface Item {
+export interface Item {
   name: string;
   /** group for the tables: B, V1..V3, pair, B0..B3, L0..L3, LR, LV, or a-d / e-f / g-j for recordings */
   level: string;
@@ -134,7 +134,7 @@ const tuneItems = (): Item[] =>
     .map((i) => ({ name: i.name, level: i.level, kind: 'syn' as const, wav: i.wav, truth: i.truth }));
 
 /** Dev synthetic + the L sets (manifest flags checked; nothing opened). */
-function devSynItems(): Item[] {
+export function devSynItems(): Item[] {
   const out: Item[] = [];
   const c2 = join(ROOT, 'out', 'chords2');
   for (const v of json<{ variants: { name: string; set: string; split: string; heldOut: boolean; wav: string; truth: string }[] }>(join(c2, 'manifest.json')).variants)
@@ -146,10 +146,10 @@ function devSynItems(): Item[] {
   return out;
 }
 
-const recItems = (takes: string[]): Item[] => takes.map((id) => ({ name: id, level: groupOf(id), kind: 'rec', wav: join(ROOT, 'recordings', `${id}.wav`), truth: join(ROOT, 'recordings', `${id}.truth.json`) }));
+export const recItems = (takes: string[]): Item[] => takes.map((id) => ({ name: id, level: groupOf(id), kind: 'rec', wav: join(ROOT, 'recordings', `${id}.wav`), truth: join(ROOT, 'recordings', `${id}.truth.json`) }));
 
 /** Reads a truth after checking its own flags (dev / tuning only). */
-function loadTruth(it: Item, split: 'tuning' | 'dev'): Truth {
+export function loadTruth(it: Item, split: 'tuning' | 'dev'): Truth {
   const t = json<Truth>(it.truth);
   const c2v = t.chords2?.variant;
   const bv = t.bass?.variant;
@@ -170,15 +170,15 @@ function processItem(it: Item, specs: readonly RowSpec[], dir: string): void {
 
 /* ------------------------------------------------------------ aggregation */
 
-interface Cached extends FileRows {
+export interface Cached extends FileRows {
   name: string;
   level: string;
   kind: 'syn' | 'rec';
 }
-const L_POOL = new Set(['L0', 'L1', 'L2', 'L3', 'LV']);
+export const L_POOL = new Set(['L0', 'L1', 'L2', 'L3', 'LV']);
 const B6 = new Set(['B0', 'B1', 'B2', 'B3']);
 /** Table groups a file belongs to. */
-const groupsOf = (c: Pick<Cached, 'level' | 'kind'>): string[] =>
+export const groupsOf = (c: Pick<Cached, 'level' | 'kind'>): string[] =>
   c.kind === 'rec' ? [c.level, 'REC'] : [c.level, ...(L_POOL.has(c.level) ? ['Lpool'] : []), ...(B6.has(c.level) ? ['B0-3'] : []), ...(L_POOL.has(c.level) || c.level === 'LR' ? [] : ['SYN'])];
 
 interface Tally {
@@ -272,7 +272,7 @@ function report(title: string, files: { c: Cached; t: Truth }[], specs: readonly
   return lines.join('\n');
 }
 
-const readCache = (dir: string): Cached[] => (existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => json<Cached>(join(dir, f))) : []);
+export const readCache = (dir: string): Cached[] => (existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => json<Cached>(join(dir, f))) : []);
 
 /* ------------------------------------------------------------ tune */
 
@@ -349,13 +349,12 @@ function lookWorker(argv: string[]): void {
   }
 }
 
-/** Runs the items in `jobs` child processes (each `t8.ts look-worker`); resolves when all exit 0. */
-async function runJobs(items: Item[], jobs: number): Promise<void> {
-  mkdirSync(OUT, { recursive: true });
-  const self = fileURLToPath(import.meta.url);
+/** Runs the items in `jobs` child processes (each `<script> look-worker`, default this file); resolves when all exit 0. */
+export async function runJobs(items: Item[], jobs: number, self = fileURLToPath(import.meta.url), out = OUT): Promise<void> {
+  mkdirSync(out, { recursive: true });
   await Promise.all(
     Array.from({ length: jobs }, (_, k) => {
-      const list = join(OUT, `look-list-${k}.json`);
+      const list = join(out, `look-list-${k}.json`);
       writeFileSync(list, JSON.stringify(items.filter((_, i) => i % jobs === k)));
       return new Promise<void>((res, rej) => {
         const p = spawn('npx', ['tsx', self, 'look-worker', '--list', list], { stdio: 'inherit', cwd: ROOT });

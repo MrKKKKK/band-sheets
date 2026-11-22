@@ -21,6 +21,7 @@
 import { noteToPc, beatWindows, normalizeTruthSlash, type ScoreBeat, type ScoreChord } from '../../bass/score';
 import { at } from '../../bass/evalCommon';
 import { fMeasure } from '../../drum/score';
+import { shownCandidates } from '../candidates';
 import { templates, stageQualities } from '../vocab';
 import { fullQuality, mapDown } from './mapDown';
 
@@ -290,7 +291,7 @@ export interface EditCounts {
   merge: number;
   total: number;
   nBeats: number;
-  /** name edits where the truth (root, quality) is among the candidates of the dominant result piece ("選べば直せる"; a subset of `name`) */
+  /** name edits where the truth (root, quality; or its ベースにだけある音 other name) is among the SHOWN candidates of the dominant result piece (candidates.ts cap; "選べば直せる"; a subset of `name`) */
   nameFixableByCandidate: number;
 }
 interface Label {
@@ -324,7 +325,9 @@ export function editCounts(truth: readonly EvalChord[], result: readonly EvalCho
     const key = `${l.root}|${l.q}|${l.bass}`;
     if (key !== prevKey) piece++;
     prevKey = key;
-    rl.push({ ...l, piece, cands: (rc.candidates ?? []).map((x) => `${noteToPc(x.root)}|${vocab === 'full' ? x.quality : (mapDown(x.quality) ?? UNMAPPED)}`) });
+    // the shown candidates only (candidates.ts: at most CANDIDATE_CAP besides the answer, pair reading first)
+    const shown = shownCandidates({ root: rc.root, quality: rc.quality }, rc.candidates ?? []);
+    rl.push({ ...l, piece, cands: shown.map((x) => `${noteToPc(x.root)}|${vocab === 'full' ? x.quality : (mapDown(x.quality) ?? UNMAPPED)}`) });
   }
   const c: EditCounts = { name: 0, slashAdd: 0, slashRemove: 0, slashChange: 0, split: 0, merge: 0, total: 0, nBeats: tl.length, nameFixableByCandidate: 0 };
   const k = (x: { root: number; q: string; bass: number | null }): string => `${x.root}|${x.q}|${x.bass}`;
@@ -348,7 +351,8 @@ export function editCounts(truth: readonly EvalChord[], result: readonly EvalCho
     const t = tl[i];
     if (!dom.l || dom.l.root !== t.root || (dom.l.q !== t.q && dom.l.q !== t.alt)) {
       c.name++;
-      if (dom.l?.cands.includes(`${t.root}|${t.q}`)) c.nameFixableByCandidate++;
+      // either truth name fixes it (ベースにだけある音: the other name is a hit too)
+      if (dom.l && (dom.l.cands.includes(`${t.root}|${t.q}`) || (t.alt !== null && dom.l.cands.includes(`${t.root}|${t.alt}`)))) c.nameFixableByCandidate++;
     }
     const rb = dom.l ? dom.l.bass : null;
     if (t.bass === null && rb !== null) c.slashRemove++;

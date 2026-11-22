@@ -15,6 +15,7 @@ import { DEFAULT_KEY_CONFIG, estimate as keytrackEstimate, type BarKey } from '.
 import { findSections, DEFAULT_SECTIONS_CONFIG } from '../../dsp/sections';
 import { tempoEventTimes } from '../../dsp/tempo';
 import type { Chords2Input } from '../analyze';
+import type { Chords2Segment } from '../pairRule';
 import type { EvalChord } from './score';
 
 export interface FrontEnd {
@@ -78,7 +79,8 @@ export function toEvalChords(segs: readonly ChordSegment[], times: ArrayLike<num
       root: NOTE_NAMES[s.root % 12],
       quality: s.quality,
       bass: s.bass !== null ? NOTE_NAMES[s.bass % 12] : null,
-      candidates: s.candidates.map((c) => ({ root: NOTE_NAMES[c.root % 12], quality: c.quality })),
+      // the identical pair's other reading first (plan §2.3: always shown), then the top-k (candidates.ts caps what is shown)
+      candidates: [...((s as Chords2Segment).chordCandidates ?? []), ...s.candidates].map((c) => ({ root: NOTE_NAMES[c.root % 12], quality: c.quality })),
     });
   }
   return out;
