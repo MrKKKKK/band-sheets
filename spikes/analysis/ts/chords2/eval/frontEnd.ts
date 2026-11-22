@@ -8,7 +8,7 @@
 import { loadFeatures } from '../../dsp/audio';
 import { trackBeats } from '../../dsp/beats';
 import { beatLevel, DEFAULT_CHORDS_CONFIG, downbeatChords, estimateChords, mergeSegments, NOTE_NAMES, type ChordSegment } from '../../dsp/chords';
-import { chordColumns, columnTimes } from '../../dsp/chroma';
+import { aggregate, chordColumns, columnTimes, DEFAULT_CHROMA_CONFIG } from '../../dsp/chroma';
 import { MemTracker } from '../../dsp/core/mem';
 import { chooseDownbeats, DEFAULT_DOWNBEAT_CONFIG } from '../../dsp/downbeat';
 import { DEFAULT_KEY_CONFIG, estimate as keytrackEstimate, type BarKey } from '../../dsp/keytrack';
@@ -54,7 +54,9 @@ export function frontEnd(y: Float32Array, now: () => number = () => performance.
   for (let i = 0; i < nb; i++) barOfBeat[i] = Math.floor((i - downbeats.phase) / downbeats.beatsPerBar);
   const kt = keytrackEstimate(beatChords, barOfBeat, sections.map((s) => s.startBar), DEFAULT_KEY_CONFIG);
   const barKeys: BarKey[] = kt.keys;
-  return { times, duration, input: { chroma: cols.cChroma, n: nc, perBeat: pb, barKeys, barOfBeat }, ms: now() - t0, memPeak: mem.peak };
+  // T8 (M1): the bass-band chroma per chord column, aggregated like cChroma (same column bounds, v1a's own rule)
+  const bassChroma = aggregate(cols.frames.bass, cols.frames.bassFrames, cols.cBounds, DEFAULT_CHROMA_CONFIG.aggregate);
+  return { times, duration, input: { chroma: cols.cChroma, n: nc, perBeat: pb, barKeys, barOfBeat, bassChroma }, ms: now() - t0, memPeak: mem.peak };
 }
 
 /** chords2 segments -> chords the scorer reads (ts/dsp/result.ts buildResult's times and names; no-chord segments omitted). */

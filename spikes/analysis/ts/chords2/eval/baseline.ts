@@ -97,7 +97,7 @@ export interface Cached {
   hashes: { v2off: string; bassT8: string; bassG2: string };
   ms: { v1a: number; front: number; stage: Record<string, number> };
 }
-const slim = (cs: readonly { start: number; end: number; root: string; quality: string; bass: string | null; candidates?: { root: string; quality: string }[] }[]): EvalChord[] =>
+export const slim = (cs: readonly { start: number; end: number; root: string; quality: string; bass: string | null; candidates?: { root: string; quality: string }[] }[]): EvalChord[] =>
   cs.map((c) => ({ start: c.start, end: c.end, root: c.root, quality: c.quality, bass: c.bass ?? null, ...(c.candidates ? { candidates: c.candidates.map((x) => ({ root: x.root, quality: x.quality })) } : {}) }));
 const sameChords = (a: readonly EvalChord[], b: readonly EvalChord[]): boolean =>
   a.length === b.length && a.every((x, i) => x.start === b[i].start && x.end === b[i].end && x.root === b[i].root && x.quality === b[i].quality && (x.bass ?? null) === (b[i].bass ?? null));

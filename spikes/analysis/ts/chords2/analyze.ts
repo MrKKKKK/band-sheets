@@ -15,7 +15,8 @@ import type { BarKey } from '../dsp/keytrack';
 import { chordPosterior, segmentCandidates } from '../dsp/posterior';
 import * as v1 from '../dsp/vocab';
 import type { ChordState } from '../dsp/vocab';
-import type { Chords2Config } from './config';
+import { bassValues, type Chords2Config } from './config';
+import { collapsePosterior, ExpandedPrior, m2Expand, scoreChroma } from './bass';
 import { applyDecisions, resolvePairs, segmentBassPc, segmentKeys, type Chords2Segment } from './pairRule';
 import { FamilyPrior } from './prior';
 import * as vocab from './vocab';
@@ -34,6 +35,8 @@ export interface Chords2Input {
   /** Per-bar keys of v1a's keytrack and the bar of each beat (length n / perBeat). */
   barKeys: readonly BarKey[];
   barOfBeat: ArrayLike<number>;
+  /** v1a's bass-band chroma (C1-B3) per chord column, row-major [12, n]: needed by bass.method M1 (T8, bass.ts). */
+  bassChroma?: ArrayLike<number>;
   mem?: MemTracker;
 }
 
@@ -54,7 +57,6 @@ export function chordName(root: number | null, quality: string, bass: number | n
 function checkSwitches(cfg: Chords2Config): void {
   checkConfig(cfg.chords);
   if (cfg.chords.confidence !== 'posterior') throw new Error('chords2: only chords.confidence=posterior is supported');
-  if (cfg.bass.method !== 'off') throw new Error(`chords2: bass.method=${cfg.bass.method} is not implemented yet (T8)`);
 }
 
 /** Weighted cosine scores [nStates, n] (chords._scores with the new qualities and multi-template states). */
@@ -188,7 +190,7 @@ export function estimateColumns(input: Chords2Input, cfg: Chords2Config): { colu
   const stay = perBeat === 1 ? c.self_transition : Math.pow(c.self_transition, 1.0 / perBeat);
   const emisW = perBeat === 1 ? 1.0 : EIGHTH_EMIS;
   const k = sts.length;
-  const s = scores(c64, n, sts, cfg);
+  const s = scores(scoreChroma(c64, input.bassChroma, cfg), n, sts, cfg); // M1: the bass band taken out (bass.ts); no-chord test below reads the full chroma
   const silent = new Uint8Array(n);
   for (let t = 0; t < n; t++) {
     let e = c64[t];
@@ -201,9 +203,20 @@ export function estimateColumns(input: Chords2Input, cfg: Chords2Config): { colu
   const nMove = v1.moveStates(c);
   const emis = perBeat > 1 ? s.map((v) => v * emisW) : s;
   const prior = new FamilyPrior(sts, input.barKeys, input.barOfBeat, cfg.theoryPrior, input.mem);
-  const path = viterbi(emis, k, n, stay, prior.isZero() ? null : prior, perBeat, nMove);
   const f = perBeat > 1 ? BETA * emisW : BETA;
-  const post = chordPosterior(s.map((v) => f * v), k, n, stay, nMove);
+  let path: Int32Array;
+  let post: Float64Array;
+  if (cfg.bass.method === 'M2') {
+    // M2 (bass.ts): states (chord, bass tone); the decoded chord is the state's base, the posterior summed per base
+    const ex = m2Expand(s, sts, input.bassChroma, n, bassValues(cfg));
+    const nMoveE = Math.round((nMove * ex.k) / k);
+    const pathE = viterbi(perBeat > 1 ? ex.emis.map((v) => v * emisW) : ex.emis, ex.k, n, stay, prior.isZero() ? null : new ExpandedPrior(prior, ex.base, k), perBeat, nMoveE);
+    path = pathE.map((i) => ex.base[i]);
+    post = collapsePosterior(chordPosterior(ex.emis.map((v) => f * v), ex.k, n, stay, nMoveE), ex.base, k, n);
+  } else {
+    path = viterbi(emis, k, n, stay, prior.isZero() ? null : prior, perBeat, nMove);
+    post = chordPosterior(s.map((v) => f * v), k, n, stay, nMove);
+  }
   const columns: ColumnChord[] = [];
   for (let t = 0; t < n; t++) {
     const col = new Float64Array(k);

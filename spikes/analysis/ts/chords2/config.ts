@@ -13,16 +13,31 @@ import { pyCanonicalJson, sha256Hex } from '../dsp/config';
 import { DEFAULT_THEORY_PRIOR } from '../dsp/harmony';
 import type { Stage } from './vocab';
 
-/** B method of plan §2.1. 'off' = no bass feature. M1-M3 are implemented by T8 (they throw until then). */
+/** B method of plan §2.1 (T8, bass.ts). 'off' = no bass feature. */
 export type BassMethod = 'off' | 'M1' | 'M2' | 'M3';
 /** Identical-pair rule of plan §2.3. 'off' = the Viterbi reading stays. Implemented by T9. */
 export type PairRule = 'off' | 'context' | 'bassRoot';
+
+/**
+ * T8 values of the B methods (bass.ts). Present in `bass` only when a method is on, so the all-off configs keep the
+ * T3 / T7 hashes (with the method off nothing reads them).
+ */
+export interface BassMethodValues {
+  /** M1: share of the v1a bass-band chroma (C1-B3, per chord column) subtracted from the full chroma before scoring. */
+  m1: { trebleWeight: number };
+  /** M2: the same subtraction for its chord scores, the weight of the bass-band chroma of the state's bass tone, and the extra for the root as the bass (bass.ts m2Expand). */
+  m2: { trebleWeight: number; bassWeight: number; rootBonus: number };
+  /** M3: the treble-cosine margin a reading that holds the bass must beat the root-position reading by. */
+  m3: { margin: number };
+}
+const METHOD_KEYS = ['m1', 'm2', 'm3'] as const;
 
 export interface Chords2Config {
   name: string;
   /** Vocabulary stage (§2.2): V0 = v1a's 120 states, V1 156, V2 204, V3 240. */
   stage: Stage;
-  bass: { method: BassMethod };
+  /** B method (§2.1, T8); the method values (BassMethodValues) only when the method is not 'off'. */
+  bass: { method: BassMethod } & Partial<BassMethodValues>;
   pairRule: PairRule;
   /** Clear-win margin a new quality must beat the best base quality by (like v1a `vocab_margin`). */
   newQualityMargin: number;
@@ -42,6 +57,30 @@ export const DEFAULT_CHORDS2_CONFIG: Chords2Config = deepFreeze({
   theoryPrior: DEFAULT_THEORY_PRIOR,
   chords: DEFAULT_CHORDS_CONFIG,
 });
+
+/**
+ * T8 (tuning split only: the T7 tuning material without pair / V2 / V3, 151 files; docs/audio-spike7-t8.md). Rule,
+ * fixed before reading the grids: among values whose fixed truth segments outnumber the broken ones (name, 落, vs the
+ * T8-form baseline), the most G1 lines passed on the tuning numbers, ties -> the higher /X-point root on B1.
+ *  - m1.trebleWeight 0.75 (grid .25 / .5 / .75 / 1: 2 / 2 / 4 / 3 lines; every weight misses the LR regression line,
+ *    LR name .784 / .762 / .674 / .546 against .796).
+ *  - m2 (grid trebleWeight .5 / .75 / 1 x bassWeight .1 / .2 / .4 x rootBonus 0 / .05): 1 / .1 / .05 = 4 lines;
+ *    every value misses LR (best .762) and the hand-edit line.
+ *  - m3.margin 0.05 (grid 0 / .025 / .05 / .075 / .1 / .15 / .2 / .3, round 3 = bass held, root = bass): .025 passes 4
+ *    lines but breaks more segments than it fixes (+112 / -119); .05 .. .3 pass 3, .05 has the best B1 /X root (.421).
+ */
+export const DEFAULT_BASS_METHOD_VALUES: BassMethodValues = deepFreeze({
+  m1: { trebleWeight: 0.75 },
+  m2: { trebleWeight: 1, bassWeight: 0.1, rootBonus: 0.05 },
+  m3: { margin: 0.05 },
+});
+
+/** The B method values of a config (throws when the method is off: nothing should read them then). */
+export function bassValues(cfg: Chords2Config): BassMethodValues {
+  const b = cfg.bass;
+  if (b.method === 'off' || !b.m1 || !b.m2 || !b.m3) throw new Error('chords2: no B method values (bass.method is off)');
+  return { m1: b.m1, m2: b.m2, m3: b.m3 };
+}
 
 function deepFreeze<T>(o: T): T {
   if (o && typeof o === 'object') {
@@ -75,7 +114,14 @@ export function resolveChords2Config(overrides: unknown = {}): Chords2Config {
     }
     return out;
   };
-  const cfg = merge(DEFAULT_CHORDS2_CONFIG as unknown as Json, overrides, '') as unknown as Chords2Config;
+  // bass: the method values exist only with a method on (see BassMethodValues), so they are merged against their own defaults
+  const ovBass = isObj(overrides.bass) ? overrides.bass : undefined;
+  const ovVals: Json = {};
+  const bassRest: Json = {};
+  for (const [k, v] of Object.entries(ovBass ?? {})) ((METHOD_KEYS as readonly string[]).includes(k) ? ovVals : bassRest)[k] = v;
+  const cfg = merge(DEFAULT_CHORDS2_CONFIG as unknown as Json, ovBass ? { ...overrides, bass: bassRest } : overrides, '') as unknown as Chords2Config;
+  if (cfg.bass.method !== 'off') cfg.bass = { ...cfg.bass, ...(merge(DEFAULT_BASS_METHOD_VALUES as unknown as Json, ovVals, 'bass.') as unknown as BassMethodValues) };
+  else if (Object.keys(ovVals).length) throw new Error('chords2 config bass: method values need a bass.method other than off');
   if (!['V0', 'V1', 'V2', 'V3'].includes(cfg.stage)) throw new Error(`chords2 config stage: ${String(cfg.stage)}`);
   if (!['off', 'M1', 'M2', 'M3'].includes(cfg.bass.method)) throw new Error(`chords2 config bass.method: ${String(cfg.bass.method)}`);
   if (!['off', 'context', 'bassRoot'].includes(cfg.pairRule)) throw new Error(`chords2 config pairRule: ${String(cfg.pairRule)}`);
