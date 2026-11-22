@@ -24,8 +24,11 @@ Private terms are read at RUNTIME from the gitignored recordings folder (nothing
     "humming note sequence (k of n runs)" (once per file / diff / message). T15: the runs are also compared by their
     interval sequence (differences between consecutive pitches), so a transposed or octave-shifted copy of a run is
     found as well ("... transposed form"); interval windows with fewer than 3 distinct intervals are not used.
-  * spike 5 drums / spike 6 bass: the original names in recordings/drm-ids.local.json and bas-ids.local.json (read
-    like ids.local.json) and the stems of the files in drm-inbox/, drm-originals/, bas-inbox/ and bas-originals/.
+  * spike 5 drums / spike 6 bass / spike 7 chords: the original names in recordings/drm-ids.local.json,
+    bas-ids.local.json and chd-ids.local.json (read like ids.local.json) and the stems of the files in drm-inbox/,
+    drm-originals/, bas-inbox/, bas-originals/, chd-inbox/ and chd-originals/,
+  * spike 7 held-out scores (self-made, kept out of git): every run of 6 chords of the bar lines / inline `[X]` chords
+    of the *.txt files in recordings/chd-heldout-scores/ (the dev scores are committed and are not private).
 Chord runs that are a window of a generic loop (GENERIC_LOOPS, e.g. I-vi-IV-V of the T0 test signal) in any key are
 allowed: they identify nothing and are used by tests.
 Matching ignores case and treats space / _ / - / . as the same. Anonymous names (rec, rec-01 ...) and very short
@@ -56,7 +59,8 @@ _PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 _CHORD_TOKEN = re.compile(r"([A-G])([#b]?)(.*)")
 SKIP_DIRS = {"out", "recordings", "node_modules", ".git", "soundfonts", "__pycache__"}
 SEP = r"[\s_\-.]+"
-IDS_FILES = ("ids.local.json", "hum-ids.local.json", "drm-ids.local.json", "bas-ids.local.json")
+HELDOUT_SCORES = "chd-heldout-scores"  # spike 7 (py/chd_intake.py): the held-out score templates
+IDS_FILES = ("ids.local.json", "hum-ids.local.json", "drm-ids.local.json", "bas-ids.local.json", "chd-ids.local.json")
 
 
 def _norm(t):
@@ -187,7 +191,7 @@ def collect_all(rec_dir):
     if not os.path.isdir(rec_dir):
         return [], [], set()
     for sub in ("", "inbox", "originals", "hum-inbox", "hum-originals", "drm-inbox", "drm-originals", "bas-inbox",
-                "bas-originals"):
+                "bas-originals", "chd-inbox", "chd-originals"):
         d = os.path.join(rec_dir, sub)
         if not os.path.isdir(d):
             continue
@@ -223,6 +227,12 @@ def collect_all(rec_dir):
                     terms.add(os.path.splitext(e.get("original", ""))[0])
             except ValueError:
                 pass
+    hdir = os.path.join(rec_dir, HELDOUT_SCORES)
+    if os.path.isdir(hdir):
+        for fn in sorted(os.listdir(hdir)):
+            p = os.path.join(hdir, fn)
+            if fn.lower().endswith(".txt") and os.path.isfile(p):
+                chart_runs |= _runs(chart_texts(open(p, encoding="utf-8", errors="replace").read())[1])
     for ids_name in IDS_FILES:
         ids_p = os.path.join(rec_dir, ids_name)
         if os.path.exists(ids_p):
@@ -249,7 +259,7 @@ def collect_all(rec_dir):
             if not seq or seq[-1] != c[0]:
                 seq.append(c[0])
         runs |= _runs(seq)
-    anon = r"(rec|chart|hum|drm|bas)( \d+)?( [a-f]\d*)?( max)?( (block|rec|rechard))?"
+    anon = r"(rec|chart|hum|drm|bas|chd)( \d+)?( [a-n]\d*)?( (jp|cp))?( max)?( (block|rec|rechard))?"  # jp/cp: chd_intake variants
     good = sorted({_norm(t) for t in terms if len(_norm(t)) >= 4 and not re.fullmatch(anon, _norm(t))})
     return good, sorted(runs), lyric_grams(lyric_lines)
 

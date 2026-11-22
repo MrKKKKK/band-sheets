@@ -1,0 +1,20 @@
+{title: Spike7 録音用 j（9 の和音・分数なし）}
+{tempo: 80}
+{time: 4/4}
+{key: F}
+
+{start_of_verse: A}
+|[Fmaj9]----[Dm9]----|[Gm9]----[C9]----|[Fmaj9]----[Dm9]----|[Gm9]----[C7sus4]----|
+{end_of_verse}
+
+{start_of_verse: B}
+|[Bbmaj9]----[Am7]----|[Dmadd9]----[G9]----|[Gm9]----[C9]----|[Fmaj9]--------|
+{end_of_verse}
+
+{start_of_verse: C}
+|[Gm]----[GmM7]----|[Gm7]----[C9]----|[Dm]----[DmM7]----|[Dm7]----[G9]----|
+{end_of_verse}
+
+{start_of_verse: D}
+|[Bbmaj9]----[Bbm6]----|[Am7]----[D9]----|[Gm9]----[C7sus4]----|[F6]--------|
+{end_of_verse}

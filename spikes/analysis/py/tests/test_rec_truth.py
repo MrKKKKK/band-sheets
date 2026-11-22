@@ -140,6 +140,49 @@ class TestParse(unittest.TestCase):
             R.parse_chord("Cfoo")
 
 
+class TestOriginalQuality(unittest.TestCase):
+    """Spike 7 T4: the opt-in `originalQuality` field (the quality before it is collapsed to the scorer's vocabulary)."""
+    ANN = {"tempo": 120, "timeSignature": [4, 4], "click": True, "firstSoundSec": 0.0, "eighthsPerBar": 8,
+           "sections": [{"label": "A", "startBar": 0, "bars": 2}],
+           "bars": [[["Am6", 2], ["C6", 2], ["Dsus2", 2], ["Cmadd9/G", 2]],
+                    [["G7sus4", 2], ["Fadd9", 2], ["Em9", 2], ["Cmaj9", 2]],
+                    [["Am7", 2], ["Fmaj7", 2], ["G9", 2], ["Bm7b5", 2]],
+                    [["Caug7", 2], ["Cdim7", 2], ["C5", 2], ["C", 2]]]}
+
+    def test_default_output_has_no_new_key_and_keeps_collapsed_quality(self):
+        # characterization: the output spikes 2-6 rely on (m6 -> min, 6 -> maj, 9 -> 7, ...) is exactly this
+        t = R.build_truth(self.ANN, 20.0, 0.0, 120)
+        self.assertEqual([(c["root"], c["quality"], c["bass"], c["text"]) for c in t["chords"]],
+                         [("A", "min", None, "Am6"), ("C", "maj", None, "C6"), ("D", "sus2", None, "Dsus2"),
+                          ("C", "min", "G", "Cmadd9/G"), ("G", "sus4", None, "G7sus4"), ("F", "maj", None, "Fadd9"),
+                          ("E", "min", None, "Em9"), ("C", "maj7", None, "Cmaj9"), ("A", "min7", None, "Am7"),
+                          ("F", "maj7", None, "Fmaj7"), ("G", "7", None, "G9"), ("B", "m7b5", None, "Bm7b5"),
+                          ("C", "aug", None, "Caug7"), ("C", "dim", None, "Cdim7"), ("C", "maj", None, "C5"),
+                          ("C", "maj", None, "C")])
+        for c in t["chords"]:
+            self.assertNotIn("originalQuality", c)
+        self.assertEqual(t, R.build_truth(self.ANN, 20.0, 0.0, 120, original_quality=False))
+
+    def test_opt_in_adds_only_the_field(self):
+        base = R.build_truth(self.ANN, 20.0, 0.0, 120)
+        t = R.build_truth(self.ANN, 20.0, 0.0, 120, original_quality=True)
+        self.assertEqual([c["originalQuality"] for c in t["chords"]],
+                         ["m6", "6", "sus2", "madd9", "7sus4", "add9", "m9", "maj9", "min7", "maj7", "9", "m7b5",
+                          "aug7", "dim7", "5", "maj"])
+        for c in t["chords"]:
+            del c["originalQuality"]
+        self.assertEqual(t, base)
+
+    def test_function(self):
+        self.assertEqual(R.original_quality_of("Am6"), "m6")
+        self.assertEqual(R.original_quality_of("Cadd2"), "add9")
+        self.assertEqual(R.original_quality_of("C2"), "2")  # ambiguous (sus2 or add9): kept verbatim
+        self.assertEqual(R.original_quality_of("G7(#9)/B"), "7(#9)")
+        self.assertEqual(R.original_quality_of("Dm7"), "min7")
+        with self.assertRaises(ValueError):
+            R.original_quality_of("Hm")
+
+
 class TestFit(unittest.TestCase):
     def test_recovers_offset_and_tempo(self):
         sr = 22050
