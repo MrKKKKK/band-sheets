@@ -88,7 +88,7 @@ function loadTruth(it: Item): Truth {
 
 /* ------------------------------------------------------------ run */
 
-interface Cached {
+export interface Cached {
   name: string;
   set: string;
   level: string;
@@ -102,9 +102,20 @@ const slim = (cs: readonly { start: number; end: number; root: string; quality: 
 const sameChords = (a: readonly EvalChord[], b: readonly EvalChord[]): boolean =>
   a.length === b.length && a.every((x, i) => x.start === b[i].start && x.end === b[i].end && x.root === b[i].root && x.quality === b[i].quality && (x.bass ?? null) === (b[i].bass ?? null));
 
+export interface RowsRun extends Omit<Cached, 'name' | 'set' | 'level'> {
+  /** the frozen v1a result and the low CQT the bass rows used (R2's spike 6 R3 check reuses them) */
+  v1: ReturnType<typeof analyzeV1>;
+  low: ReturnType<typeof lowCqt>;
+}
+
 function runItem(it: Item): Cached {
   const wav = decodeWav(new Uint8Array(readFileSync(it.wav)));
-  const y = prepareInput(toMono(wav.channels), wav.sampleRate, true).y;
+  const { v1: _v1, low: _low, ...r } = runRows(prepareInput(toMono(wav.channels), wav.sampleRate, true).y);
+  return { name: it.name, set: it.set, level: it.level, ...r };
+}
+
+/** Every row of ROWS on one prepared (22,050 Hz, normalized) signal `y` (not changed). Used by baseline and R2. */
+export function runRows(y: Float32Array): RowsRun {
   const t0 = performance.now();
   const v1 = analyzeV1(y.slice());
   const v1aMs = performance.now() - t0;
@@ -125,13 +136,12 @@ function runItem(it: Item): Cached {
     rows[s] = toEvalChords(o.segments, fe.times, fe.duration);
   }
   return {
-    name: it.name,
-    set: it.set,
-    level: it.level,
     rows,
     v0Same: sameChords(rows.V0, rows.v1a),
     hashes: { v2off: chords2ConfigHash(), bassT8: bassConfigHash(t8), bassG2: bassConfigHash(g2) },
     ms: { v1a: v1aMs, front: fe.ms, stage },
+    v1,
+    low,
   };
 }
 
@@ -160,11 +170,11 @@ function cmdRun(argv: string[]): void {
 
 /* ------------------------------------------------------------ report */
 
-const f3 = (x: number | null | undefined): string => (x === null || x === undefined || Number.isNaN(x) ? '-' : x.toFixed(3).replace(/^0\./, '.'));
-const f1 = (x: number | null): string => (x === null ? '-' : x.toFixed(1));
-const ci = (w: { lo: number; hi: number } | null): string => (w ? `[${f3(w.lo)}-${f3(w.hi)}]` : '');
+export const f3 = (x: number | null | undefined): string => (x === null || x === undefined || Number.isNaN(x) ? '-' : x.toFixed(3).replace(/^0\./, '.'));
+export const f1 = (x: number | null): string => (x === null ? '-' : x.toFixed(1));
+export const ci = (w: { lo: number; hi: number } | null): string => (w ? `[${f3(w.lo)}-${f3(w.hi)}]` : '');
 
-function table(title: string, cols: string[], rows: [string, string[]][]): string {
+export function table(title: string, cols: string[], rows: [string, string[]][]): string {
   return [`\n### ${title}`, `| 行 | ${cols.join(' | ')} |`, `|---|${cols.map(() => '---').join('|')}|`, ...rows.map(([l, cs]) => `| ${l} | ${cs.join(' | ')} |`)].join('\n');
 }
 
