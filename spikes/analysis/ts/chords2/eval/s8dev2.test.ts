@@ -4,7 +4,7 @@ import { chords2ConfigHash } from '../config';
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { candConfig, freshDir, lookReport, candStat, combineStates, handDiffStat, lookCfgs, nameDiff, rankTheta, rowLines, runBits, scoreFile2, stateOf, THETA_GRID, tuneGrid, verdict, type FileRec2 } from './s8dev2';
+import { candConfig, freshDir, lookReport, candStat, combineStates, handDiffStat, lookCfgs, nameDiff, rankTheta, returnsToMain, rowLines, runBits, scoreFile2, stateOf, THETA_GRID, tuneGrid, verdict, type FileRec2 } from './s8dev2';
 import { editCounts, type EvalChord } from './score';
 import type { Item } from './t8';
 
@@ -149,5 +149,12 @@ describe('s8dev2: tuning grid and selection rule', () => {
     expect(() => lookCfgs(0.4)).toThrow(/tuning grid/);
     expect(lookCfgs(0.35)[0].key).toBe('E1c');
     expect(lookCfgs(0.35)[0].cfg).toEqual(candConfig(0.35));
+  });
+  it('return to main: the unrounded hand difference decides (-0.480 returns, -0.5 and below does not; Infinity returns)', () => {
+    expect(returnsToMain(-0.48)).toBe(true);
+    expect(Math.round(-0.48 * 10) / 10).toBe(-0.5); // rounded to 0.1 it would sit exactly on the boundary
+    expect(returnsToMain(-0.5)).toBe(false);
+    expect(returnsToMain(-0.62)).toBe(false);
+    expect(returnsToMain(Infinity)).toBe(true);
   });
 });

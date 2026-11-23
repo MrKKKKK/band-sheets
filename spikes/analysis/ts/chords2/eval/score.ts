@@ -312,11 +312,11 @@ const POINT_MEASURES = {
   addedCandidate: { scope: all, ok: addedCandidateOk },
   asTriadE1: { scope: (p) => (fullTruth(p) ?? '') in AS_TRIAD.E1, ok: (p) => asTriadOf(p, AS_TRIAD.E1) },
   asTriadE2: { scope: (p) => (fullTruth(p) ?? '') in AS_TRIAD.E2, ok: (p) => asTriadOf(p, AS_TRIAD.E2) },
-  // spike 8 T7 (plan §5 決め手): the E1 qualities pooled, root + quality as byQuality (ベースにだけある音 points left out)
   // spike 8 G1 §2 (candidates-only E1): decision 9's points whose correct 7th is also NOT among the shown candidates, and the
   // 3 和音 points that carry an added-tone candidate (the share of them, a-f recordings)
   asTriadHidden: { scope: (p) => (fullTruth(p) ?? '') in AS_TRIAD.E1, ok: (p) => asTriadOf(p, AS_TRIAD.E1) && !correctShown(p) },
   triadCandidate: { scope: (p) => p.tAlt === null && isTriad(fullTruth(p)), ok: addedCandidateOk },
+  // spike 8 T7 (plan §5 決め手): the E1 qualities pooled, root + quality as byQuality (ベースにだけある音 points left out)
   addedRecallE1: { scope: (p) => p.tAlt === null && E1_Q.has(p.tq), ok: rootQualityOk },
   addedPrecisionE1: { scope: (p) => p.tAlt === null && p.rq !== null && E1_Q.has(p.rq), ok: rootQualityOk },
 } satisfies Record<string, PointMeasure>;

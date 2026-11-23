@@ -311,6 +311,9 @@ async function tuneRun(argv: string[]): Promise<void> {
   console.log(`tune: ${readRecs2(dir).length} files in ${dir.replace(ROOT + '/', '')}`);
 }
 
+/** The return-to-main rule (plan §3): the UNROUNDED hand difference above −0.5 (rounded to 0.1 it would be exactly −0.5, the boundary). */
+export const returnsToMain = (handRaw: number): boolean => handRaw > -0.5;
+
 function tuneReport(argv: string[]): void {
   const dir = tuneDirOf(argv);
   const fs = readRecs2(dir);
@@ -328,7 +331,7 @@ function tuneReport(argv: string[]): void {
   const top = ranked[0];
   if (top) {
     L.push(`\n## 1 位 ${top.key} の線\n${LINE_HEAD}\n${fmtLines([...top.lines.decisive, ...top.lines.guards])}`);
-    if (top.handRaw > -0.5) L.push('\n**1 位の手数の差が −0.5 より大きい（決め手から遠い）: 見る時点を使う前にメインに返す。天井 録音 2.50・SYN 3.34 / 100 拍（g1 §2）と並べて見せる。**');
+    if (returnsToMain(top.handRaw)) L.push('\n**1 位の手数の差が −0.5 より大きい（決め手から遠い）: 見る時点を使う前にメインに返す。天井 録音 2.50・SYN 3.34 / 100 拍（g1 §2）と並べて見せる。**');
     if (top.nameDiff) L.push('\n**名前が基準と同じでない: 作りの誤り（harness-fix）。**');
   }
   const text = L.join('\n');

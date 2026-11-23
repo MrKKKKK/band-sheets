@@ -25,6 +25,9 @@ describe('s8dev1: grid, groups', () => {
     expect(LOOK_CFGS.map((c) => c.key)).toEqual(['E1', 'E1|D1']);
     expect(LOOK_CFGS[1].cfg.octaveChroma).toBe(true);
     expect(LOOK_CFGS[0].cfg.d2).toEqual(LOOK_CFGS[1].cfg.d2);
+    // the s8-dev-1 rows' config hashes (look at 2aafe69)
+    expect(chords2ConfigHash(LOOK_CFGS[0].cfg)).toBe('8b6cd09b7c54');
+    expect(chords2ConfigHash(LOOK_CFGS[1].cfg)).toBe('462ab1385491');
   });
   it('groups', () => {
     expect(groupsOf(item('c2-d-v1-human-s4-v7top', 'V1'))).toEqual(['V1', 'SYN', 'v7', 'ALL']);

@@ -117,12 +117,12 @@ export const DEFAULT_CHORDS2_CONFIG: Chords2Config = deepFreeze({
 
 /**
  * Spike 8 T5: D2's values when `d2` is on and an override does not set them. PROVISIONAL, set before any tuning number
- * (T7 tunes theta / thetaLow / switchPenalty on the tuning split only; T9 E2):
+ * (T7 tuned theta / thetaLow / switchPenalty on the tuning split only; T9 not done (decision 20)):
  *  - thetaLow 0.3: T4's provisional value (front/config.ts until T5; T4's tests and accuracy table were measured with it).
  *  - theta 0.5: an added tone at half the sounding triad tones' mean strength; above thetaLow, not read from any result.
  *  - switchPenalty 0.1: one switch costs as much as 0.1 of ρ above theta on one beat (a 2-beat added tone at the end of
  *    a run needs ρ > theta + .05; one in the middle of a run, two switches, ρ > theta + .1).
- *  - range E1 (plan §2.3: E2 after G1).
+ *  - range E1 (plan §2.3: E2 not done, decision 20).
  */
 export const DEFAULT_D2_VALUES: D2Values = deepFreeze({ range: 'E1', theta: 0.5, thetaLow: 0.3, switchPenalty: 0.1 });
 
