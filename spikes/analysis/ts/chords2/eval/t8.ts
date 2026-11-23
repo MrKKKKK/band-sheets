@@ -181,13 +181,13 @@ const B6 = new Set(['B0', 'B1', 'B2', 'B3']);
 export const groupsOf = (c: Pick<Cached, 'level' | 'kind'>): string[] =>
   c.kind === 'rec' ? [c.level, 'REC'] : [c.level, ...(L_POOL.has(c.level) ? ['Lpool'] : []), ...(B6.has(c.level) ? ['B0-3'] : []), ...(L_POOL.has(c.level) || c.level === 'LR' ? [] : ['SYN'])];
 
-interface Tally {
+export interface Tally {
   agg: Record<string, Agg>; // `${vocab}|${row}|${group}`
   conf: Record<string, Confusion>; // `${row}|${group}`
   fb: Record<string, { fixed: number; broken: number; units: number }>; // `${row}|${group}` vs bassT8 (落)
   ms: Record<string, number[]>;
 }
-function tally(files: { c: Cached; t: Truth }[], rowIds: readonly string[]): Tally {
+export function tally(files: { c: Cached; t: Truth }[], rowIds: readonly string[]): Tally {
   const T: Tally = { agg: {}, conf: {}, fb: {}, ms: {} };
   for (const { c, t } of files) {
     const gs = groupsOf(c);
