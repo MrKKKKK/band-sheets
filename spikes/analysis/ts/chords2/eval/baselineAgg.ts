@@ -33,6 +33,8 @@ export interface Agg {
   byQuality: Record<string, { t: HitN; r: HitN }>;
   bassOnlyP: HitN;
   bassOnlyU: HitN;
+  /** spike 8 §5 足す音の列 (score.ts `added`): points, and the asTriad points per truth quality */
+  added: { triadName: HitN; overAdd: HitN; addedCandidate: HitN; asTriad: Record<string, number> };
   edits: Omit<EditCounts, 'nBeats'> & { nBeats: number };
 }
 
@@ -50,6 +52,7 @@ export const newAgg = (): Agg => ({
   byQuality: {},
   bassOnlyP: hn(),
   bassOnlyU: hn(),
+  added: { triadName: hn(), overAdd: hn(), addedCandidate: hn(), asTriad: {} },
   edits: { name: 0, slashAdd: 0, slashRemove: 0, slashChange: 0, split: 0, merge: 0, total: 0, nBeats: 0, nameFixableByCandidate: 0 },
 });
 
@@ -76,6 +79,8 @@ export function addFile(a: Agg, s: ChordScores, e: EditCounts): void {
   }
   addHn(a.bassOnlyP, s.bassOnly.points.hit, s.bassOnly.points.n);
   addHn(a.bassOnlyU, s.bassOnly.units.hit, s.bassOnly.units.n);
+  for (const k of ['triadName', 'overAdd', 'addedCandidate'] as const) addHn(a.added[k], s.added[k].hit, s.added[k].n);
+  for (const [q, x] of Object.entries(s.added.asTriad)) a.added.asTriad[q] = (a.added.asTriad[q] ?? 0) + x;
   for (const k of Object.keys(a.edits) as (keyof Agg['edits'])[]) a.edits[k] += e[k];
 }
 
@@ -91,6 +96,8 @@ export interface Summary {
   editsPer100: number | null;
   editsFixablePer100: number | null;
   bassOnly: { rate: number | null; units: number; unitHit: number };
+  /** spike 8 §5: 3 和音の点の名前 / 足しすぎ (rates), 候補を出した拍 per 100 beats, asTriad points per truth quality */
+  added: { triadName: number | null; overAdd: number | null; addedCandidatePer100: number | null; asTriad: Record<string, number> };
 }
 export function summarize(a: Agg): Summary {
   const p = a.slash.result ? a.slash.hit / a.slash.result : null;
@@ -106,6 +113,7 @@ export function summarize(a: Agg): Summary {
     editsPer100: a.edits.nBeats ? (a.edits.total * 100) / a.edits.nBeats : null,
     editsFixablePer100: a.edits.nBeats ? (a.edits.nameFixableByCandidate * 100) / a.edits.nBeats : null,
     bassOnly: { rate: r(a.bassOnlyP), units: a.bassOnlyU.n, unitHit: a.bassOnlyU.hit },
+    added: { triadName: r(a.added.triadName), overAdd: r(a.added.overAdd), addedCandidatePer100: a.added.addedCandidate.n ? r(a.added.addedCandidate)! * 100 : null, asTriad: { ...a.added.asTriad } },
   };
 }
 

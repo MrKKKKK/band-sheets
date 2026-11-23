@@ -9,6 +9,7 @@
   - `f1.ts`: 7 オクターブ（C1〜B7）の CQT（`ts/bass/lowCqt.ts` を 7 オクターブで呼ぶ）→ 拍ごとの平均（CQT の 1/√f の傾きを 2^(行/24) で戻す）→ 拍ごとに「一番強い候補を採る → なめらかな包絡までだけ引く」をくり返す。出力は拍ごとの音（MIDI と強さ）。音の高さの出力は C2〜B5。C1〜B1 はベースの低い音の倍音を引くための候補で、採っても `notes`・`lowest` にだけ出る。
   - `ratio.ts`: 計画 §2.2 の 2〜4 の比 ρ(d)（分子は一番低い音を外す、分母は鳴っている 3 和音の音の平均）。T4 の試験と当たりの表が使う。**D2（T5）はこれを使い、式を写さない。**
   - `config.ts`: F1 の値（`f1ConfigHash()` = **`05a3e9144919`**、試験で固定）。θ_low（0.3）も仮にここに置いた。D2 が持つ値なので、T5 で `Chords2Config` に入れるときに移す。
+    - T5 で θ_low を `ts/chords2/config.ts` の `DEFAULT_D2_VALUES` に移した（値は 0.3 のまま）。F1 の値は変わらないが、`f1ConfigHash()` は **`cbf11a42c101`** になった（`docs/audio-spike8-t5.md`）。
   - `accuracy.ts`・`cli.ts`: 当たりの表（`eval`）・拍ごとの強さの出力（`dump`）・CQT の共有の確かめ（`share`）・5 分の時間（`timing`）。どれも調整用（`c2-t-*`）だけを開き、マニフェストと正解ファイルの両方の印を先に確かめる。
 - 材料: 調整用 276 本を `npx tsx render/chords2/cli.ts --only 'c2-t-*'` で描いた（音源の `soundfonts/MuseScore_General.sf2` と `basskits/` は gitignore。spike7 のワークツリーから読むだけで写した）。
 - 拍ごとの強さ: `npx tsx ts/chords2/front/cli.ts dump <c2-t-名前> [--dump FILE]`（既定 `out/chords2-front/<名前>.json`）。v1a の拍ごとに `notes`（採った順の MIDI と強さ）・`lowest`・`strength`（C2〜B5 の 48 個、採っていない音は 0）。

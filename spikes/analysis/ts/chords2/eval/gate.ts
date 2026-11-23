@@ -10,16 +10,15 @@
 import { at } from '../../bass/evalCommon';
 import { beatWindows, normalizeTruthSlash, type ScoreBeat } from '../../bass/score';
 import { stageQualities, type Stage } from '../vocab';
-import { addConfusion, newConfusion, type Summary } from './baselineAgg';
+import type { Summary } from './baselineAgg';
 import { scoreChords, truthQuality, type EditCounts, type EvalChord, type Vocab } from './score';
 
 const W = 0.5; // weight of one scored point (two per beat), as in score.ts
 
-/** Points (weight 0.5) where the truth 7 / min7 was read as maj / min with the right root (full vocabulary). */
+/** Points (weight 0.5) where the truth 7 / min7 was read as maj / min with the right root (full vocabulary; score.ts `added.asTriad`). */
 export function seventhAsTriad(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[]): { d7AsMaj: number; m7AsMin: number } {
-  const c = newConfusion();
-  addConfusion(c, truth, result, beats, 'full');
-  return { d7AsMaj: c.quality['7|maj'] ?? 0, m7AsMin: c.quality['min7|min'] ?? 0 };
+  const a = scoreChords(truth, result, beats, 'full').added.asTriad;
+  return { d7AsMaj: a['7'], m7AsMin: a.min7 };
 }
 
 /** Qualities a stage adds to v1a's vocabulary (V1 .. stage). */

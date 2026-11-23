@@ -19,12 +19,21 @@
  *    the bass (`AmM7/G#` = Am over G#, `Am7/G`, `Am6/F#`; and the other way round `C/D` = `Cadd9/D`, `Am/G` = `Am7/G`),
  *    both names are a hit (name, edit counts), and those points are left out of `byQuality` and counted in `bassOnly`
  *    instead. `{ bassOnly: false }` turns this off (spike 6's scorer has no such rule: the parity test uses it).
+ *  - 足す音の列 (spike 8 plan §5, T5; `added` and the segmentTallies measures, predicates in POINT_MEASURES):
+ *    3 和音 = a truth whose full-vocabulary quality is its own triad (vocab.ts triadOf: maj, min, dim).
+ *    triadName: the name rule on 3 和音 points (ベースにだけある音 points left out, as byQuality).
+ *    overAdd (足しすぎ): 3 和音 points without /X where the result's quality is a triad plus an added tone (7, maj7, min7,
+ *      m7b5, 6, m6, mM7, ...; any root: an Am7 on a C truth adds A to the triad too). No result chord = not over-added.
+ *    asTriad (7th を 3 和音に読む): root matched and truth `7` / `min7` (E1; E2 also `6`, `m6`, `mM7`) read as their triad,
+ *      full names in both vocabularies and every point counted (as spike 7's gate.ts seventhAsTriad, which reads it here).
+ *    addedCandidate (候補を出した点): a shown candidate (candidates.ts cap) with the answer's root and triad but another
+ *      quality (C7 under C, C6 under C7). Per 100 beats = rate x 100 (two points per beat).
  */
 import { noteToPc, beatWindows, normalizeTruthSlash, type ScoreBeat, type ScoreChord } from '../../bass/score';
 import { at } from '../../bass/evalCommon';
 import { fMeasure } from '../../drum/score';
 import { shownCandidates } from '../candidates';
-import { templates, stageQualities } from '../vocab';
+import { templates, stageQualities, triadOf } from '../vocab';
 import { fullQuality, mapDown } from './mapDown';
 
 export type Vocab = 'full' | 'down';
@@ -229,14 +238,63 @@ export interface ChordScores {
   byQuality: Record<string, QualityRow>;
   /** points whose truth has a ベースにだけある音 (both names hit): the name hits on them, kept apart from byQuality */
   bassOnly: { points: Rate; units: UnitRate };
+  /** spike 8 §5 足す音の列 (header; per segment: segmentTallies with the same measure) */
+  added: {
+    triadName: Rate;
+    overAdd: Rate;
+    addedCandidate: Rate;
+    /** points of each truth quality (`7`, `min7`, E2's `6`, `m6`, `mM7`) read as its triad (AS_TRIAD) */
+    asTriad: Record<AsTriadTruth, number>;
+  };
 }
+
+/* ------------------------------------------------------------ 足す音の列 (spike 8 §5) */
+
+/** Plan §5 "7th を 3 和音に読む": truth quality -> the triad reading counted, per range (E2 = E1 + 6 / m6 / mM7). */
+export const AS_TRIAD = {
+  E1: { '7': 'maj', min7: 'min' },
+  E2: { '7': 'maj', min7: 'min', '6': 'maj', m6: 'min', mM7: 'min' },
+} as const satisfies Record<string, Record<string, string>>;
+export type AsTriadTruth = keyof (typeof AS_TRIAD)['E2'];
+
+const fullTruth = (p: Point): string | null => truthQuality(p.tc, 'full');
+const isTriad = (q: string | null): boolean => q !== null && triadOf(q) === q;
+/** a triad plus an added tone (vocab.ts triadOf family, not the triad itself) */
+const isAdded = (q: string): boolean => triadOf(q) !== null && triadOf(q) !== q;
+const asTriadOf = (p: Point, map: Readonly<Record<string, string>>): boolean => {
+  const tq = fullTruth(p);
+  return p.rc !== null && p.rRoot === p.tRoot && tq !== null && tq in map && p.rc.quality === map[tq];
+};
+const addedCandidateOk = (p: Point): boolean => {
+  const rc = p.rc;
+  if (!rc || triadOf(rc.quality) === null) return false;
+  return shownCandidates({ root: rc.root, quality: rc.quality }, rc.candidates ?? []).some((c) => noteToPc(c.root) === p.rRoot && c.quality !== rc.quality && triadOf(c.quality) === triadOf(rc.quality));
+};
 
 const nameOk = (p: Point): boolean => p.rc !== null && p.rRoot === p.tRoot && (p.rq === p.tq || (p.tAlt !== null && p.rq === p.tAlt)) && p.rBass === p.tBass;
 const rootOk = (p: Point): boolean => p.rRoot === p.tRoot;
 
+/** A point-rate measure: the points in scope and the hit rule. */
+interface PointMeasure {
+  scope: (p: Point) => boolean;
+  ok: (p: Point) => boolean;
+}
+const all = (): boolean => true;
+const POINT_MEASURES = {
+  name: { scope: all, ok: nameOk },
+  slashRoot: { scope: (p) => p.tBass !== null, ok: rootOk },
+  triadName: { scope: (p) => p.tAlt === null && isTriad(fullTruth(p)), ok: nameOk },
+  overAdd: { scope: (p) => p.tBass === null && isTriad(fullTruth(p)), ok: (p) => p.rc !== null && isAdded(p.rc.quality) },
+  addedCandidate: { scope: all, ok: addedCandidateOk },
+  asTriadE1: { scope: (p) => (fullTruth(p) ?? '') in AS_TRIAD.E1, ok: (p) => asTriadOf(p, AS_TRIAD.E1) },
+  asTriadE2: { scope: (p) => (fullTruth(p) ?? '') in AS_TRIAD.E2, ok: (p) => asTriadOf(p, AS_TRIAD.E2) },
+} satisfies Record<string, PointMeasure>;
+export type Measure = keyof typeof POINT_MEASURES;
+const measure = (pts: readonly Point[], m: Measure) => tally(pts, POINT_MEASURES[m].ok, POINT_MEASURES[m].scope);
+
 export function scoreChords(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab, opts: ScoreOptions = {}): ChordScores {
   const { pts, droppedPoints } = scoredPoints(truth, result, beats, vocab, opts.bassOnly ?? true);
-  const slashRoot = tally(pts, rootOk, (p) => p.tBass !== null);
+  const slashRoot = measure(pts, 'slashRoot');
   let truthSlash = 0, resultSlash = 0, slashHit = 0, noSlash = 0, falseSlash = 0, noSlashChord = 0, falseSlashChord = 0, noChord = 0;
   for (const p of pts) {
     if (!p.rc) noChord += W;
@@ -273,13 +331,19 @@ export function scoreChords(truth: readonly EvalChord[], result: readonly EvalCh
     nPoints: pts.length * W,
     droppedPoints,
     noChordPoints: noChord,
-    name: tally(pts, nameOk),
+    name: measure(pts, 'name'),
     root: tally(pts, rootOk).points,
     slashRoot,
     slash: { truthSlash, resultSlash, hit: slashHit, recall, precision, f: recall && precision ? fMeasure(precision, recall) : 0 },
     wrongSlash: { noSlashTruth: noSlash, falseSlash, rate: noSlash ? falseSlash / noSlash : null, onChordPoints: rate(falseSlashChord, noSlashChord) },
     byQuality,
     bassOnly: tally(pts, nameOk, (p) => p.tAlt !== null),
+    added: {
+      triadName: measure(pts, 'triadName').points,
+      overAdd: measure(pts, 'overAdd').points,
+      addedCandidate: measure(pts, 'addedCandidate').points,
+      asTriad: Object.fromEntries(Object.entries(AS_TRIAD.E2).map(([tq, rq]) => [tq, tally(pts, (p) => asTriadOf(p, { [tq]: rq })).points.hit])) as Record<AsTriadTruth, number>,
+    },
   };
 }
 
@@ -290,16 +354,16 @@ export interface SegmentTally {
 }
 
 /**
- * The points of `scoreChords`' name / slashRoot per truth segment (segments with a scored point only, in truth order),
- * so a point-rate line gets its interval from the same unit: segmentBootstrap(..., pointRate) in bootstrap.ts. Their
- * sums are the line's points (hit / n).
+ * The points of a `scoreChords` measure per truth segment (segments with a point in the measure's scope only, in truth
+ * order), so a point-rate or point-count line gets its interval from the same unit: segmentBootstrap(..., pointRate /
+ * pointSum) in bootstrap.ts. Their sums are the line's points (hit / n): name, slashRoot.points, added.*.
  */
-export function segmentTallies(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab, measure: 'name' | 'slashRoot', opts: ScoreOptions = {}): SegmentTally[] {
+export function segmentTallies(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab, measure: Measure, opts: ScoreOptions = {}): SegmentTally[] {
   const { pts } = scoredPoints(truth, result, beats, vocab, opts.bassOnly ?? true);
-  const ok = measure === 'name' ? nameOk : rootOk;
+  const { ok, scope } = POINT_MEASURES[measure];
   const seg = new Map<number, SegmentTally>();
   for (const p of pts) {
-    if (measure === 'slashRoot' && p.tBass === null) continue;
+    if (!scope(p)) continue;
     const s = seg.get(p.seg) ?? { hit: 0, n: 0 };
     s.n += W;
     if (ok(p)) s.hit += W;

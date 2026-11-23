@@ -5,7 +5,10 @@ import { DEFAULT_F1_CONFIG, f1ConfigHash, resolveF1Config } from './config';
 import { bassCqtFrom, bassView, f1Beats, harmonicOffsets, lowestNote, octaveCqt, pcStrength, strengthRow, type F1Note } from './f1';
 import { addedRatio } from './ratio';
 import { lowCqt } from '../../bass/lowCqt';
-import { appBassConfig } from '../config';
+import { appBassConfig, DEFAULT_D2_VALUES } from '../config';
+
+/** θ_low of D2 (../config.ts since T5; the same 0.3 T4 measured with). */
+const THETA_LOW = DEFAULT_D2_VALUES.thetaLow;
 
 const SR = 22050;
 /** 1/h roll-off (a plain string-like tone). */
@@ -43,7 +46,7 @@ function notesOf(y: Float32Array): F1Note[] {
 const C_MAJ = [0, 4, 7];
 /** Fake added tones of plan §2.1 on a C chord: 6th A (1/3 phantom), m7 Bb (7th partial), M7 B (3rd's 3rd partial), 9th D (5th's 3rd partial). */
 const FAKES = { A: 9, Bb: 10, B: 11, D: 2 } as const;
-const rho = (notes: F1Note[], d: number) => addedRatio(notes, 0, C_MAJ, d);
+const rho = (notes: F1Note[], d: number) => addedRatio(notes, 0, C_MAJ, d, THETA_LOW);
 
 /** The voicings of plan §7 T4 (MIDI): C/E, left hand 1-5-8, octaves, C close, C open. */
 const VOICINGS: Record<string, number[]> = {
@@ -59,9 +62,9 @@ describe('F1: fake added tones stay below θ_low (plan §2.1, §7 T4)', () => {
     for (const [vname, midis] of Object.entries(VOICINGS)) {
       it(`${vname}, ${tname}`, () => {
         const notes = notesOf(tones(midis.map((midi) => ({ midi, amps }))));
-        for (const [fake, d] of Object.entries(FAKES)) expect(rho(notes, d), `${fake} ρ`).toBeLessThan(DEFAULT_F1_CONFIG.thetaLow);
+        for (const [fake, d] of Object.entries(FAKES)) expect(rho(notes, d), `${fake} ρ`).toBeLessThan(THETA_LOW);
         // the chord itself is there: every triad tone sounds (ρ of the 3rd and 5th well above θ_low)
-        for (const d of [4, 7]) expect(rho(notes, d), `triad ${d}`).toBeGreaterThan(DEFAULT_F1_CONFIG.thetaLow);
+        for (const d of [4, 7]) expect(rho(notes, d), `triad ${d}`).toBeGreaterThan(THETA_LOW);
       });
     }
   }
@@ -70,7 +73,7 @@ describe('F1: fake added tones stay below θ_low (plan §2.1, §7 T4)', () => {
     for (const amps of Object.values(TIMBRES)) {
       for (const d of [9, 10, 11]) {
         const notes = notesOf(tones([48, 60, 64, 67, 60 + d].map((midi) => ({ midi, amps }))));
-        expect(rho(notes, d), `d ${d}`).toBeGreaterThanOrEqual(DEFAULT_F1_CONFIG.thetaLow);
+        expect(rho(notes, d), `d ${d}`).toBeGreaterThanOrEqual(THETA_LOW);
       }
     }
   });
@@ -121,13 +124,14 @@ describe('F1 helpers', () => {
       { midi: 67, s: 0.5 }, // G4: below θ_low x 4 = 1.2, not in the denominator
       { midi: 70, s: 1.5 }, // Bb4
     ];
-    expect(addedRatio(notes, 0, C_MAJ, 10)).toBeCloseTo(1.5 / 3, 10);
-    expect(addedRatio([], 0, C_MAJ, 10)).toBe(0);
+    expect(addedRatio(notes, 0, C_MAJ, 10, 0.3)).toBeCloseTo(1.5 / 3, 10);
+    expect(addedRatio([], 0, C_MAJ, 10, 0.3)).toBe(0);
   });
 
   it('config hash is pinned (a value change must update docs/audio-spike8-t4.md)', () => {
-    expect(f1ConfigHash()).toBe('05a3e9144919');
-    expect(f1ConfigHash(resolveF1Config({}))).toBe('05a3e9144919');
+    // 05a3e9144919 until T5 moved θ_low (0.3) out of F1Config into ../config.ts DEFAULT_D2_VALUES; F1's values unchanged
+    expect(f1ConfigHash()).toBe('cbf11a42c101');
+    expect(f1ConfigHash(resolveF1Config({}))).toBe('cbf11a42c101');
     expect(() => resolveF1Config({ nope: 1 } as never)).toThrow(/unknown/);
   });
 });

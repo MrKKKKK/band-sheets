@@ -6,12 +6,14 @@
  *  - Octave level: truth notes and picked notes in C2-B5 (plan: output C2-B5). Pitch-class level: every truth note and
  *    every picked note (C1 upward), folded to the 12 pitch classes.
  *  - Added tones: the beat's truth chord holds the 6th / minor 7th / major 7th (d = 9 / 10 / 11 above the root) and a
- *    note of it sounds. "out" = F1 picked that pitch class (not as the lowest note); "ρ" = addedRatio(d) >= thetaLow.
+ *    note of it sounds. "out" = F1 picked that pitch class (not as the lowest note); "ρ" = addedRatio(d) >= θ_low (D2's, ../config.ts).
  *  - Fake added tones: the truth chord is a plain maj / min triad (its pitch classes are the triad's); per d, the beats
  *    where F1 shows root + d in the same two senses.
  */
 import { DEFAULT_F1_CONFIG, type F1Config } from './config';
 import { pcStrength, type F1Beat } from './f1';
+import { DEFAULT_D2_VALUES } from '../config';
+import { triadOf, TRIADS } from '../vocab';
 import { addedRatio } from './ratio';
 
 export interface TruthNote {
@@ -32,14 +34,10 @@ export interface TruthChordSpan {
 export const ADDED = [9, 10, 11] as const;
 export type Added = (typeof ADDED)[number];
 
-const MAJ = new Set(['maj', '7', '9', '6', 'maj7', 'maj9', 'add9']);
-const MIN = new Set(['min', 'min7', 'm7', 'm6', 'm9', 'mM7', 'madd9']);
-/** Triad intervals of a quality's family (null = sus / aug / dim7 etc.: not used for added tones). */
-export function triadOf(quality: string): number[] | null {
-  if (MAJ.has(quality)) return [0, 4, 7];
-  if (MIN.has(quality)) return [0, 3, 7];
-  if (quality === 'm7b5') return [0, 3, 6];
-  return null;
+/** Triad intervals of a quality's family (vocab.ts triadOf; null = sus / aug / dim7 etc.: not used for added tones). */
+export function triadIntervals(quality: string): readonly number[] | null {
+  const t = triadOf(quality === 'm7' ? 'min7' : quality);
+  return t ? TRIADS[t] : null;
 }
 
 export interface Counter {
@@ -74,7 +72,7 @@ export function sounding(notes: readonly TruthNote[], start: number, end: number
 }
 
 /** Add one file's beats to `acc`. */
-export function addBeats(acc: FrontAcc, beats: readonly F1Beat[], notes: readonly TruthNote[], chords: readonly TruthChordSpan[], cfg: F1Config = DEFAULT_F1_CONFIG): void {
+export function addBeats(acc: FrontAcc, beats: readonly F1Beat[], notes: readonly TruthNote[], chords: readonly TruthChordSpan[], cfg: F1Config = DEFAULT_F1_CONFIG, thetaLow = DEFAULT_D2_VALUES.thetaLow): void {
   for (const b of beats) {
     acc.beats++;
     const tn = sounding(notes, b.start, b.end);
@@ -93,7 +91,7 @@ export function addBeats(acc: FrontAcc, beats: readonly F1Beat[], notes: readonl
     const mid = (b.start + b.end) / 2;
     const ch = chords.find((c) => c.start <= mid && mid < c.end);
     if (!ch || ch.root === null) continue;
-    const triad = triadOf(ch.quality);
+    const triad = triadIntervals(ch.quality);
     if (!triad) continue;
     const rel = new Set(ch.pcs.map((p) => (p - ch.root! + 12) % 12));
     const shown = pcStrength(b.notes, true, cfg);
@@ -103,7 +101,7 @@ export function addBeats(acc: FrontAcc, beats: readonly F1Beat[], notes: readonl
     for (const d of ADDED) {
       const pc = (ch.root + d) % 12;
       const out = shown[pc] > 0 ? 1 : 0;
-      const rho = addedRatio(b.notes, ch.root, triad, d, cfg) >= cfg.thetaLow ? 1 : 0;
+      const rho = addedRatio(b.notes, ch.root, triad, d, thetaLow, cfg) >= thetaLow ? 1 : 0;
       if (rel.has(d) && tPc.has(pc)) {
         const c = acc.added[d];
         c.n++;

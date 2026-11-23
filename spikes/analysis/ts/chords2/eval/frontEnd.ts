@@ -79,7 +79,8 @@ export function toEvalChords(segs: readonly ChordSegment[], times: ArrayLike<num
       root: NOTE_NAMES[s.root % 12],
       quality: s.quality,
       bass: s.bass !== null ? NOTE_NAMES[s.bass % 12] : null,
-      // the identical pair's other reading first (plan §2.3: always shown), then the top-k (candidates.ts caps what is shown)
+      // the always-shown readings first (the identical pair's other reading, plan §2.3; D2's, spike 8 §2.2), then the top-k
+      // (candidates.ts caps what is shown)
       candidates: [...((s as Chords2Segment).chordCandidates ?? []), ...s.candidates].map((c) => ({ root: NOTE_NAMES[c.root % 12], quality: c.quality })),
     });
   }

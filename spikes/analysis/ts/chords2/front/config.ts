@@ -2,8 +2,9 @@
  * Spike 8 T4: config of the octave-aware pitch front end F1 (docs/audio-spike8-plan.md §2.1, decision 1).
  *
  * The values are fixed formulas and hand-set numbers only (no trained model). Each value says where it came from; the
- * ones marked "tuning" were chosen on the synthetic TUNING split only (c2-t-*, docs/audio-spike8-t4.md). F1 is not yet a
- * chords2 switch: D2 / D1 (T5 / T6) wire it into Chords2Config, so the all-off hash 607593f71c46 is untouched here.
+ * ones marked "tuning" were chosen on the synthetic TUNING split only (c2-t-*, docs/audio-spike8-t4.md). Chords2Config
+ * carries these values as `f1` only when D1 (`octaveChroma`) or D2 (`d2`) reads F1, so the all-off hash 607593f71c46 is
+ * untouched (T5).
  * f1ConfigHash() = SHA-256 (first 12 hex) over the canonical JSON (same helpers as ../config.ts).
  */
 import { pyCanonicalJson, sha256Hex } from '../../dsp/config';
@@ -30,11 +31,6 @@ export interface F1Config {
   maxNotes: number;
   /** Absolute floor: a beat whose best salience is below floorRatio x the file's median first pick yields no notes. */
   floorRatio: number;
-  /**
-   * θ_low of plan §2.2 steps 3-4 (D2's "sounding" share and the candidate-only lower bound of ρ). PROVISIONAL: D2 (T5)
-   * owns it and T7 tunes it; T4's unit tests and accuracy table use this value.
-   */
-  thetaLow: number;
 }
 
 export const DEFAULT_F1_CONFIG: F1Config = deepFreeze({
@@ -59,7 +55,7 @@ export const DEFAULT_F1_CONFIG: F1Config = deepFreeze({
   maxNotes: 8,
   // provisional, not swept (silence guard; the input is loudness-aligned by prepareInput)
   floorRatio: 0.05,
-  thetaLow: 0.3,
+  // θ_low (0.3 here until T5) moved to ../config.ts DEFAULT_D2_VALUES (T5: D2 owns it); hash 05a3e9144919 -> new pin
 });
 
 function deepFreeze<T>(o: T): T {
