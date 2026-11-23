@@ -5,10 +5,10 @@ import { DEFAULT_F1_CONFIG, f1ConfigHash, resolveF1Config } from './config';
 import { bassCqtFrom, bassView, f1Beats, harmonicOffsets, lowestNote, octaveCqt, pcStrength, strengthRow, type F1Note } from './f1';
 import { addedRatio } from './ratio';
 import { lowCqt } from '../../bass/lowCqt';
-import { appBassConfig, DEFAULT_D2_VALUES } from '../config';
+import { appBassConfig } from '../config';
 
-/** θ_low of D2 (../config.ts since T5; the same 0.3 T4 measured with). */
-const THETA_LOW = DEFAULT_D2_VALUES.thetaLow;
+/** θ_low pinned to the 0.3 T4 measured with, NOT read from DEFAULT_D2_VALUES: tuning θ_low (T7) must not move these done-condition lines. */
+const THETA_LOW = 0.3;
 
 const SR = 22050;
 /** 1/h roll-off (a plain string-like tone). */
@@ -129,7 +129,6 @@ describe('F1 helpers', () => {
   });
 
   it('config hash is pinned (a value change must update docs/audio-spike8-t4.md)', () => {
-    // 05a3e9144919 until T5 moved θ_low (0.3) out of F1Config into ../config.ts DEFAULT_D2_VALUES; F1's values unchanged
     expect(f1ConfigHash()).toBe('cbf11a42c101');
     expect(f1ConfigHash(resolveF1Config({}))).toBe('cbf11a42c101');
     expect(() => resolveF1Config({ nope: 1 } as never)).toThrow(/unknown/);

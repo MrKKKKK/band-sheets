@@ -116,6 +116,14 @@ export function familyOf(quality: string): readonly string[] {
 export type Triad = 'maj' | 'min' | 'dim';
 export const TRIADS: Readonly<Record<Triad, readonly number[]>> = { maj: [0, 4, 7], min: [0, 3, 7], dim: [0, 3, 6] };
 
+/** The added intervals of a range per triad (plan §2.3) and the quality each one names (D2's table; the kind groups of eval/count.ts derive from it). */
+export const ADDS: Readonly<Record<'E1' | 'E2', Readonly<Record<Triad, Readonly<Record<number, string>>>>>> = {
+  E1: { maj: { 10: '7', 11: 'maj7' }, min: { 10: 'min7' }, dim: { 10: 'm7b5' } },
+  E2: { maj: { 9: '6', 10: '7', 11: 'maj7' }, min: { 9: 'm6', 10: 'min7', 11: 'mM7' }, dim: { 10: 'm7b5' } },
+};
+/** Every quality a range names (ADDS values, de-duplicated, in table order). */
+export const addedQualities = (range: 'E1' | 'E2'): string[] => [...new Set(Object.values(ADDS[range]).flatMap((m) => Object.values(m)))];
+
 const TRIAD_OF: Readonly<Record<string, Triad>> = {
   maj: 'maj',
   '7': 'maj',

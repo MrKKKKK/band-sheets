@@ -1,4 +1,4 @@
-// Spike 8 T3: the hold-out synthetic files (c2-h-*, seeds 8-9) must not change, and a seed gives the same wav.
+// Spike 8 T3: the hold-out synthetic files (c2-h-*, seeds 8-9) must not change, and (same-seed determinism: render.test.ts).
 // heldout-hashes.json = SHA-256 of every c2-h-*.wav as spike 7 rendered it (the 136 files; T2 re-rendered them with the
 // same hashes). The hashes are compared only: no hold-out audio is opened or analysed here.
 import { createHash } from 'node:crypto';
@@ -23,25 +23,19 @@ describe('hold-out stays as it was', { timeout: 600_000 }, () => {
     expect(held.every((v) => v.voicing7 === undefined)).toBe(true);
   });
 
-  it('every c2-h wav on disk (out/chords2) has its recorded hash', () => {
-    for (const v of held) {
-      const f = `${OUT}${v.name}.wav`;
-      if (existsSync(f)) expect(sha(readFileSync(f)), v.name).toBe(recorded[v.name]);
-    }
+  // skipped (reported as skipped, not passed) when no c2-h wav is on disk, e.g. a fresh checkout
+  const onDisk = held.filter((v) => existsSync(`${OUT}${v.name}.wav`));
+  it.skipIf(!onDisk.length)('every c2-h wav on disk (out/chords2) has its recorded hash (skipped: no c2-h wav in out/chords2)', () => {
+    for (const v of onDisk) expect(sha(readFileSync(`${OUT}${v.name}.wav`)), v.name).toBe(recorded[v.name]);
   });
 
   // one hold-out file per set and seed, re-rendered now: the same bytes as spike 7 rendered
-  it.skipIf(!pianoAvailable('P2'))('re-rendered hold-out files (one per set and seed) have the recorded hashes', () => {
+  it.skipIf(!pianoAvailable('P2'))('re-rendered hold-out files (one per set and seed) have the recorded hashes (skipped: piano sample P2 not available)', () => {
     const picked = ['b-human', 'v1-piano', 'v2-human', 'v3-lh15', 'pair-a1-human'].flatMap((t) => [8, 9].map((s) => `c2-h-${t}-s${s}`));
     for (const name of picked) {
       const v = held.find((x) => x.name === name)!;
       expect(sha(renderC2(v).wav), name).toBe(recorded[name]);
     }
-  });
-
-  it('the same seed gives the same wav (a tuning file with a 7th voicing, rendered twice)', () => {
-    const v = allC2Variants().find((x) => x.name === 'c2-t-v1-human-s1-v7wide')!;
-    expect(sha(renderC2(v).wav)).toBe(sha(renderC2(v).wav));
   });
 
   it('synthSplit knows the new recipes: 7th voicings by their split, the dev L / LR set as dev, and no dev name is a tuning one', () => {

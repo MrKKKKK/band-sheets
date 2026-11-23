@@ -281,6 +281,7 @@ interface PointMeasure {
 }
 const all = (): boolean => true;
 const POINT_MEASURES = {
+  root: { scope: all, ok: rootOk },
   name: { scope: all, ok: nameOk },
   slashRoot: { scope: (p) => p.tBass !== null, ok: rootOk },
   triadName: { scope: (p) => p.tAlt === null && isTriad(fullTruth(p)), ok: nameOk },
@@ -332,7 +333,7 @@ export function scoreChords(truth: readonly EvalChord[], result: readonly EvalCh
     droppedPoints,
     noChordPoints: noChord,
     name: measure(pts, 'name'),
-    root: tally(pts, rootOk).points,
+    root: measure(pts, 'root').points,
     slashRoot,
     slash: { truthSlash, resultSlash, hit: slashHit, recall, precision, f: recall && precision ? fMeasure(precision, recall) : 0 },
     wrongSlash: { noSlashTruth: noSlash, falseSlash, rate: noSlash ? falseSlash / noSlash : null, onChordPoints: rate(falseSlashChord, noSlashChord) },

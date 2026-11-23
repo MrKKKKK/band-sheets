@@ -19,13 +19,8 @@ import type { F1Config } from './front/config';
 import type { F1Beat, F1Note } from './front/f1';
 import { addedRatios } from './front/ratio';
 import { otherReading, type Reading } from './pairRule';
-import { TRIADS, triadOf, type Stage, type Triad } from './vocab';
+import { ADDS, TRIADS, triadOf, type Stage, type Triad } from './vocab';
 
-/** The added intervals of a range per triad (plan §2.3) and the quality each one names. */
-export const ADDS: Readonly<Record<AddedRange, Readonly<Record<Triad, Readonly<Record<number, string>>>>>> = {
-  E1: { maj: { 10: '7', 11: 'maj7' }, min: { 10: 'min7' }, dim: { 10: 'm7b5' } },
-  E2: { maj: { 9: '6', 10: '7', 11: 'maj7' }, min: { 9: 'm6', 10: 'min7', 11: 'mM7' }, dim: { 10: 'm7b5' } },
-};
 /** The vocabulary stage whose identical pairs a range can output (E2's 6 / m6 / mM7 are V1's qualities). */
 const PAIR_STAGE: Record<AddedRange, Stage> = { E1: 'V0', E2: 'V1' };
 

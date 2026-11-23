@@ -22,7 +22,7 @@ import { chartOf } from '../../../render/chords2/render';
 import { allC2Variants, type C2Split } from '../../../render/chords2/variants';
 import { argOf } from '../../bass/evalCommon';
 import { DEV, DEV_DIR, HELDOUT, HELDOUT_DIR, parseChordText, scoreOf, type Score } from '../recScores';
-import { stageQualities } from '../vocab';
+import { addedQualities, stageQualities } from '../vocab';
 import { beginCount, commitArg, ROOT, type CountRequest } from './guard';
 import { bassOnlyAlternative } from './score';
 
@@ -30,8 +30,8 @@ import { bassOnlyAlternative } from './score';
 export const KINDS: readonly string[] = stageQualities('V3');
 /** The stage sums the plan asks for (E1 = the 7th family, E2; plan §2.3). */
 export const GROUPS: Readonly<Record<string, readonly string[]>> = {
-  'E1 7 度の仲間（7・min7・maj7・m7b5）': ['7', 'min7', 'maj7', 'm7b5'],
-  'E2（6・m6・mM7）': ['6', 'm6', 'mM7'],
+  'E1 7 度の仲間（7・min7・maj7・m7b5）': addedQualities('E1'),
+  'E2（6・m6・mM7）': addedQualities('E2').filter((q) => !addedQualities('E1').includes(q)),
 };
 export const BASS_SCORES = join(ROOT, 'bass-scores');
 export const BASS_LETTERS = ['a', 'b', 'c', 'd', 'e', 'f'] as const;

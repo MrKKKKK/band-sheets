@@ -34,7 +34,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allBassVariants } from '../../../render/bass/variants';
-import { splitOfName } from '../../../render/chords2/variants';
+import { allC2Variants, splitOfName } from '../../../render/chords2/variants';
 import { allDevVariants, allVariants } from '../../../render/variants';
 import { argOf, parseJsonl, readJson } from '../../bass/evalCommon';
 
@@ -156,14 +156,15 @@ export function takesBlock(registry: Registry | null, takes: readonly string[], 
 
 let recipeSplits: Map<string, string> | null = null;
 /**
- * The split of a synthetic file from its recipe (pure; null = unknown recipe): chords2 `c2-t/d/h-*` by name, spike 6
+ * The split of a synthetic file from its recipe (pure; null = unknown recipe): chords2 `c2-*` by the recipe list (an unknown `c2-t/d-*` name is refused; `c2-h-*` is always hold-out), spike 6
  * bass `syn-b*` and spike 0 (heldOut, else tuning) by their variant lists. New synthetic material (spike 8 T3) must be
  * added here before a look can score it.
  */
 export function synthSplit(name: string): string | null {
   const c2 = splitOfName(name);
-  if (c2) return c2;
+  if (c2 === 'heldOut') return c2; // c2-h-* is always hold-out, recipe list or not
   recipeSplits ??= new Map<string, string>([
+    ...allC2Variants().map((v) => [v.name, v.split] as [string, string]),
     ...allBassVariants().map((v) => [v.name, v.split] as [string, string]),
     ...allVariants().map((v) => [v.name, v.heldOut ? 'heldOut' : 'tuning'] as [string, string]),
     ...allDevVariants().map((v) => [v.name, 'dev'] as [string, string]), // spike 8 T3: the dev L / LR set

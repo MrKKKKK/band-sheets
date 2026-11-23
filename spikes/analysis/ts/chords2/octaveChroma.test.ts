@@ -53,5 +53,8 @@ describe('D1: synthetic C/E (piano C major triad, E in the bass)', () => {
     const col = out.columns[0];
     expect(chordName(col.root, col.quality)).not.toBe('Em');
     expect(col.root).toBe(0);
+    // D1 OFF is NOT shown here: with the same F1 chroma as `chroma` OFF also reads C (not Em), so it is no contrast. The Em
+    // reading of the OFF path comes from the standard (non-F1) beat chroma, which this hand-made test has no deterministic
+    // stand-in for; do not fake it with a hand-written chroma.
   });
 });

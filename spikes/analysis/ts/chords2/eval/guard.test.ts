@@ -91,6 +91,8 @@ describe('synthetic file list (split and count)', () => {
     expect(synthSplit(s0.find((v) => v.heldOut)!.name)).toBe('heldOut');
     expect(synthSplit(s0.find((v) => !v.heldOut)!.name)).toBe('tuning');
     expect(synthSplit('my-new-l-set-01')).toBeNull();
+    expect(synthSplit('c2-d-unknown')).toBeNull(); // right prefix, not in the recipe list: refused
+    expect(synthSplit('c2-h-unknown')).toBe('heldOut');
   });
   it('dev look: dev files, tuning files as a watch; counts per split and a names hash (order-free)', () => {
     const r = syntheticCheck(['c2-d-v1-human-s4', 'c2-d-b-clean-s5', 'c2-t-b-clean-s1'], 'dev');

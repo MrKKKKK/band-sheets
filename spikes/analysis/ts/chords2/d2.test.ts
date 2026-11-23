@@ -229,6 +229,7 @@ describe('chords2Inputs: one 7-octave CQT for F1 and the bass stage (decision 10
     expect(r.low.nSemis).toBe(60);
     const own = lowCqt(y, bass);
     expect(r.low.cols).toBe(own.cols);
+    expect(Array.from(r.low.semi)).toEqual(Array.from(own.semi));
     const both = chords2Inputs(y, times, 2, input, resolveChords2Config({ d2: true, octaveChroma: true }), bass);
     expect(both.input.f1Chroma).toHaveLength(12 * 8);
     expect(names(analyze(both.input, resolveChords2Config({ d2: true, octaveChroma: true })))).toEqual(['Am', 'Am7']);

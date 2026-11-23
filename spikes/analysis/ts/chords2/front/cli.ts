@@ -29,7 +29,7 @@ import { frontEnd } from '../eval/frontEnd';
 import { prepareInput } from '../eval/input';
 import { ACC_HEADER, accRow, addBeats, newFrontAcc, type FrontAcc, type TruthChordSpan, type TruthNote } from './accuracy';
 import { DEFAULT_F1_CONFIG, f1ConfigHash, resolveF1Config, type F1Config } from './config';
-import { bassCqtFrom, bassView, beatSpectra, f1Beats, f1FromSpectra, lowestNote, octaveCqt } from './f1';
+import { bassCqtFrom, bassView, beatSpectra, f1Beats, f1FromSpectra, lowestNote, octaveCqt, strengthRow } from './f1';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const C2 = join(ROOT, 'out', 'chords2');
@@ -130,8 +130,7 @@ function cmdDump(argv: string[]): void {
     range: { lo: cfg.outLo, hi: cfg.candHi },
     beats: fb.map((b) => {
       const low = lowestNote(b.notes);
-      const strength = new Array<number>(cfg.candHi - cfg.outLo + 1).fill(0);
-      for (const n of b.notes) if (n.midi >= cfg.outLo) strength[n.midi - cfg.outLo] = r4(n.s);
+      const strength = Array.from(strengthRow(b.notes, cfg), r4);
       return { start: r4(b.start), end: r4(b.end), notes: b.notes.map((n) => ({ midi: n.midi, s: r4(n.s) })), lowest: low ? low.midi : null, strength };
     }),
   };
