@@ -29,10 +29,11 @@ import { toMono } from '../../dsp/core/resample';
 import { analyze as analyze2 } from '../analyze';
 import { bassStage, marksConfig } from '../bass';
 import { chords2ConfigHash, resolveChords2Config, type Chords2Config } from '../config';
-import { addConfusion, addFile, newAgg, newConfusion, summarize, type Agg, type Confusion } from './baselineAgg';
+import { addConfusion, addFile, newAgg, newConfusion, type Agg, type Confusion } from './baselineAgg';
 import { bassG2, bassT8, ci, f1, f3, items as tuningItems, slim, table, v2Config } from './baseline';
 import { frontEnd, toEvalChords } from './frontEnd';
 import { fixedBroken, handEditsPer100 } from './gate';
+import { handEditsLines, hasGroup, summaryOf as S, wrongSlashLines, type Line } from './g1Common';
 import { beginLook, commitArg, committedBlock, git, readRegistry, ROOT } from './guard';
 import { prepareInput } from './input';
 import { devTakes, expectedTruthHeldOut, groupOf } from './r2';
@@ -181,13 +182,13 @@ const B6 = new Set(['B0', 'B1', 'B2', 'B3']);
 export const groupsOf = (c: Pick<Cached, 'level' | 'kind'>): string[] =>
   c.kind === 'rec' ? [c.level, 'REC'] : [c.level, ...(L_POOL.has(c.level) ? ['Lpool'] : []), ...(B6.has(c.level) ? ['B0-3'] : []), ...(L_POOL.has(c.level) || c.level === 'LR' ? [] : ['SYN'])];
 
-interface Tally {
+export interface Tally {
   agg: Record<string, Agg>; // `${vocab}|${row}|${group}`
   conf: Record<string, Confusion>; // `${row}|${group}`
   fb: Record<string, { fixed: number; broken: number; units: number }>; // `${row}|${group}` vs bassT8 (落)
   ms: Record<string, number[]>;
 }
-function tally(files: { c: Cached; t: Truth }[], rowIds: readonly string[]): Tally {
+export function tally(files: { c: Cached; t: Truth }[], rowIds: readonly string[]): Tally {
   const T: Tally = { agg: {}, conf: {}, fb: {}, ms: {} };
   for (const { c, t } of files) {
     const gs = groupsOf(c);
@@ -213,33 +214,25 @@ function tally(files: { c: Cached; t: Truth }[], rowIds: readonly string[]): Tal
   }
   return T;
 }
-const S = (T: Tally, v: 'full' | 'down', row: string, g: string) => summarize(T.agg[`${v}|${row}|${g}`] ?? newAgg());
 
 /** The G1 lines for one row (plan「G1 の決定」, §5). Synthetic lines use the dev baseline rows of the same run. */
-export function g1Lines(T: Tally, row: string): { line: string; value: string; target: string; pass: boolean | null }[] {
+export function g1Lines(T: Tally, row: string): Line[] {
   const d = (g: string) => S(T, 'down', row, g);
   const b = (g: string) => S(T, 'down', 'bassT8', g);
   const g2 = (g: string) => S(T, 'down', 'bassG2', g);
-  const out: { line: string; value: string; target: string; pass: boolean | null }[] = [];
+  const out: Line[] = [];
   const ge = (line: string, x: number | null, min: number | null, label = f3(min)) => out.push({ line, value: f3(x), target: `≥ ${label}`, pass: x === null || min === null ? null : x >= min - 1e-9 });
-  const le = (line: string, x: number | null, max: number) => out.push({ line, value: f3(x), target: `≤ ${f3(max)}`, pass: x === null ? null : x <= max + 1e-9 });
-  const has = (g: string) => (T.agg[`down|${row}|${g}`]?.files ?? 0) > 0;
+  const has = (g: string) => hasGroup(T, row, g);
   const add = (x: number | null, k: number) => (x === null ? null : x + k);
   if (has('REC')) ge('1 名前 落 録音 ALL（基準 +.05）', d('REC').name.rate, add(b('REC').name.rate, 0.05));
   if (has('B2')) ge('1 名前 落 合成 B2（基準 +.05）', d('B2').name.rate, add(b('B2').name.rate, 0.05));
   if (has('REC')) ge('2 /X の点のルート 録音（基準 +.20、かつ G2 既定以上）', d('REC').slashRoot.rate, Math.max(add(b('REC').slashRoot.rate, 0.2) ?? 0, g2('REC').slashRoot.rate ?? 0));
   if (has('B1')) ge('2 /X の点のルート 合成 B1（基準 +.20）', d('B1').slashRoot.rate, add(b('B1').slashRoot.rate, 0.2));
-  if (has('REC')) le('3 誤った /X 録音 ALL', d('REC').wrongSlash, 0.02);
-  if (has('LR')) le('3 誤った /X 合成 LR', d('LR').wrongSlash, 0.05);
+  out.push(...wrongSlashLines(T, row));
   if (has('LR')) ge('4 後戻り LR 名前（G2 既定 −.01）', d('LR').name.rate, add(g2('LR').name.rate, -0.01));
   if (has('Lpool')) ge('4 後戻り L0〜L3・LV 名前（G2 既定 −.01）', d('Lpool').name.rate, add(g2('Lpool').name.rate, -0.01));
   if (has('REC')) ge('4 後戻り 録音 ALL 名前（G2 既定 −.02）', d('REC').name.rate, add(g2('REC').name.rate, -0.02));
-  const hand = (g: string, r: string) => handEditsPer100(S(T, 'down', r, g));
-  for (const g of ['REC', 'SYN']) if (has(g)) {
-    const x = hand(g, row);
-    const base = hand(g, 'bassT8');
-    out.push({ line: `5 手で直す数 / 100 拍 落 ${g === 'REC' ? '録音 ALL' : '合成（開発用 B・V・pair・B0〜B3）'}（基準 −1.5）`, value: f1(x), target: `≤ ${f1(base === null ? null : base - 1.5)}`, pass: x === null || base === null ? null : x <= base - 1.5 + 1e-9 });
-  }
+  out.push(...handEditsLines(T, row, { vocab: 'down', base: 'bassT8', vocabLabel: '落', synLabel: '合成（開発用 B・V・pair・B0〜B3）', baseLabel: '基準' }));
   return out;
 }
 
