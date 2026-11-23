@@ -28,12 +28,14 @@
  *      full names in both vocabularies and every point counted (as spike 7's gate.ts seventhAsTriad, which reads it here).
  *    addedCandidate (候補を出した点): a shown candidate (candidates.ts cap) with the answer's root and triad but another
  *      quality (C7 under C, C6 under C7). Per 100 beats = rate x 100 (two points per beat).
+ *    addedRecallE1 / addedPrecisionE1 (spike 8 T7, the E1 決め手): byQuality's root + quality rule over the E1 qualities
+ *      pooled (7, maj7, min7, m7b5), truth side / result side; use them with vocab 'full'.
  */
 import { noteToPc, beatWindows, normalizeTruthSlash, type ScoreBeat, type ScoreChord } from '../../bass/score';
 import { at } from '../../bass/evalCommon';
 import { fMeasure } from '../../drum/score';
 import { shownCandidates } from '../candidates';
-import { templates, stageQualities, triadOf } from '../vocab';
+import { addedQualities, templates, stageQualities, triadOf } from '../vocab';
 import { fullQuality, mapDown } from './mapDown';
 
 export type Vocab = 'full' | 'down';
@@ -271,6 +273,8 @@ const addedCandidateOk = (p: Point): boolean => {
   return shownCandidates({ root: rc.root, quality: rc.quality }, rc.candidates ?? []).some((c) => noteToPc(c.root) === p.rRoot && c.quality !== rc.quality && triadOf(c.quality) === triadOf(rc.quality));
 };
 
+const E1_Q = new Set(addedQualities('E1')); // 7, maj7, min7, m7b5
+const rootQualityOk = (p: Point): boolean => p.rRoot === p.tRoot && p.rq === p.tq;
 const nameOk = (p: Point): boolean => p.rc !== null && p.rRoot === p.tRoot && (p.rq === p.tq || (p.tAlt !== null && p.rq === p.tAlt)) && p.rBass === p.tBass;
 const rootOk = (p: Point): boolean => p.rRoot === p.tRoot;
 
@@ -289,6 +293,9 @@ const POINT_MEASURES = {
   addedCandidate: { scope: all, ok: addedCandidateOk },
   asTriadE1: { scope: (p) => (fullTruth(p) ?? '') in AS_TRIAD.E1, ok: (p) => asTriadOf(p, AS_TRIAD.E1) },
   asTriadE2: { scope: (p) => (fullTruth(p) ?? '') in AS_TRIAD.E2, ok: (p) => asTriadOf(p, AS_TRIAD.E2) },
+  // spike 8 T7 (plan §5 決め手): the E1 qualities pooled, root + quality as byQuality (ベースにだけある音 points left out)
+  addedRecallE1: { scope: (p) => p.tAlt === null && E1_Q.has(p.tq), ok: rootQualityOk },
+  addedPrecisionE1: { scope: (p) => p.tAlt === null && p.rq !== null && E1_Q.has(p.rq), ok: rootQualityOk },
 } satisfies Record<string, PointMeasure>;
 export type Measure = keyof typeof POINT_MEASURES;
 const measure = (pts: readonly Point[], m: Measure) => tally(pts, POINT_MEASURES[m].ok, POINT_MEASURES[m].scope);
@@ -354,24 +361,36 @@ export interface SegmentTally {
   n: number;
 }
 
+/** A SegmentTally with its truth segment (index in the file's truth track, as score.ts numbers it): pairs rows on the same segment (spike 8 T7). */
+export interface SegmentUnit extends SegmentTally {
+  seg: number;
+}
+
 /**
  * The points of a `scoreChords` measure per truth segment (segments with a point in the measure's scope only, in truth
- * order), so a point-rate or point-count line gets its interval from the same unit: segmentBootstrap(..., pointRate /
- * pointSum) in bootstrap.ts. Their sums are the line's points (hit / n): name, slashRoot.points, added.*.
+ * order), with the segment's index, so two rows on the same file can be paired segment by segment (bootstrap.ts
+ * pairUnits) and a line against a base row gets a paired interval. Their sums are the line's points (hit / n).
  */
-export function segmentTallies(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab, measure: Measure, opts: ScoreOptions = {}): SegmentTally[] {
+export function segmentUnits(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab, measure: Measure, opts: ScoreOptions = {}): SegmentUnit[] {
   const { pts } = scoredPoints(truth, result, beats, vocab, opts.bassOnly ?? true);
   const { ok, scope } = POINT_MEASURES[measure];
-  const seg = new Map<number, SegmentTally>();
+  const seg = new Map<number, SegmentUnit>();
   for (const p of pts) {
     if (!scope(p)) continue;
-    const s = seg.get(p.seg) ?? { hit: 0, n: 0 };
+    const s = seg.get(p.seg) ?? { seg: p.seg, hit: 0, n: 0 };
     s.n += W;
     if (ok(p)) s.hit += W;
     seg.set(p.seg, s);
   }
-  return [...seg.entries()].sort((a, b) => a[0] - b[0]).map(([, s]) => s);
+  return [...seg.values()].sort((a, b) => a.seg - b.seg);
 }
+
+/**
+ * segmentUnits without the segment index, so a point-rate or point-count line gets its interval from the same unit:
+ * segmentBootstrap(..., pointRate / pointSum) in bootstrap.ts. Their sums are the line's points (hit / n): name,
+ * slashRoot.points, added.*.
+ */
+export const segmentTallies = (...a: Parameters<typeof segmentUnits>): SegmentTally[] => segmentUnits(...a).map(({ hit, n }) => ({ hit, n }));
 
 /* ------------------------------------------------------------ edit counts (直す手数) */
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ScoreBeat } from '../../bass/score';
-import { pointRate, pointSum, segmentBootstrap } from './bootstrap';
-import { scoreChords, segmentTallies, wilson, type EvalChord, type SegmentTally } from './score';
+import { pairUnits, pointRate, pointSum, rateDiff, rateOfA, segmentBootstrap, sumRatio } from './bootstrap';
+import { scoreChords, segmentTallies, segmentUnits, wilson, type EvalChord, type SegmentTally } from './score';
 
 // as score.test.ts: 120 BPM, 8 beats, two points of weight 0.5 per beat
 const beats: ScoreBeat[] = Array.from({ length: 8 }, (_, i) => ({ t: i * 0.5 }));
@@ -64,5 +64,40 @@ describe('segmentBootstrap', () => {
     expect(segmentBootstrap([], pointRate)).toBeNull();
     expect(segmentBootstrap([{ hit: 0, n: 0 }], pointRate)).toBeNull();
     expect(segmentBootstrap([{ hit: 1, n: 1 }], pointRate)).toEqual({ lo: 1, hi: 1 });
+  });
+});
+
+describe('spike 8 T7: segment ids, the E1 pooled measures and pairing with a base row', () => {
+  // truth C7 | Am7 | F | G7 (2 beats each); base reads the triads, the row reads C7, Am7, Fmaj7, G
+  const truth = [ch(0, 1, 'C', '7'), ch(1, 2, 'A', 'min7'), ch(2, 3, 'F', 'maj'), ch(3, 4, 'G', '7')];
+  const base = [ch(0, 1, 'C', 'maj'), ch(1, 2, 'A', 'min'), ch(2, 3, 'F', 'maj'), ch(3, 4, 'G', 'maj')];
+  const row = [ch(0, 1, 'C', '7'), ch(1, 2, 'A', 'min7'), ch(2, 3, 'F', 'maj7'), ch(3, 4, 'G', 'maj')];
+  it('segmentUnits carry the truth segment index; segmentTallies = the same without it', () => {
+    const u = segmentUnits(truth, row, beats, 'full', 'name');
+    expect(u.map((x) => x.seg)).toEqual([0, 1, 2, 3]);
+    expect(segmentTallies(truth, row, beats, 'full', 'name')).toEqual(u.map(({ hit, n }) => ({ hit, n })));
+  });
+  it('E1 recall / precision pooled = byQuality over 7, maj7, min7, m7b5', () => {
+    const q = scoreChords(truth, row, beats, 'full').byQuality;
+    const sum = (side: 't' | 'r') => ['7', 'maj7', 'min7', 'm7b5'].reduce((a, k) => { const x = side === 't' ? q[k]?.truth : q[k]?.result; return { hit: a.hit + (x?.hit ?? 0), n: a.n + (x?.n ?? 0) }; }, { hit: 0, n: 0 });
+    const rec = segmentUnits(truth, row, beats, 'full', 'addedRecallE1');
+    const pre = segmentUnits(truth, row, beats, 'full', 'addedPrecisionE1');
+    expect({ hit: pointSum(rec), n: rec.reduce((a, x) => a + x.n, 0) }).toEqual(sum('t'));
+    expect({ hit: pointSum(pre), n: pre.reduce((a, x) => a + x.n, 0) }).toEqual(sum('r'));
+    expect(pointRate(rec)).toBeCloseTo(4 / 6, 9); // C7, Am7 hit; G7 read G
+    expect(pointRate(pre)).toBeCloseTo(4 / 6, 9); // C7, Am7 right; Fmaj7 on F wrong
+  });
+  it('pairUnits: union of both rows per segment; rateDiff, sumRatio, rateOfA', () => {
+    const f = (m: Parameters<typeof segmentUnits>[4]) => pairUnits([{ a: segmentUnits(truth, row, beats, 'full', m), b: segmentUnits(truth, base, beats, 'full', m) }]);
+    const pre = f('addedPrecisionE1'); // the base outputs no E1 quality: the row's segments only, base side empty
+    expect(pre).toHaveLength(3);
+    expect(pre.every((u) => u.b.n === 0)).toBe(true);
+    expect(rateOfA(pre)).toBeCloseTo(4 / 6, 9);
+    expect(rateDiff(pre)).toBeNull();
+    const rec = f('addedRecallE1');
+    expect(rateDiff(rec)).toBeCloseTo(4 / 6, 9);
+    const tri = f('asTriadE1'); // 7th read as a triad: base C, Am, G (6 points), row G only (2)
+    expect(sumRatio(tri)).toBeCloseTo(2 / 6, 9);
+    expect(segmentBootstrap(tri, sumRatio)).not.toBeNull();
   });
 });

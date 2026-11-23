@@ -119,6 +119,13 @@ export const DEFAULT_CHORDS2_CONFIG: Chords2Config = deepFreeze({
 export const DEFAULT_D2_VALUES: D2Values = deepFreeze({ range: 'E1', theta: 0.5, thetaLow: 0.3, switchPenalty: 0.1 });
 
 /**
+ * Spike 8 T7: the E1 values the look 's8-dev-1' runs (eval/s8dev1.ts LOOK_CFGS), chosen on the TUNING split only by the
+ * grid and the selection rule fixed before any tuning number (docs/audio-spike8-t7.md §1). PROVISIONAL until the tuning
+ * rounds are read: DEFAULT_D2_VALUES' theta / thetaLow / switchPenalty.
+ */
+export const T7_E1_D2_VALUES: Omit<D2Values, 'range'> = deepFreeze({ theta: 0.5, thetaLow: 0.3, switchPenalty: 0.1 });
+
+/**
  * NOT ADOPTED (G2, 2026-11-22). Kept as switches.
  * T8 (tuning split only: the T7 tuning material without pair / V2 / V3, 151 files; docs/audio-spike7-t8.md). Rule,
  * fixed before reading the grids: among values whose fixed truth segments outnumber the broken ones (name, 落, vs the

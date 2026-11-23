@@ -9,7 +9,7 @@
  * Percentile interval, deterministic (seeded mulberry32). Pure.
  */
 import { prng } from '../../../render/prng';
-import type { Interval, SegmentTally } from './score';
+import type { Interval, SegmentTally, SegmentUnit } from './score';
 
 export interface BootstrapOptions {
   /** resamples (default 2000) */
@@ -49,3 +49,43 @@ export function segmentBootstrap<T>(units: readonly T[], stat: (sample: readonly
   const q = (p: number) => vals[Math.min(vals.length - 1, Math.max(0, Math.round(p * (vals.length - 1))))];
   return { lo: q((1 - level) / 2), hi: q(1 - (1 - level) / 2) };
 }
+
+/* ------------------------------------------------------------ paired with a base row (spike 8 T7) */
+
+/** One truth segment carrying a row (`a`) and the base row (`b`) on it; a row without points there has { hit 0, n 0 }. */
+export interface PairedUnit {
+  a: SegmentTally;
+  b: SegmentTally;
+}
+
+/**
+ * Pairs two rows' segment units of the same files (one entry per file) by segment (`seg` from score.ts segmentUnits). The union of both rows' segments is kept, so a measure whose scope depends on the result (precision)
+ * pairs too. Order: by file, then segment.
+ */
+export function pairUnits(files: readonly { a: readonly SegmentUnit[]; b: readonly SegmentUnit[] }[]): PairedUnit[] {
+  const out: PairedUnit[] = [];
+  const zero = (): SegmentTally => ({ hit: 0, n: 0 });
+  for (const f of files) {
+    const m = new Map<number, PairedUnit>();
+    for (const u of f.a) (m.get(u.seg) ?? m.set(u.seg, { a: zero(), b: zero() }).get(u.seg)!).a = { hit: u.hit, n: u.n };
+    for (const u of f.b) (m.get(u.seg) ?? m.set(u.seg, { a: zero(), b: zero() }).get(u.seg)!).b = { hit: u.hit, n: u.n };
+    out.push(...[...m.entries()].sort((x, y) => x[0] - y[0]).map(([, u]) => u));
+  }
+  return out;
+}
+
+const sideA = (us: readonly PairedUnit[]) => us.map((u) => u.a);
+const sideB = (us: readonly PairedUnit[]) => us.map((u) => u.b);
+/** Point rate of the row minus the base's on the same segments (null when either has no points). */
+export const rateDiff = (us: readonly PairedUnit[]): number | null => {
+  const x = pointRate(sideA(us));
+  const y = pointRate(sideB(us));
+  return x === null || y === null ? null : x - y;
+};
+/** Point count of the row over the base's on the same segments (null when the base has none): decision 9's statistic. */
+export const sumRatio = (us: readonly PairedUnit[]): number | null => {
+  const d = pointSum(sideB(us));
+  return d ? pointSum(sideA(us)) / d : null;
+};
+/** The row's side alone (a point-rate line that has no base, e.g. precision >= .80). */
+export const rateOfA = (us: readonly PairedUnit[]): number | null => pointRate(sideA(us));
