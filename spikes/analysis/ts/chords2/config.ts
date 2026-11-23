@@ -61,6 +61,12 @@ export interface Chords2Config {
    * absent = v1a's seventh_weight / seventh_margin.
    */
   newSeventh?: NewSeventh;
+  /**
+   * Spike 8 T6, D1 (plan §2.2): score the chord templates on F1's octave-aware output folded to 12 pitch classes
+   * (octaveChroma.ts foldF1) instead of v1a's chroma. Present only when true, so configs without it keep their hashes;
+   * absent = off (v1a's chroma). The bass (`/X`) is not touched (appBassConfig()).
+   */
+  octaveChroma?: true;
   /** chords.theory_prior of v1a (the 2nd-pass transition prior strength). */
   theoryPrior: number;
   /** v1a's chords section (Viterbi, vocabulary gate, posterior); read only. */
@@ -156,7 +162,8 @@ export function resolveChords2Config(overrides: unknown = {}): Chords2Config {
     return out;
   };
   // newSeventh: optional (see Chords2Config), checked here and left out of the merge
-  const { newSeventh, ...rest } = overrides as Json;
+  const { newSeventh, octaveChroma, ...rest } = overrides as Json;
+  if (octaveChroma !== undefined && typeof octaveChroma !== 'boolean') throw new Error(`chords2 config octaveChroma: expected boolean, got ${JSON.stringify(octaveChroma)}`);
   if (newSeventh !== undefined) {
     if (!isObj(newSeventh) || Object.keys(newSeventh).sort().join() !== 'margin,weight' || !Number.isFinite(newSeventh.weight) || !Number.isFinite(newSeventh.margin))
       throw new Error(`chords2 config newSeventh: expected { weight, margin } numbers, got ${JSON.stringify(newSeventh)}`);
@@ -174,6 +181,7 @@ export function resolveChords2Config(overrides: unknown = {}): Chords2Config {
   if (!['off', 'M1', 'M2', 'M3'].includes(cfg.bass.method)) throw new Error(`chords2 config bass.method: ${String(cfg.bass.method)}`);
   if (!['off', 'context', 'bassRoot'].includes(cfg.pairRule)) throw new Error(`chords2 config pairRule: ${String(cfg.pairRule)}`);
   if (newSeventh !== undefined) cfg.newSeventh = { weight: Number((newSeventh as Json).weight), margin: Number((newSeventh as Json).margin) };
+  if (octaveChroma === true) cfg.octaveChroma = true;
   return deepFreeze(cfg);
 }
 

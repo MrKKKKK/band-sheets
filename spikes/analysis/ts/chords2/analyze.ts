@@ -36,6 +36,8 @@ export interface Chords2Input {
   barOfBeat: ArrayLike<number>;
   /** v1a's bass-band chroma (C1-B3) per chord column, row-major [12, n]: needed by bass.method M1 (T8, bass.ts). */
   bassChroma?: ArrayLike<number>;
+  /** F1's per-beat output folded to 12 pitch classes, row-major [12, n] (octaveChroma.ts foldF1): needed by cfg.octaveChroma (D1). */
+  f1Chroma?: ArrayLike<number>;
   mem?: MemTracker;
 }
 
@@ -194,7 +196,9 @@ export function estimateColumns(input: Chords2Input, cfg: Chords2Config): { colu
   const stay = perBeat === 1 ? c.self_transition : Math.pow(c.self_transition, 1.0 / perBeat);
   const emisW = perBeat === 1 ? 1.0 : EIGHTH_EMIS;
   const k = sts.length;
-  const s = scores(scoreChroma(c64, input.bassChroma, cfg), n, sts, cfg); // M1: the bass band taken out (bass.ts); no-chord test below reads the full chroma
+  if (cfg.octaveChroma && (!input.f1Chroma || input.f1Chroma.length !== 12 * n)) throw new Error(`chords2: octaveChroma needs input.f1Chroma of length 12 * ${n}`);
+  // D1: the templates are scored on F1's folded chroma instead of v1a's (the silence test below still reads v1a's)
+  const s = scores(cfg.octaveChroma ? Float64Array.from(input.f1Chroma as ArrayLike<number>) : scoreChroma(c64, input.bassChroma, cfg), n, sts, cfg); // M1: the bass band taken out (bass.ts); no-chord test below reads the full chroma
   const silent = new Uint8Array(n);
   for (let t = 0; t < n; t++) {
     let e = c64[t];
