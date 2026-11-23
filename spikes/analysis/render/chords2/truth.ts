@@ -18,10 +18,10 @@
 
 import { IDENTICAL_PAIRS, OTHER_ROWS, TRUTH_ROWS } from '../../ts/chords2/identicalPairs';
 import { suffix, type Stage } from '../../ts/chords2/vocab';
-import { chordName, chordPcs, notePc, parseChord2, SHARP, transposeChord, upperName, type Chord2 } from './chordName';
+import { chordName, notePc, parseChord2, SHARP, transposeChord, upperName, type Chord2 } from './chordName';
 import type { prepareC2 } from './render';
 import type { C2SynthParams, C2Variant } from './variants';
-import { handPcs } from './voicing';
+import { handPcs, soundedPcs } from './voicing';
 
 export const CHORDS2_SYNTH_VERSION = 'chords2-synth-1';
 
@@ -111,8 +111,8 @@ export function buildChords2Truth(v: C2Variant, prep: ReturnType<typeof prepareC
       start: chords[i].start,
       end: chords[i].end,
       text: c.text,
-      pcs: chordPcs(c.chord, c.form === 'no5' ? 1 : 0),
-      rh: [...handPcs(c.chord, c.form).rh].sort((a, b) => a - b),
+      pcs: soundedPcs(c.chord, c.form, p.voicing7),
+      rh: [...handPcs(c.chord, c.form, p.voicing7).rh].sort((a, b) => a - b),
       ...(c.form ? { form: c.form } : {}),
       ...(pr ? { pair: { other: `${SHARP[pr.other.root]}${suffix(pr.other.quality)}`, stage: pr.stage } } : {}),
       ...(c.rows ? { rows: c.rows.map((id) => ({ id, ...rowTruth(id, v.set === 'pair' ? p.transpose : 0) })) } : {}),

@@ -22,6 +22,7 @@ import { CHORD_SETS } from './material';
 import { renderC2 } from './render';
 import { CHORDS2_SYNTH_VERSION } from './truth';
 import { allC2Variants, C2_SETS, TAIL_SEC, VARIATIONS } from './variants';
+import { VOICINGS7 } from './voicing';
 
 function argOf(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -72,6 +73,7 @@ for (const v of selected) {
     ...(v.phrase ? { phrase: v.phrase } : {}),
     stage: r.truth.chords2.variant.stage,
     variation: v.variation,
+    ...(v.voicing7 ? { voicing7: v.voicing7 } : {}),
     seed: v.seed,
     split: v.split,
     heldOut: v.heldOut,
@@ -144,6 +146,10 @@ for (const variation of VARIATIONS) {
   if (es.length === 0) continue;
   const crest = es.map((e) => e.crestDb as number);
   console.log(`${variation}: ${es.length} files, crest ${Math.min(...crest)}-${Math.max(...crest)} dB, peak max ${Math.max(...es.map((e) => e.peak as number))}`);
+}
+for (const voicing7 of VOICINGS7) {
+  const es = entries.filter((e) => e.voicing7 === voicing7);
+  if (es.length > 0) console.log(`7th voicing ${voicing7}: ${es.length} files (${C2_SETS.map((s) => `${s.split} ${es.filter((e) => e.split === s.split).length}`).join(', ')})`);
 }
 if (clippedVariants > 0) console.warn(`warning: ${clippedVariants} variants have clipped samples`);
 if (cutNotes > 0) console.warn(`warning: ${cutNotes} notes are longer than their voice (truth chords2.cutNotes)`);

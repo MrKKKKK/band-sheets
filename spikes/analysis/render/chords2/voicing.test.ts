@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { chordPcs, parseChord2 } from './chordName';
 import { chartOf, writtenNotes } from './render';
 import { allC2Variants, C2_SETS, splitOfName, synthParams } from './variants';
-import { handPcs, lhNotes, rhCandidates, rhVoicing, RH_HI, RH_LO } from './voicing';
+import { handPcs, lhNotes, rhCandidates, rhVoicing, RH_HI, RH_LO, seventhPc, soundedPcs, voicing7Of, WIDE_HI, type Voicing7 } from './voicing';
 
 const pcs = (name: string, form?: 'full' | 'no5' | 'rootless') => {
   const h = handPcs(parseChord2(name), form);
@@ -59,7 +59,7 @@ describe('voicing', () => {
       chart.chords.forEach((c, i) => {
         const mine = notes.filter((n) => n.seg === i);
         const set = [...new Set(mine.map((n) => n.midi % 12))].sort((a, b) => a - b);
-        expect(set, `${v.name} ${c.text}`).toEqual(chordPcs(c.chord, c.form === 'no5' ? 1 : 0));
+        expect(set, `${v.name} ${c.text}`).toEqual(soundedPcs(c.chord, c.form, p.voicing7));
         const lhMax = Math.max(...mine.filter((n) => n.part === 'lh').map((n) => n.midi));
         expect(Math.min(...mine.filter((n) => n.part === 'rh').map((n) => n.midi))).toBeGreaterThan(lhMax);
       });
@@ -103,5 +103,55 @@ describe('variants', () => {
     expect(chartText('c2-d-v2-human-s5')).toBe(chartText('c2-d-v2-lh15-s5'));
     expect(chartText('c2-t-pair-a1-clean-s1')).toBe('C F G7 C6');
     expect(synthParams(all.find((x) => x.name === 'c2-t-pair-a1-piano-s1')!).transpose).toBe(0);
+  });
+});
+
+describe('7th voicing variations (spike 8 T3)', () => {
+  const rh7 = (name: string, v: Voicing7, prev: number[] | null = null) => {
+    const c = parseChord2(name);
+    return rhVoicing(handPcs(c, undefined, v).rh, prev, 66, { v: voicing7Of(c, v), seventh: seventhPc(c) });
+  };
+  for (const name of ['C7', 'Dm7', 'Fmaj7', 'AmM7', 'Bm7b5', 'G7']) {
+    const sev = seventhPc(parseChord2(name));
+    it(`${name}: top has the 7th highest, inner neither highest nor lowest, wide spans over an octave`, () => {
+      const top = rh7(name, 'top');
+      expect(top[top.length - 1] % 12).toBe(sev);
+      const inner = rh7(name, 'inner');
+      expect(inner[0] % 12).not.toBe(sev);
+      expect(inner[inner.length - 1] % 12).not.toBe(sev);
+      expect(inner.some((m) => m % 12 === sev)).toBe(true);
+      const wide = rh7(name, 'wide');
+      expect(wide[wide.length - 1] - wide[0]).toBeGreaterThan(12);
+      expect(wide[wide.length - 1]).toBeLessThanOrEqual(WIDE_HI);
+      expect(wide[0]).toBeGreaterThanOrEqual(RH_LO);
+    });
+  }
+
+  it('no5: the right hand leaves the 5th out of 7, maj7, min7, mM7 (the left hand keeps a 5th that is the bass); others stay', () => {
+    expect(handPcs(parseChord2('C7'), undefined, 'no5').rh.sort((a, b) => a - b)).toEqual([4, 10]);
+    expect(soundedPcs(parseChord2('C7'), undefined, 'no5')).toEqual([0, 4, 10]);
+    expect(soundedPcs(parseChord2('C7/G'), undefined, 'no5')).toEqual([0, 4, 7, 10]);
+    expect(soundedPcs(parseChord2('Am7'), undefined, 'no5')).toEqual([0, 7, 9]);
+    expect(soundedPcs(parseChord2('Bm7b5'), undefined, 'no5')).toEqual(chordPcs(parseChord2('Bm7b5')));
+    expect(soundedPcs(parseChord2('C'), undefined, 'no5')).toEqual([0, 4, 7]);
+  });
+
+  it('no variation, a non-7th chord or a 9th keeps the plain voicing (the hold-out stays as it was)', () => {
+    for (const name of ['C', 'C7', 'Am6']) {
+      const c = parseChord2(name);
+      expect(handPcs(c)).toEqual(handPcs(c, undefined, undefined));
+    }
+    const c = parseChord2('C');
+    expect(rhVoicing(handPcs(c).rh, null, 66)).toEqual(rhVoicing(handPcs(c, undefined, 'wide').rh, null, 66, { v: voicing7Of(c, 'wide'), seventh: 0 }));
+  });
+
+  it('the new files are tuning and dev only, human, in sets B / V1 / V2; hold-out has none', () => {
+    const vs = allC2Variants().filter((v) => v.voicing7);
+    expect(vs.length).toBe(3 * 4 * 5);
+    expect(vs.every((v) => !v.heldOut && v.variation === 'human' && ['tuning', 'dev'].includes(v.split))).toBe(true);
+    expect(allC2Variants().filter((v) => v.heldOut).every((v) => !v.voicing7)).toBe(true);
+    expect(new Set(allC2Variants().map((v) => v.name)).size).toBe(allC2Variants().length);
+    expect(splitOfName(vs[0].name)).toBe(vs[0].split);
+    expect(() => synthParams({ ...vs[0], heldOut: true })).toThrow();
   });
 });

@@ -35,7 +35,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allBassVariants } from '../../../render/bass/variants';
 import { splitOfName } from '../../../render/chords2/variants';
-import { allVariants } from '../../../render/variants';
+import { allDevVariants, allVariants } from '../../../render/variants';
 import { argOf, parseJsonl, readJson } from '../../bass/evalCommon';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -166,6 +166,7 @@ export function synthSplit(name: string): string | null {
   recipeSplits ??= new Map<string, string>([
     ...allBassVariants().map((v) => [v.name, v.split] as [string, string]),
     ...allVariants().map((v) => [v.name, v.heldOut ? 'heldOut' : 'tuning'] as [string, string]),
+    ...allDevVariants().map((v) => [v.name, 'dev'] as [string, string]), // spike 8 T3: the dev L / LR set
   ]);
   return recipeSplits.get(name) ?? null;
 }

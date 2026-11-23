@@ -20,7 +20,7 @@ import { encodeWav } from '../wav';
 import { bassPc } from './chordName';
 import { bChart, phraseChart, PHRASES, stageChart, type Chart } from './material';
 import { getPiano } from './pianos';
-import { handPcs, lhNotes, rhVoicing } from './voicing';
+import { handPcs, lhNotes, rhVoicing, seventhPc, voicing7Of } from './voicing';
 import { streamOf, synthParams, TAIL_SEC, type C2SynthParams, type C2Variant } from './variants';
 import { buildChords2Truth, type Chords2TruthFile } from './truth';
 
@@ -77,8 +77,9 @@ export function writtenNotes(chart: Chart, p: C2SynthParams, withBass: boolean):
   const sectionStarts = new Set(chart.sections.map((s) => s.startBar * 4));
   let prevRh: number[] | null = null;
   chart.chords.forEach((c, seg) => {
-    const { rh: rhPcs, lhAbove } = handPcs(c.chord, c.form);
-    const rh = rhVoicing(rhPcs, prevRh, p.rhCentre);
+    const { rh: rhPcs, lhAbove } = handPcs(c.chord, c.form, p.voicing7);
+    const v7 = voicing7Of(c.chord, p.voicing7);
+    const rh = rhVoicing(rhPcs, prevRh, p.rhCentre, v7 ? { v: v7, seventh: seventhPc(c.chord) } : undefined);
     prevRh = rh;
     const lh = lhNotes(c.chord, p.lhStyle, lhAbove);
     const add = (part: Part, midi: number, velocity: number, beat: number, endBeat: number) =>

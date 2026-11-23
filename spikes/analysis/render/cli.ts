@@ -1,5 +1,5 @@
 // Renders all variants into spikes/analysis/out/ (run from spikes/analysis:
-// `npx tsx render/cli.ts [--out DIR] [--only GLOB]`). Writes <song>/<name>.wav +
+// `npx tsx render/cli.ts [--out DIR] [--only GLOB] [--dev]`). Writes <song>/<name>.wav +
 // .truth.json, manifest.json and out/etude/etude.bandsheet. Without --only it
 // clears the generated files of out/saints and out/etude first; with --only
 // (a glob on variant names, `*` and `?`) it renders just those, deletes
@@ -35,7 +35,7 @@ import {
   importScore,
   setPrograms,
 } from './truth';
-import { allVariants, ETUDE_SEED } from './variants';
+import { allDevVariants, allVariants, ETUDE_SEED } from './variants';
 import type { Variant } from './types';
 import { encodeWav } from './wav';
 
@@ -46,7 +46,10 @@ function argOf(name: string): string | undefined {
   if (v === undefined || v.startsWith('--')) throw new Error(`${name} の値がありません`);
   return v;
 }
-const OUT = resolve(argOf('--out') ?? fileURLToPath(new URL('../out/', import.meta.url)));
+// --dev (spike 8 T3): the dev L / LR set (variants.ts allDevVariants) into out/levels-dev (own manifest)
+const DEV = process.argv.includes('--dev');
+const variantList = () => (DEV ? allDevVariants() : allVariants());
+const OUT = resolve(argOf('--out') ?? fileURLToPath(new URL(DEV ? '../out/levels-dev/' : '../out/', import.meta.url)));
 const ONLY = argOf('--only');
 const globRe = (g: string) => new RegExp(`^${g.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
 
@@ -86,7 +89,7 @@ if (ONLY === undefined) {
   const removed = cleanGenerated(OUT, ['saints', 'etude']);
   if (removed.length > 0) console.log(`cleaned ${removed.length} stale files`);
 }
-const selected = allVariants().filter((v) => ONLY === undefined || globRe(ONLY).test(v.name));
+const selected = variantList().filter((v) => ONLY === undefined || globRe(ONLY).test(v.name));
 if (selected.length === 0) throw new Error(`--only ${ONLY} に合う変化形がありません`);
 
 mkdirSync(join(OUT, 'saints'), { recursive: true });
@@ -182,7 +185,7 @@ const manifest = buildManifest(
   ONLY === undefined
     ? manifestVariants
     : mergeManifestVariants(
-        allVariants().map((v) => v.name),
+        variantList().map((v) => v.name),
         manifestVariants,
         existsSync(join(OUT, 'manifest.json')) ? (JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8')).variants ?? []) : [],
       ),

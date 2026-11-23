@@ -11,7 +11,7 @@
 
 import { onsetIndex } from '../drum/kits';
 import { SAMPLE_RATE } from '../bass/timbres';
-import { chordPcs } from './chordName';
+import { soundedPcs } from './voicing';
 import { applyRoom, prepareC2 } from './render';
 import type { C2Variant } from './variants';
 
@@ -50,7 +50,7 @@ export function checkC2(v: C2Variant, every = 1, sr = SAMPLE_RATE): C2Check {
     const mine = placed.filter((n) => n.seg === i);
     const inTime = placed.filter((n) => n.t >= s - spread && n.t < e - spread);
     const set = (ns: typeof placed) => [...new Set(ns.map((n) => n.midi % 12))].sort((a, b) => a - b).join(',');
-    const want = chordPcs(c.chord, c.form === 'no5' ? 1 : 0).join(',');
+    const want = soundedPcs(c.chord, c.form, params.voicing7).join(',');
     const ok = set(mine) === want && set(inTime) === want && mine.every((n) => n.t >= s - spread && n.t < e + spread);
     if (ok) res.pcsOk++;
     else if (res.pcsBad.length < 5) res.pcsBad.push(`${c.text}: ${want} / ${set(mine)} (${set(inTime)})`);
