@@ -10,22 +10,21 @@
 | `ts/chords2/d2.ts`（新）         | D2 本体。`evalAdded`（§2.2 の 4）、`smooth`（5 の 2 状態の HMM）、`applyD2`（列ごとに 1〜5）、`d2Candidates`（区間の候補）                                                                                                                                                                   |
 | `ts/chords2/analyze.ts`          | `cfg.d2` のとき、V0 の列に `applyD2` をかけてから `mergeChords` でまとめ直し、区間の `chordCandidates` に D2 の候補を入れる。入力に `f1Beats` を足した                                                                                                                                       |
 | `ts/chords2/config.ts`           | `d2?: D2Values`（`range`・`theta`・`thetaLow`・`switchPenalty`）と `f1?: F1Config`（D1 か D2 が F1 を読むときだけ）。`DEFAULT_D2_VALUES`                                                                                                                                                     |
-| `ts/chords2/pipeline.ts`         | `chords2Inputs`: F1 を使う設定なら 7 オクターブの CQT を 1 回だけ計算し、F1・ベースの段（`bassCqtFrom`、決定 10）・D1 の `f1Chroma` に配る。F1 を使わない設定は今までどおりベースの段の CQT だけ（入力はそのまま）                                                                           |
-| `ts/chords2/vocab.ts`            | `triadOf`・`TRIADS`（種類 → 3 和音。D2・採点・前段の当たりの表が同じ表を読む）                                                                                                                                                                                                               |
+| `ts/chords2/pipeline.ts`         | `chords2Inputs`: F1 を使う設定なら 7 オクターブの CQT を 1 回だけ計算し、F1・ベースの段（`bassCqtFrom`、決定 10）・D1 の `f1Chroma` に配る。F1 の最後の拍の終わりは v1a と同じ `lastBeatEnd`。F1 を使わない設定は今までどおりベースの段の CQT だけ（入力はそのまま）                                                                           |
+| `ts/chords2/vocab.ts`            | `triadOf`・`TRIADS`（種類 → 3 和音。D2・採点・前段の当たりの表が同じ表を読む）と、D2 の度数の表 `ADDS`（採点側の種類の和 `count.ts` もここから作る）                                                                                                                                                                                                               |
 | `ts/chords2/eval/score.ts`       | §5 の列（`added`）と、それを区間ごとに出す `segmentTallies` の測り方（`triadName`・`overAdd`・`addedCandidate`・`asTriadE1`・`asTriadE2`）。点の範囲と当たりの規則は `POINT_MEASURES` の 1 か所                                                                                              |
 | `ts/chords2/eval/baselineAgg.ts` | `Agg`・`Summary` に `added`（ファイルをまたいだ合計と率）                                                                                                                                                                                                                                    |
 | `ts/chords2/eval/gate.ts`        | `seventhAsTriad` は `score.ts` の `added.asTriad` を読むだけにした（数は前と同じ。混同表と同じことを試験で確かめた）                                                                                                                                                                         |
-| `front/`（T4。必要な分だけ）     | θ_low を `front/config.ts` から `DEFAULT_D2_VALUES` に移した。`ratio.ts` は θ_low を引数で受け取り、複数の d を 1 回で計算する `addedRatios` を足した（式は変えていない）。`accuracy.ts` の `triadOf` は `vocab.ts` の表を読む形にした（maj・min の仲間は同じ。`dim` が増えたが正解に 0 本） |
 
-`octaveChroma.ts`（T6）は変えていない。
+T4 の `front/` は θ_low の置き場の移動と `addedRatios` の追加だけ（§3 のハッシュ表と `audio-spike8-t4.md`）。`octaveChroma.ts`（T6）は変えていない。
 
 ## 2. D2 の決め方（§2.2 に書いていない細部）
 
 - **列ごと**: v1a の列は半拍（`perBeat` 2）。列 t は拍 ⌊t / perBeat⌋ の F1 を読む。HMM の「足す音あり」の点は (max ρ − θ) / perBeat（拍あたりの単位。切り替えの罰も拍の単位で読める）。
 - **3 和音の取り方**: `7`・`maj7` → maj、`min7` → min、`m7b5` → dim。V0 が出した 7th も 3 和音に戻してから D2 が決め直す（v1a の 7 度の守り × .98 は v1a の中では変えていない）。`dim7`・`aug`・`sus4`・和音なしはそのまま。D2 は `stage` V0 のときだけ（ほかは設定で断る）。
-- **読む度数**（`d2.ts` `ADDS`）: E1 = maj の 10（`7`）・11（`maj7`）、min の 10（`min7`）、dim の 10（`m7b5`）。E2 = E1 + maj の 9（`6`）、min の 9（`m6`）・11（`mM7`）。
-- **1 拍の読み**（`evalAdded`）: 短 7 と長 7 は ρ の大きい方 1 つ（同じなら短 7）。弱い方の 7 度は候補にもしない。7 度が θ 以上なら 7 度（6 度も θ_low 以上なら候補）、7 度が θ 未満で 6 度が θ 以上なら 6 度（7 度が θ_low 以上なら候補）。「足す音なし」の列の候補は θ_low 以上の 7 度・6 度を ρ の大きい順。
-- **HMM**（`smooth`）: 同じルート・同じ 3 和音が続く列ごとに、「なし」= 0 点、「あり」= 上の点、切り替え 1 回ごとに罰。並ぶときは同じ状態にとどまる、最後は「あり」（罰 0 で「ρ ≥ θ なら足す」と同じになる）。
+- **読む度数**（`vocab.ts` `ADDS`）: E1 = maj の 10（`7`）・11（`maj7`）、min の 10（`min7`）、dim の 10（`m7b5`）。E2 = E1 + maj の 9（`6`）、min の 9（`m6`）・11（`mM7`）。
+- **1 拍の読み**（`evalAdded`、詳細は `d2.ts` の冒頭）: 7 度は短 7 と長 7 の ρ の大きい方 1 つ（同じなら短 7）。7 度が θ 以上なら 7 度、そうでなく 6 度が θ 以上なら 6 度。もう一方が θ_low 以上なら候補。
+- **HMM**（`smooth`）: 同じルート・同じ 3 和音の続きごとに「なし」(0 点) / 「あり」(max ρ − θ) の 2 状態、切り替え 1 回ごとに罰。
 - **「あり」の列の名前**: その列の読み（7・maj7・6 …）。読みの弱い列（max ρ < θ_low、例: F1 が何も採らない拍）が HMM でつながって「あり」になったときは、同じひと続きの中の前（無ければ後）の列の読みを使う。
 - **まとめ直し**: `mergeChords`（v1a、`merge_min_beats` 1）で同じ名前の列をまとめる。足す音が変われば区間が分かれる。
 - **区間の候補**（`d2Candidates`）: 区間の列の半分以上が持つ候補の種類を、多い順に（同じなら先に出た順）。その前に、音が同じ組のもう一方の読み（`pairRule.ts` `otherReading`。E1 では組が無い。E2 では `C6` = `Am7`、`Am6` = `F#m7b5`）をいつも先頭に置く（スパイク 7 の決定 8）。組の規則（`pairRule`）は既定で切のまま。候補は `chordCandidates` に入り、`toEvalChords` で事後確率の上位の前に並ぶ。見せる数は今までどおり 2 つまで（`candidates.ts`）。
@@ -66,7 +65,7 @@ D1（`octaveChroma`）を入れた設定のハッシュも変わった（`f1` �
 ## 5. T7 が知っておくこと
 
 - 走らせ方: `frontEnd` → `chords2Inputs(y, fe.times, fe.duration, fe.input, cfg, appBassConfig().lowCqt)` → `analyze(input, cfg)` → `toEvalChords` → `marksOnV2(low, …, appBassConfig())`。F1 を使う設定でもベースの印は自分で計算した CQT と同じになる（調整用 3 本で確かめた。T4 の `share` と同じ結論）。基準の行（`appBassConfig()`）は `chords2Inputs` に全部切の設定を渡せば今までと同じ道を通る。
-- **θ_low は 2 か所に効く**: 分母の「鳴っている」と、候補の下限。動かすと T4 の試験の線も動く（`front/f1.test.ts` は `DEFAULT_D2_VALUES.thetaLow` を読む）。`front/cli.ts eval --grid` では θ_low を振れなくなった（`addBeats` の引数で渡す）。
+- **θ_low は 2 か所に効く**: 分母の「鳴っている」と、候補の下限。T4 の試験（`front/f1.test.ts`）は 0.3 で固定してあるので、動かしても T4 の線は動かない。`front/cli.ts eval --grid` では θ_low を振れなくなった（`addBeats` の引数で渡す）。
 - 切り替えの罰の単位は「拍あたりの ρ − θ」。`perBeat` が変わっても意味は同じ。
 - 気になる点（調整で見るところ）: HMM は「あり / なし」の 2 状態なので、「あり」が続く間に 7 と maj7 が拍ごとに入れ替わると、その分だけ区間が細かく分かれる（`merge_min_beats` 1 で短い区間を吸わない）。クリシェ（拍ごとに足す音が変わる）を残すためにこうした。ひどければ G1 で「足す音ごとの状態にして罰 1 つ」に変える案を出す。
 - 足しすぎの範囲は「正解が 3 和音で `/X` が無い点」。計画の「a〜f、合成の分数の無い区間」の、どの素材を使うかは T7 が決める（列は素材を選ばない）。
@@ -77,5 +76,5 @@ D1（`octaveChroma`）を入れた設定のハッシュも変わった（`f1` �
 
 - `ts/chords2/d2.test.ts`（22 件）: §2.2 の式の手計算（分母 = 鳴っている 3 和音の音の平均、ベースは分母だけ、ρ(10) = 2.5 / 3 など）と読みの規則、2 状態の HMM、列への当てはめ（V0 の 7th を決め直す・aug と和音なしはそのまま・ルートが変われば別の続き・弱い列の名前）、区間の候補（半分の規則・組のもう一方の読みが先頭）。**手作りの倍音の音を本物の F1 に通して**、`C – C7`（2 拍ずつ）が 2 区間、内声のクリシェ `Am – AmM7 – Am7 – Am6`（2 拍ずつ、E2）が 4 区間（`Am6` の候補の先頭が `F#m7b5`）。音色 2 つ。設定とハッシュ、`chords2Inputs`。
 - `eval/score.test.ts` に 4 件: 列の手計算、区間ごとの和 = 列の点、`asTriad` = スパイク 7 の混同表の数、`baselineAgg` の合計。
-- `front/f1.test.ts`: θ_low を `DEFAULT_D2_VALUES` から読む形に替え、F1 のハッシュの固定を `cbf11a42c101` にした（試験の中身は同じ）。
+- `front/f1.test.ts`: θ_low は 0.3 で固定（レビューで `DEFAULT_D2_VALUES` の読みをやめた）、F1 のハッシュの固定は `cbf11a42c101`。
 - `npx vitest run ts/chords2`: 24 ファイル・255 件すべて通った（固定のテスト `chords2.golden.test.ts` を含む）。`npx tsc --noEmit -p .` エラー 0。

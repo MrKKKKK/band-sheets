@@ -12,14 +12,14 @@
   - 対象の集合は B・V1・V2（V3 は 9th の曲）、変化は `human` だけ（YAGNI）。ホールドアウト（種 8〜9）には作らない（`synthParams` が断る）。
   - 正解 JSON の `chords2.segments[].pcs` は 5 度抜きを反映し、`--check` もそれで音名を確かめる。
 - **開発用の L・LR**: スパイク 0・2 の旧い描画（`render/cli.ts`）の `etude4`・`etude5`（etude の種 4・5。調整用は種 1、ホールドアウトは種 2・3）。調整用の etude の L0〜L3 と LR（LR は難しい弾き方も）と同じ作り方で 1 曲 11 本、計 22 本。`render/variants.ts` の `allDevVariants()`、描画は `npx tsx render/cli.ts --dev`（出力 `out/levels-dev/`。調整用の `out/` の manifest とは別）。`saints` は曲が 1 つだけなので足していない。
-- **`synthSplit`（guard.ts）**: `allDevVariants()` を `dev` で足した（その 1 行だけ）。`c2-t/d-*` の 7th の変化は名前の `c2-t/d/h-` で分かるので足し直しは要らない（試験で確認）。
-- **ホールドアウトの確かめ**: `render/chords2/heldout-hashes.json` = 136 本の wav の SHA-256（spike7 の描画と一致を確認済み。中身は開いていない）。`render/chords2/heldout.test.ts`: (1) 一覧が記録と同じ、(2) `out/chords2/` の `c2-h-*.wav` のハッシュが記録と同じ、(3) 5 本の集合 × 種 8・9 の 10 本を描き直して記録と同じ、(4) 調整用の 7th の変化を 2 回描いて同じ wav、(5) `synthSplit` が新しい名前を分ける。既存の `render.test.ts` の「同じ wav・ゴールデンハッシュ」「±1 ms」も通る。
+- **`synthSplit`（guard.ts）**: `allDevVariants()` を `dev` で足した（その 1 行だけ）。`allC2Variants()` に 7th の変化も入っているので足し直しは要らない（試験で確認。一覧に無い `c2-t/d-*` は断る）。
+- **ホールドアウトの確かめ**: `render/chords2/heldout-hashes.json` = 136 本の wav の SHA-256（spike7 の描画と一致を確認済み。中身は開いていない）。`render/chords2/heldout.test.ts`: (1) 一覧が記録と同じ、(2) `out/chords2/` の `c2-h-*.wav` のハッシュが記録と同じ（wav が無ければ skip と出る）、(3) 5 本の集合 × 種 8・9 の 10 本を描き直して記録と同じ、(4) `synthSplit` が新しい名前を分ける。同じ種で同じ wav は既存の `render.test.ts` の「同じ wav・ゴールデンハッシュ」「±1 ms」も通る。
 
 ## 2. 確かめた結果
 
-- `npx vitest run ts/chords2 render/chords2 render/variants.test.ts render/modulate.test.ts`: 29 ファイル 295 件が通った（T5・T6 の作業中の差分を含む）。
+- `npx vitest run ts/chords2 render/chords2 render/variants.test.ts render/modulate.test.ts`: 29 ファイル 295 件が通った。
 - `render/chords2/cli.ts --only '*-v7*' --check`: 60 本、13,290 / 13,290 音が正解の ±1 ms 以内（最大 0.0005 ms）、1,148 / 1,148 区間が正解の音名どおり。
-- `npx tsc --noEmit -p .`: `render/` と `ts/chords2/eval/` は通る。`ts/chords2/front/f1.test.ts`（T4・T6 の作業）に型の不一致が出ている（私の変更ではない）。
+- `npx tsc --noEmit -p .`: エラー 0。
 - `render/cli.ts --dev`: 22 本。クリップ警告なし。
 
 ## 3. 本数
