@@ -30,15 +30,16 @@ import { analyze as analyze2 } from '../analyze';
 import { chords2ConfigHash, resolveChords2Config, T10_V1_OVERRIDES, type Chords2Config, type NewSeventh } from '../config';
 import { asCandidatesOnly, marksOnV2, pairsAfterBass } from '../pipeline';
 import { newQualities, STAGE_ADDS } from '../vocab';
-import { addFile, newAgg, summarize, type Agg } from './baselineAgg';
+import { addFile, newAgg, type Agg } from './baselineAgg';
 import { bassG2, bassT8, f1, f3, items as tuningItems, slim, table, v2Config } from './baseline';
 import { frontEnd, toEvalChords } from './frontEnd';
+import { handEditsLines, hasGroup, leLine, summaryOf as S, wrongSlashLines, type Line } from './g1Common';
 import { choosePairRule, fixedBroken, handEditsPer100, newQualityOutput, seventhAsTriad } from './gate';
 import { beginLook, commitArg, committedBlock, git, readRegistry, ROOT } from './guard';
 import { prepareInput } from './input';
 import { bassOnlyReading, pairUnits, readingOf, sameReading, scorePairs, soundOnlyReading, type PairItem } from './pairs';
 import { devTakes } from './r2';
-import { editCounts, scoreChords, truthQuality, type EvalChord, type Vocab } from './score';
+import { editCounts, scoreChords, truthQuality, type EvalChord } from './score';
 import { devSynItems, groupsOf, L_POOL, loadTruth, readCache, recItems, runJobs, type Item, type Truth } from './t8';
 
 const OUT = join(ROOT, 'out', 'chords2-t10');
@@ -233,8 +234,7 @@ export function tally(files: { c: Cached; t: T10Truth }[], rowIds: readonly stri
   }
   return T;
 }
-const S = (T: Tally, v: Vocab, row: string, g: string) => summarize(T.agg[`${v}|${row}|${g}`] ?? newAgg());
-const has = (T: Tally, row: string, g: string) => (T.agg[`down|${row}|${g}`]?.files ?? 0) > 0;
+const has = hasGroup;
 
 /** Recall / precision (root + quality, full vocabulary; bassOnly points left out) of the V1 qualities, pooled or one. */
 export function newQualityPR(T: Tally, row: string, g: string, qs: readonly string[] = V1Q): { recall: number | null; precision: number | null; tn: number; rn: number } {
@@ -254,15 +254,6 @@ const nqRate = (T: Tally, row: string, g: string): number | null => {
 };
 const pairScore = (T: Tally, row: string, sub = 'all') => scorePairs(T.pairs[`${row}|${sub}`] ?? []);
 
-export interface Line {
-  line: string;
-  value: string;
-  target: string;
-  pass: boolean | null;
-  /** between the target and the stop line (−.01 .. −.02): the user decides (G1) */
-  user?: boolean;
-}
-
 /** The G1 lines for a V1 row (plan「G1 の決定」, §5): regression vs the adopted config (bassG2) of the same run. */
 export function g1LinesV1(T: Tally, row: string, pairRule: 'context' | 'bassRoot' | null): Line[] {
   const out: Line[] = [];
@@ -276,21 +267,14 @@ export function g1LinesV1(T: Tally, row: string, pairRule: 'context' | 'bassRoot
   if (has(T, row, 'LR')) reg('4 後戻り LR 名前 落（採った設定 −.01）', d('LR').name.rate, g2('LR').name.rate, 0.01, 0.02);
   if (has(T, row, 'Lpool')) reg('4 後戻り L0〜L3・LV 名前 落（採った設定 −.01）', d('Lpool').name.rate, g2('Lpool').name.rate, 0.01, 0.02);
   if (has(T, row, 'REC')) reg('4 後戻り 録音 ALL 名前 落（採った設定 −.02）', d('REC').name.rate, g2('REC').name.rate, 0.02, 0.02);
-  const le = (line: string, x: number | null, max: number) => out.push({ line, value: f3(x), target: `≤ ${f3(max)}`, pass: x === null ? null : x <= max + 1e-9 });
-  if (has(T, row, 'REC')) le('3 誤った /X 録音 ALL', d('REC').wrongSlash, 0.02);
-  if (has(T, row, 'LR')) le('3 誤った /X 合成 LR', d('LR').wrongSlash, 0.05);
-  for (const g of ['REC', 'SYN'])
-    if (has(T, row, g)) {
-      const x = handEditsPer100(S(T, 'full', row, g));
-      const b = handEditsPer100(S(T, 'full', 'bassG2', g));
-      out.push({ line: `5 手で直す数 / 100 拍 全 ${g === 'REC' ? '録音 ALL' : '合成 SYN'}（採った設定 −1.5）`, value: f1(x), target: `≤ ${f1(b === null ? null : b - 1.5)}`, pass: x === null || b === null ? null : x <= b - 1.5 + 1e-9 });
-    }
+  out.push(...wrongSlashLines(T, row));
+  out.push(...handEditsLines(T, row, { vocab: 'full', base: 'bassG2', vocabLabel: '全', synLabel: '合成 SYN', baseLabel: '採った設定' }));
   if (has(T, row, 'SYN')) {
     const pr = newQualityPR(T, row, 'SYN');
     out.push({ line: '6 新しい種類の再現率 合成 SYN（mM7・m6・6 をまとめて）', value: f3(pr.recall), target: '≥ .600', pass: pr.recall === null ? null : pr.recall >= 0.6 });
     out.push({ line: '6 新しい種類の適合率 合成 SYN（G3 の決め手）', value: `${f3(pr.precision)}（出した点 ${pr.rn}）`, target: '≥ .800', pass: pr.precision === null ? false : pr.precision >= 0.8 });
   }
-  if (has(T, row, 'a-f')) le('6 a〜f で新しい種類を出した点', nqRate(T, row, 'a-f'), 0.02);
+  if (has(T, row, 'a-f')) out.push(leLine('6 a〜f で新しい種類を出した点', nqRate(T, row, 'a-f'), 0.02));
   if (pairRule) {
     const p = pairScore(T, row);
     const br = pairScore(T, row.replace(/\|context(\|cand)?$/, '|bassRoot$1'));
