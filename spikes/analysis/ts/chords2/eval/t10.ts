@@ -35,7 +35,7 @@ import { bassG2, bassT8, f1, f3, items as tuningItems, slim, table, v2Config } f
 import { frontEnd, toEvalChords } from './frontEnd';
 import { handEditsLines, hasGroup, leLine, summaryOf as S, wrongSlashLines, type Line } from './g1Common';
 import { choosePairRule, fixedBroken, handEditsPer100, newQualityOutput, seventhAsTriad } from './gate';
-import { beginLook, commitArg, committedBlock, git, readRegistry, ROOT } from './guard';
+import { beginLook, commitArg, readRegistry, requireCommittedDryRun, ROOT } from './guard';
 import { prepareInput } from './input';
 import { bassOnlyReading, pairUnits, readingOf, sameReading, scorePairs, soundOnlyReading, type PairItem } from './pairs';
 import { devTakes } from './r2';
@@ -421,8 +421,7 @@ function lookReport(items: Item[], dir: string): string {
 }
 
 function selftest(argv: string[]): void {
-  const cb = committedBlock({ commit: commitArg(argv) ?? git(['rev-parse', 'HEAD']) ?? undefined, head: git(['rev-parse', 'HEAD']), porcelain: git(['status', '--porcelain']) });
-  if (cb) console.log(`selftest note: ${cb} (a dry run on tuning files; the look itself refuses this)`);
+  requireCommittedDryRun(argv);
   const levels = ['B', 'B1', 'LR', 'L0', 'V1', 'pair'];
   const items = levels.map((l) => tuneItems().find((i) => i.level === l)!);
   const dir = join(OUT, 'selftest');
@@ -450,7 +449,7 @@ async function look(argv: string[]): Promise<void> {
       reason: `T10: look point 3 before G3 - vocabulary V1 (chords2 V1 ${chords2ConfigHash(TUNED.cfg)}, tuning-split values) + the G2 bass marks + the pair rule after the marks (off / context / bassRoot) + new qualities as candidates only, against the baseline rows v1a / bassT8 / bassG2 (the adopted config) on the dev synthetic (+ L watch) and the dev recordings; no tuning after this`,
       configHashes: hashes,
       takes,
-      synthetic: { split: 'dev', files: syn.length },
+      synthetic: syn.map((s) => s.name),
     },
     commitArg(argv),
   );

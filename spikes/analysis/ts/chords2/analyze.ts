@@ -18,6 +18,8 @@ import type { ChordState } from '../dsp/vocab';
 import { bassValues, type Chords2Config } from './config';
 import { collapsePosterior, ExpandedPrior, m2Expand, scoreChroma } from './bass';
 import type { Chords2Segment } from './pairRule';
+import { addedCandidates, applyD2, d2Candidates } from './d2';
+import type { F1Beat } from './front/f1';
 import { FamilyPrior } from './prior';
 import * as vocab from './vocab';
 
@@ -36,12 +38,19 @@ export interface Chords2Input {
   barOfBeat: ArrayLike<number>;
   /** v1a's bass-band chroma (C1-B3) per chord column, row-major [12, n]: needed by bass.method M1 (T8, bass.ts). */
   bassChroma?: ArrayLike<number>;
+  /** F1's per-beat output folded to 12 pitch classes, row-major [12, n] (octaveChroma.ts foldF1): needed by cfg.octaveChroma (D1). */
+  f1Chroma?: ArrayLike<number>;
+  /** F1's notes per beat (n / perBeat entries; front/f1.ts f1Beats): needed by cfg.d2 (D2, d2.ts). */
+  f1Beats?: readonly F1Beat[];
   mem?: MemTracker;
 }
 
 export interface Chords2Output {
   columns: ColumnChord[];
-  /** `chordCandidates` is set only by the identical-pair rule, which analyze() does not run (pipeline.ts pairsAfterBass does) */
+  /**
+   * `chordCandidates` (shown before the top-k) is set only by D2 (cfg.d2: its candidates and the identical pair's other
+   * reading); the identical-pair rule, which also sets it, is not run here (pipeline.ts pairsAfterBass does)
+   */
   segments: Chords2Segment[];
   states: ChordState[];
 }
@@ -58,6 +67,7 @@ function checkSwitches(cfg: Chords2Config): void {
   if (cfg.chords.confidence !== 'posterior') throw new Error('chords2: only chords.confidence=posterior is supported');
   // One place applies the identical-pair rule (T17): pipeline.ts pairsAfterBass, after the bass marks (T10's form).
   if (cfg.pairRule !== 'off') throw new Error("chords2: analyze() does not apply pairRule; use pipeline.ts pairsAfterBass (config.ts PairRule)");
+  if (cfg.d2 && cfg.stage !== 'V0') throw new Error('chords2: d2 reads the V0 Viterbi (plan §2.2), stage must be V0');
 }
 
 /** Weighted cosine scores [nStates, n] (chords._scores with the new qualities and multi-template states). */
@@ -194,7 +204,9 @@ export function estimateColumns(input: Chords2Input, cfg: Chords2Config): { colu
   const stay = perBeat === 1 ? c.self_transition : Math.pow(c.self_transition, 1.0 / perBeat);
   const emisW = perBeat === 1 ? 1.0 : EIGHTH_EMIS;
   const k = sts.length;
-  const s = scores(scoreChroma(c64, input.bassChroma, cfg), n, sts, cfg); // M1: the bass band taken out (bass.ts); no-chord test below reads the full chroma
+  if (cfg.octaveChroma && (!input.f1Chroma || input.f1Chroma.length !== 12 * n)) throw new Error(`chords2: octaveChroma needs input.f1Chroma of length 12 * ${n}`);
+  // D1: the templates are scored on F1's folded chroma instead of v1a's (the silence test below still reads v1a's)
+  const s = scores(cfg.octaveChroma ? Float64Array.from(input.f1Chroma as ArrayLike<number>) : scoreChroma(c64, input.bassChroma, cfg), n, sts, cfg); // M1: the bass band taken out (bass.ts); no-chord test below reads the full chroma
   const silent = new Uint8Array(n);
   for (let t = 0; t < n; t++) {
     let e = c64[t];
@@ -235,9 +247,20 @@ export function estimateColumns(input: Chords2Input, cfg: Chords2Config): { colu
   return { columns, states: sts };
 }
 
-/** The v2 chord stage: columns, merged segments (with the top-k candidates), and the state list. */
+/**
+ * The v2 chord stage: columns, merged segments (with the top-k candidates), and the state list. With cfg.d2 the V0
+ * columns get D2's added tones (d2.ts) before they are merged, and the segments D2's readings in `chordCandidates`.
+ */
 export function analyze(input: Chords2Input, cfg: Chords2Config): Chords2Output {
-  const { columns, states } = estimateColumns(input, cfg);
+  const est = estimateColumns(input, cfg);
+  const { states } = est;
+  let d2: ReturnType<typeof applyD2> | null = null;
+  if (cfg.d2) {
+    if (!input.f1Beats || !cfg.f1) throw new Error('chords2: d2 needs input.f1Beats and cfg.f1 (resolveChords2Config sets f1)');
+    // output 'candidate' (spike 8 G1 §1): the V0 columns are not rewritten (no applyD2: no renaming, no HMM)
+    if (cfg.d2.output !== 'candidate') d2 = applyD2(est.columns, input.f1Beats, input.perBeat, cfg.d2, cfg.f1);
+  }
+  const columns = d2 ? d2.columns : est.columns;
   const segs = mergeChords(columns, cfg.chords, input.perBeat);
   const n = columns.length;
   const k = states.length;
@@ -251,6 +274,19 @@ export function analyze(input: Chords2Input, cfg: Chords2Config): Chords2Output 
     segments = segs.map((seg) =>
       seg.root === null ? seg : { ...seg, candidates: segmentCandidates(post, states, n, seg.startBeat, seg.endBeat, cfg.chords.candidates_k) },
     );
+  }
+  if (cfg.d2?.output === 'candidate') {
+    // the added tone's reading per segment (before the bass stage), shown with the top-k as `chordCandidates`
+    if (input.f1Beats!.length * input.perBeat !== n) throw new Error(`chords2: ${input.f1Beats!.length} F1 beats for ${n} columns at perBeat ${input.perBeat}`);
+    const added = addedCandidates(segs, input.f1Beats!, input.perBeat, cfg.d2, cfg.f1!);
+    segments = segments.map((seg, i) => (added[i].length ? { ...seg, chordCandidates: added[i] } : seg));
+  } else if (d2 && cfg.d2) {
+    const { cands } = d2;
+    const range = cfg.d2.range;
+    segments = segments.map((seg) => {
+      const rs = seg.root === null ? [] : d2Candidates(cands, seg.startBeat, seg.endBeat, seg.root, seg.quality, range);
+      return rs.length ? { ...seg, chordCandidates: rs } : seg;
+    });
   }
   return { columns, segments, states };
 }

@@ -12,17 +12,30 @@
  *    (a truth X/X is not a slash chord); a result /X counts as /X even if it equals the root (as in scoreBass).
  *  - 名前 (コード名の当たり): root, quality and /X all match (both without /X, or the same bass pitch class).
  *  - 区間単位: each truth segment with a scored point is one unit; it is a hit when at least half of its scored points
- *    (by weight) are hits. The Wilson interval (z = 1.96) is on these units (plan §3.3 "区間単位の数で Wilson").
+ *    (by weight) are hits. The Wilson interval (z = 1.96) is on these units (plan §3.3 "区間単位の数で Wilson"): it is
+ *    the interval of the UNIT rate only. A line on a POINT rate (spike 8 plan §3, carry-over 5) takes its interval
+ *    from segmentTallies + bootstrap.ts segmentBootstrap (segments resampled, the point rate recomputed).
  *  - ベースにだけある音 (user decision 2026-11-15, plan §5): when the note that makes a truth chord's quality is only in
  *    the bass (`AmM7/G#` = Am over G#, `Am7/G`, `Am6/F#`; and the other way round `C/D` = `Cadd9/D`, `Am/G` = `Am7/G`),
  *    both names are a hit (name, edit counts), and those points are left out of `byQuality` and counted in `bassOnly`
  *    instead. `{ bassOnly: false }` turns this off (spike 6's scorer has no such rule: the parity test uses it).
+ *  - 足す音の列 (spike 8 plan §5, T5; `added` and the segmentTallies measures, predicates in POINT_MEASURES):
+ *    3 和音 = a truth whose full-vocabulary quality is its own triad (vocab.ts triadOf: maj, min, dim).
+ *    triadName: the name rule on 3 和音 points (ベースにだけある音 points left out, as byQuality).
+ *    overAdd (足しすぎ): 3 和音 points without /X where the result's quality is a triad plus an added tone (7, maj7, min7,
+ *      m7b5, 6, m6, mM7, ...; any root: an Am7 on a C truth adds A to the triad too). No result chord = not over-added.
+ *    asTriad (7th を 3 和音に読む): root matched and truth `7` / `min7` (E1; E2 also `6`, `m6`, `mM7`) read as their triad,
+ *      full names in both vocabularies and every point counted (as spike 7's gate.ts seventhAsTriad, which reads it here).
+ *    addedCandidate (候補を出した点): a shown candidate (candidates.ts cap) with the answer's root and triad but another
+ *      quality (C7 under C, C6 under C7). Per 100 beats = rate x 100 (two points per beat).
+ *    addedRecallE1 / addedPrecisionE1 (spike 8 T7, the E1 決め手): byQuality's root + quality rule over the E1 qualities
+ *      pooled (7, maj7, min7, m7b5), truth side / result side; use them with vocab 'full'.
  */
 import { noteToPc, beatWindows, normalizeTruthSlash, type ScoreBeat, type ScoreChord } from '../../bass/score';
 import { at } from '../../bass/evalCommon';
 import { fMeasure } from '../../drum/score';
 import { shownCandidates } from '../candidates';
-import { templates, stageQualities } from '../vocab';
+import { addedQualities, templates, stageQualities, triadOf } from '../vocab';
 import { fullQuality, mapDown } from './mapDown';
 
 export type Vocab = 'full' | 'down';
@@ -63,6 +76,19 @@ export function resultQuality(c: EvalChord, vocab: Vocab): string {
 export interface ScoreOptions {
   /** the ベースにだけある音 rule (default true) */
   bassOnly?: boolean;
+  /** editCounts only: called once per truth run (consecutive scored beats with the same truth name), in order; changes no count */
+  onRun?: (r: EditRun) => void;
+}
+
+/** One truth run of editCounts (pitch classes; qualities in the call's vocabulary): its dominant result piece and name edit. */
+export interface EditRun {
+  truth: { root: number; q: string };
+  /** the longest-overlap result piece (null = a stretch without a result chord) */
+  dom: { root: number; q: string; bass: number | null } | null;
+  beats: number;
+  nameEdit: boolean;
+  /** the name edit is fixed by a shown candidate (counted in nameFixableByCandidate) */
+  fixable: boolean;
 }
 
 const V3 = stageQualities('V3');
@@ -227,13 +253,79 @@ export interface ChordScores {
   byQuality: Record<string, QualityRow>;
   /** points whose truth has a ベースにだけある音 (both names hit): the name hits on them, kept apart from byQuality */
   bassOnly: { points: Rate; units: UnitRate };
+  /** spike 8 §5 足す音の列 (header; per segment: segmentTallies with the same measure) */
+  added: {
+    triadName: Rate;
+    overAdd: Rate;
+    addedCandidate: Rate;
+    /** points of each truth quality (`7`, `min7`, E2's `6`, `m6`, `mM7`) read as its triad (AS_TRIAD) */
+    asTriad: Record<AsTriadTruth, number>;
+  };
 }
+
+/* ------------------------------------------------------------ 足す音の列 (spike 8 §5) */
+
+/** Plan §5 "7th を 3 和音に読む": truth quality -> the triad reading counted, per range (E2 = E1 + 6 / m6 / mM7). */
+export const AS_TRIAD = {
+  E1: { '7': 'maj', min7: 'min' },
+  E2: { '7': 'maj', min7: 'min', '6': 'maj', m6: 'min', mM7: 'min' },
+} as const satisfies Record<string, Record<string, string>>;
+export type AsTriadTruth = keyof (typeof AS_TRIAD)['E2'];
+
+const fullTruth = (p: Point): string | null => truthQuality(p.tc, 'full');
+const isTriad = (q: string | null): boolean => q !== null && triadOf(q) === q;
+/** a triad plus an added tone (vocab.ts triadOf family, not the triad itself) */
+const isAdded = (q: string): boolean => triadOf(q) !== null && triadOf(q) !== q;
+const asTriadOf = (p: Point, map: Readonly<Record<string, string>>): boolean => {
+  const tq = fullTruth(p);
+  return p.rc !== null && p.rRoot === p.tRoot && tq !== null && tq in map && p.rc.quality === map[tq];
+};
+/** The added-tone candidates a result chord shows: shown (candidates.ts cap), the answer's root and triad, another quality. */
+export const shownAddedCandidates = (rc: EvalChord): { root: string; quality: string }[] =>
+  triadOf(rc.quality) === null ? [] : shownCandidates({ root: rc.root, quality: rc.quality }, rc.candidates ?? []).filter((c) => noteToPc(c.root) === noteToPc(rc.root) && c.quality !== rc.quality && triadOf(c.quality) === triadOf(rc.quality));
+const addedCandidateOk = (p: Point): boolean => p.rc !== null && shownAddedCandidates(p.rc).length > 0;
+
+/** the truth's own (root, quality) is among the SHOWN candidates of the result piece */
+const correctShown = (p: Point): boolean => {
+  const rc = p.rc;
+  if (!rc) return false;
+  return shownCandidates({ root: rc.root, quality: rc.quality }, rc.candidates ?? []).some((c) => noteToPc(c.root) === p.tRoot && c.quality === fullTruth(p));
+};
+
+const E1_Q = new Set(addedQualities('E1')); // 7, maj7, min7, m7b5
+const rootQualityOk = (p: Point): boolean => p.rRoot === p.tRoot && p.rq === p.tq;
+const nameOk = (p: Point): boolean => p.rc !== null && p.rRoot === p.tRoot && (p.rq === p.tq || (p.tAlt !== null && p.rq === p.tAlt)) && p.rBass === p.tBass;
+const rootOk = (p: Point): boolean => p.rRoot === p.tRoot;
+
+/** A point-rate measure: the points in scope and the hit rule. */
+interface PointMeasure {
+  scope: (p: Point) => boolean;
+  ok: (p: Point) => boolean;
+}
+const all = (): boolean => true;
+const POINT_MEASURES = {
+  root: { scope: all, ok: rootOk },
+  name: { scope: all, ok: nameOk },
+  slashRoot: { scope: (p) => p.tBass !== null, ok: rootOk },
+  triadName: { scope: (p) => p.tAlt === null && isTriad(fullTruth(p)), ok: nameOk },
+  overAdd: { scope: (p) => p.tBass === null && isTriad(fullTruth(p)), ok: (p) => p.rc !== null && isAdded(p.rc.quality) },
+  addedCandidate: { scope: all, ok: addedCandidateOk },
+  asTriadE1: { scope: (p) => (fullTruth(p) ?? '') in AS_TRIAD.E1, ok: (p) => asTriadOf(p, AS_TRIAD.E1) },
+  asTriadE2: { scope: (p) => (fullTruth(p) ?? '') in AS_TRIAD.E2, ok: (p) => asTriadOf(p, AS_TRIAD.E2) },
+  // spike 8 G1 §2 (candidates-only E1): decision 9's points whose correct 7th is also NOT among the shown candidates, and the
+  // 3 和音 points that carry an added-tone candidate (the share of them, a-f recordings)
+  asTriadHidden: { scope: (p) => (fullTruth(p) ?? '') in AS_TRIAD.E1, ok: (p) => asTriadOf(p, AS_TRIAD.E1) && !correctShown(p) },
+  triadCandidate: { scope: (p) => p.tAlt === null && isTriad(fullTruth(p)), ok: addedCandidateOk },
+  // spike 8 T7 (plan §5 決め手): the E1 qualities pooled, root + quality as byQuality (ベースにだけある音 points left out)
+  addedRecallE1: { scope: (p) => p.tAlt === null && E1_Q.has(p.tq), ok: rootQualityOk },
+  addedPrecisionE1: { scope: (p) => p.tAlt === null && p.rq !== null && E1_Q.has(p.rq), ok: rootQualityOk },
+} satisfies Record<string, PointMeasure>;
+export type Measure = keyof typeof POINT_MEASURES;
+const measure = (pts: readonly Point[], m: Measure) => tally(pts, POINT_MEASURES[m].ok, POINT_MEASURES[m].scope);
 
 export function scoreChords(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab, opts: ScoreOptions = {}): ChordScores {
   const { pts, droppedPoints } = scoredPoints(truth, result, beats, vocab, opts.bassOnly ?? true);
-  const nameOk = (p: Point): boolean => p.rc !== null && p.rRoot === p.tRoot && (p.rq === p.tq || (p.tAlt !== null && p.rq === p.tAlt)) && p.rBass === p.tBass;
-  const rootOk = (p: Point): boolean => p.rRoot === p.tRoot;
-  const slashRoot = tally(pts, rootOk, (p) => p.tBass !== null);
+  const slashRoot = measure(pts, 'slashRoot');
   let truthSlash = 0, resultSlash = 0, slashHit = 0, noSlash = 0, falseSlash = 0, noSlashChord = 0, falseSlashChord = 0, noChord = 0;
   for (const p of pts) {
     if (!p.rc) noChord += W;
@@ -270,15 +362,58 @@ export function scoreChords(truth: readonly EvalChord[], result: readonly EvalCh
     nPoints: pts.length * W,
     droppedPoints,
     noChordPoints: noChord,
-    name: tally(pts, nameOk),
-    root: tally(pts, rootOk).points,
+    name: measure(pts, 'name'),
+    root: measure(pts, 'root').points,
     slashRoot,
     slash: { truthSlash, resultSlash, hit: slashHit, recall, precision, f: recall && precision ? fMeasure(precision, recall) : 0 },
     wrongSlash: { noSlashTruth: noSlash, falseSlash, rate: noSlash ? falseSlash / noSlash : null, onChordPoints: rate(falseSlashChord, noSlashChord) },
     byQuality,
     bassOnly: tally(pts, nameOk, (p) => p.tAlt !== null),
+    added: {
+      triadName: measure(pts, 'triadName').points,
+      overAdd: measure(pts, 'overAdd').points,
+      addedCandidate: measure(pts, 'addedCandidate').points,
+      asTriad: Object.fromEntries(Object.entries(AS_TRIAD.E2).map(([tq, rq]) => [tq, tally(pts, (p) => asTriadOf(p, { [tq]: rq })).points.hit])) as Record<AsTriadTruth, number>,
+    },
   };
 }
+
+/** One truth segment of a point-rate line: its hit points and scored points (weights, 0.5 per point). */
+export interface SegmentTally {
+  hit: number;
+  n: number;
+}
+
+/** A SegmentTally with its truth segment (index in the file's truth track, as score.ts numbers it): pairs rows on the same segment (spike 8 T7). */
+export interface SegmentUnit extends SegmentTally {
+  seg: number;
+}
+
+/**
+ * The points of a `scoreChords` measure per truth segment (segments with a point in the measure's scope only, in truth
+ * order), with the segment's index, so two rows on the same file can be paired segment by segment (bootstrap.ts
+ * pairUnits) and a line against a base row gets a paired interval. Their sums are the line's points (hit / n).
+ */
+export function segmentUnits(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab, measure: Measure, opts: ScoreOptions = {}): SegmentUnit[] {
+  const { pts } = scoredPoints(truth, result, beats, vocab, opts.bassOnly ?? true);
+  const { ok, scope } = POINT_MEASURES[measure];
+  const seg = new Map<number, SegmentUnit>();
+  for (const p of pts) {
+    if (!scope(p)) continue;
+    const s = seg.get(p.seg) ?? { seg: p.seg, hit: 0, n: 0 };
+    s.n += W;
+    if (ok(p)) s.hit += W;
+    seg.set(p.seg, s);
+  }
+  return [...seg.values()].sort((a, b) => a.seg - b.seg);
+}
+
+/**
+ * segmentUnits without the segment index, so a point-rate or point-count line gets its interval from the same unit:
+ * segmentBootstrap(..., pointRate / pointSum) in bootstrap.ts. Their sums are the line's points (hit / n): name,
+ * slashRoot.points, added.*.
+ */
+export const segmentTallies = (...a: Parameters<typeof segmentUnits>): SegmentTally[] => segmentUnits(...a).map(({ hit, n }) => ({ hit, n }));
 
 /* ------------------------------------------------------------ edit counts (直す手数) */
 
@@ -349,11 +484,12 @@ export function editCounts(truth: readonly EvalChord[], result: readonly EvalCho
     c.merge += counts.size - 1;
     const dom = [...counts.values()].reduce((a, b) => (b.n > a.n ? b : a));
     const t = tl[i];
-    if (!dom.l || dom.l.root !== t.root || (dom.l.q !== t.q && dom.l.q !== t.alt)) {
-      c.name++;
-      // either truth name fixes it (ベースにだけある音: the other name is a hit too)
-      if (dom.l && (dom.l.cands.includes(`${t.root}|${t.q}`) || (t.alt !== null && dom.l.cands.includes(`${t.root}|${t.alt}`)))) c.nameFixableByCandidate++;
-    }
+    const nameEdit = !dom.l || dom.l.root !== t.root || (dom.l.q !== t.q && dom.l.q !== t.alt);
+    // either truth name fixes it (ベースにだけある音: the other name is a hit too)
+    const fixable = nameEdit && !!dom.l && (dom.l.cands.includes(`${t.root}|${t.q}`) || (t.alt !== null && dom.l.cands.includes(`${t.root}|${t.alt}`)));
+    if (nameEdit) c.name++;
+    if (fixable) c.nameFixableByCandidate++;
+    opts.onRun?.({ truth: { root: t.root, q: t.q }, dom: dom.l ? { root: dom.l.root, q: dom.l.q, bass: dom.l.bass } : null, beats: j - i + 1, nameEdit, fixable });
     const rb = dom.l ? dom.l.bass : null;
     if (t.bass === null && rb !== null) c.slashRemove++;
     else if (t.bass !== null && rb === null) c.slashAdd++;

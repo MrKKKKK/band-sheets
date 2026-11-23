@@ -20,12 +20,17 @@
  */
 import { bassChords, type V1aChord } from '../bass/analyze';
 import type { BassConfig } from '../bass/config';
-import type { LowCqt } from '../bass/lowCqt';
+import { lowCqt, type LowCqt } from '../bass/lowCqt';
+import type { MemTracker } from '../dsp/core/mem';
 import { segmentBass } from '../bass/segmentBass';
 import { NOTE_NAMES } from '../dsp/chords';
+import { lastBeatEnd } from '../dsp/chroma';
 import type { BarKey } from '../dsp/keytrack';
+import type { Chords2Input } from './analyze';
 import type { CandidateName } from './candidates';
-import type { PairRule } from './config';
+import type { Chords2Config, PairRule } from './config';
+import { bassCqtFrom, f1Beats, octaveCqt } from './front/f1';
+import { foldF1 } from './octaveChroma';
 import { resolvePairs, type PairSegment } from './pairRule';
 import { familyOf, newQualities, STAGE_ADDS, type Stage } from './vocab';
 
@@ -120,4 +125,29 @@ export function pairsAfterBass<C extends TimedChord>(
 export function asCandidatesOnly<C extends TimedChord>(chords: readonly C[], stage: Stage): C[] {
   const added = new Set(newQualities(stage));
   return chords.map((c) => (added.has(c.quality) ? { ...c, quality: proxyQuality(c.quality), candidates: [{ root: c.root, quality: c.quality }, ...(c.candidates ?? [])] } : c));
+}
+
+/**
+ * Spike 8 T5: the CQTs of one signal for chords2 and the bass stage (plan §2.1, §6, decision 10). Without F1 (`cfg.f1`
+ * absent: neither D1 nor D2) it is the bass stage's own CQT and `input` unchanged, as before spike 8. With F1: the
+ * 7-octave CQT is computed ONCE, F1 runs on v1a's beats (`times`, up to `lastBeatEnd(times, duration)`, the same end as v1a's last beat), the bass stage gets the lower 5
+ * octaves of the same CQT (front/f1.ts bassCqtFrom: identical bass output, docs/audio-spike8-t4.md), and `input` gets
+ * `f1Beats` (D2) and, with `octaveChroma`, `f1Chroma` (D1).
+ */
+export function chords2Inputs(
+  y: Float32Array,
+  times: ArrayLike<number>,
+  duration: number,
+  input: Chords2Input,
+  cfg: Chords2Config,
+  bassCqt: BassConfig['lowCqt'],
+  opts: { mem?: MemTracker } = {},
+): { input: Chords2Input; low: LowCqt } {
+  if (!cfg.f1) return { input, low: lowCqt(y, bassCqt, opts) };
+  const wide = octaveCqt(y, cfg.f1, opts);
+  const beats = f1Beats(wide, Array.from(times), lastBeatEnd(times, duration), cfg.f1);
+  return {
+    input: { ...input, f1Beats: beats, ...(cfg.octaveChroma ? { f1Chroma: foldF1(beats, input.perBeat, cfg.f1) } : {}) },
+    low: bassCqtFrom(y, wide, bassCqt, opts),
+  };
 }

@@ -12,6 +12,7 @@ import { enabledBassConfig, type BassConfig } from '../bass/config';
 import { DEFAULT_CHORDS_CONFIG, type ChordsConfig } from '../dsp/chords';
 import { pyCanonicalJson, sha256Hex } from '../dsp/config';
 import { DEFAULT_THEORY_PRIOR } from '../dsp/harmony';
+import { resolveF1Config, type F1Config } from './front/config';
 import type { Stage } from './vocab';
 
 /**
@@ -46,6 +47,29 @@ export interface NewSeventh {
   margin: number;
 }
 
+/** Spike 8 plan §2.3: E1 = the 7th family (d = 10, 11), E2 = E1 + `6` / `m6` (d = 9) and `mM7` (min, d = 11). */
+export type AddedRange = 'E1' | 'E2';
+
+/**
+ * Spike 8 T5, D2 (plan §2.2, d2.ts): the added tone read over V0's triad from F1. Present in `Chords2Config.d2` only when
+ * D2 is on. ρ >= theta adds, thetaLow <= ρ < theta gives a candidate only; thetaLow is also the "sounding" share of the
+ * denominator (front/ratio.ts). switchPenalty = the one switch cost of the 2-state smoothing (in ρ - theta per beat).
+ */
+export interface D2Values {
+  range: AddedRange;
+  theta: number;
+  thetaLow: number;
+  switchPenalty: number;
+  /**
+   * Spike 8 G1 (docs/audio-spike8-g1.md §1): 'candidate' = the added tone is a CANDIDATE only: the V0 columns, the names and
+   * the segments stay exactly the baseline's, and a chords2 segment whose quality is a triad with a root (maj / min / dim; the analyzer does not know the truth) gets the
+   * added tone's reading in `chordCandidates` when at least half of its columns have ρ >= theta (θ_c; `theta < thetaLow`
+   * is allowed, `switchPenalty` is fixed 0: there is no smoothing). Present only when 'candidate' (absent = the name
+   * output, T5 / T7's form), so every hash without it is unchanged.
+   */
+  output?: 'candidate';
+}
+
 export interface Chords2Config {
   name: string;
   /** Vocabulary stage (§2.2): V0 = v1a's 120 states, V1 156, V2 204, V3 240. */
@@ -61,6 +85,19 @@ export interface Chords2Config {
    * absent = v1a's seventh_weight / seventh_margin.
    */
   newSeventh?: NewSeventh;
+  /**
+   * Spike 8 T6, D1 (plan §2.2): score the chord templates on F1's octave-aware output folded to 12 pitch classes
+   * (octaveChroma.ts foldF1) instead of v1a's chroma. Present only when true, so configs without it keep their hashes;
+   * absent = off (v1a's chroma). The bass (`/X`) is not touched (appBassConfig()).
+   */
+  octaveChroma?: true;
+  /** Spike 8 T5, D2 (plan §2.2, d2.ts; D2Values). Present only when on (stage V0 only), so configs without it keep their hashes. */
+  d2?: D2Values;
+  /**
+   * Spike 8 T5: F1's values (front/config.ts) when D1 or D2 reads F1; present exactly then (set by resolveChords2Config),
+   * so a row's hash also says which F1 ran. Absent otherwise (nothing reads F1).
+   */
+  f1?: F1Config;
   /** chords.theory_prior of v1a (the 2nd-pass transition prior strength). */
   theoryPrior: number;
   /** v1a's chords section (Viterbi, vocabulary gate, posterior); read only. */
@@ -77,6 +114,34 @@ export const DEFAULT_CHORDS2_CONFIG: Chords2Config = deepFreeze({
   theoryPrior: DEFAULT_THEORY_PRIOR,
   chords: DEFAULT_CHORDS_CONFIG,
 });
+
+/**
+ * Spike 8 T5: D2's values when `d2` is on and an override does not set them. PROVISIONAL, set before any tuning number
+ * (T7 tuned theta / thetaLow / switchPenalty on the tuning split only; T9 not done (decision 20)):
+ *  - thetaLow 0.3: T4's provisional value (front/config.ts until T5; T4's tests and accuracy table were measured with it).
+ *  - theta 0.5: an added tone at half the sounding triad tones' mean strength; above thetaLow, not read from any result.
+ *  - switchPenalty 0.1: one switch costs as much as 0.1 of ρ above theta on one beat (a 2-beat added tone at the end of
+ *    a run needs ρ > theta + .05; one in the middle of a run, two switches, ρ > theta + .1).
+ *  - range E1 (plan §2.3: E2 not done, decision 20).
+ */
+export const DEFAULT_D2_VALUES: D2Values = deepFreeze({ range: 'E1', theta: 0.5, thetaLow: 0.3, switchPenalty: 0.1 });
+
+/**
+ * Spike 8 T7: the E1 values the look 's8-dev-1' runs (eval/s8dev1.ts LOOK_CFGS), chosen on the TUNING split only (433
+ * files) by the grid and the selection rule fixed before any tuning number (docs/audio-spike8-t7.md §1, §2). Round 1
+ * (θ .25-.8 x θ_low .2 / .3 x penalty 0 / .1 / .3, 27 values): no value passes a decisive line (best recall .377 at
+ * precision .447; best precision .600 at recall .083, base recall .068 / precision .450) and none passes every guard;
+ * the top by the rule (fewest failed guards, then hand edits) is θ .8, θ_low .3, penalty .3 (one guard in the user band:
+ * LR triad-point names -.017). No round 2 (its condition, a top that passes every guard, is not met).
+ */
+export const T7_E1_D2_VALUES: Omit<D2Values, 'range'> = deepFreeze({ theta: 0.8, thetaLow: 0.3, switchPenalty: 0.3 });
+
+/**
+ * Spike 8 T7c (docs/audio-spike8-g1.md §3): θ_c of the candidates-only E1 (`d2.output: 'candidate'`) that look 's8-dev-2'
+ * runs. null until the single tuning round (eval/s8dev2.ts `tune`) has chosen it on the TUNING split; the look refuses
+ * while it is null. thetaLow stays T5's .3 (denominator only), F1's values stay (`cbf11a42c101`).
+ */
+export const T7C_E1_CANDIDATE_THETA: number | null = null;
 
 /**
  * NOT ADOPTED (G2, 2026-11-22). Kept as switches.
@@ -155,8 +220,12 @@ export function resolveChords2Config(overrides: unknown = {}): Chords2Config {
     }
     return out;
   };
-  // newSeventh: optional (see Chords2Config), checked here and left out of the merge
-  const { newSeventh, ...rest } = overrides as Json;
+  // newSeventh / octaveChroma / d2 / f1: optional (see Chords2Config), checked here and left out of the merge
+  const { newSeventh, octaveChroma, d2, f1, ...rest } = overrides as Json;
+  if (octaveChroma !== undefined && typeof octaveChroma !== 'boolean') throw new Error(`chords2 config octaveChroma: expected boolean, got ${JSON.stringify(octaveChroma)}`);
+  // d2: true / an object of D2Values (merged against DEFAULT_D2_VALUES) = on; false / absent = off
+  if (d2 !== undefined && typeof d2 !== 'boolean' && !isObj(d2)) throw new Error(`chords2 config d2: expected boolean or object, got ${JSON.stringify(d2)}`);
+  if (f1 !== undefined && !isObj(f1)) throw new Error(`chords2 config f1: expected an object, got ${JSON.stringify(f1)}`);
   if (newSeventh !== undefined) {
     if (!isObj(newSeventh) || Object.keys(newSeventh).sort().join() !== 'margin,weight' || !Number.isFinite(newSeventh.weight) || !Number.isFinite(newSeventh.margin))
       throw new Error(`chords2 config newSeventh: expected { weight, margin } numbers, got ${JSON.stringify(newSeventh)}`);
@@ -174,6 +243,21 @@ export function resolveChords2Config(overrides: unknown = {}): Chords2Config {
   if (!['off', 'M1', 'M2', 'M3'].includes(cfg.bass.method)) throw new Error(`chords2 config bass.method: ${String(cfg.bass.method)}`);
   if (!['off', 'context', 'bassRoot'].includes(cfg.pairRule)) throw new Error(`chords2 config pairRule: ${String(cfg.pairRule)}`);
   if (newSeventh !== undefined) cfg.newSeventh = { weight: Number((newSeventh as Json).weight), margin: Number((newSeventh as Json).margin) };
+  if (octaveChroma === true) cfg.octaveChroma = true;
+  if (d2 === true || isObj(d2)) {
+    const { output, ...d2v } = d2 === true ? ({} as Json) : d2;
+    if (output !== undefined && output !== 'name' && output !== 'candidate') throw new Error(`chords2 config d2.output: ${JSON.stringify(output)}`);
+    const cand = output === 'candidate';
+    if (cand && d2v.switchPenalty !== undefined && d2v.switchPenalty !== 0) throw new Error('chords2 config d2: switchPenalty is fixed 0 when output is candidate');
+    const v = merge(DEFAULT_D2_VALUES as unknown as Json, cand ? { ...d2v, switchPenalty: 0 } : d2v, 'd2.') as unknown as D2Values;
+    if (cand) v.output = 'candidate';
+    if (!['E1', 'E2'].includes(v.range)) throw new Error(`chords2 config d2.range: ${String(v.range)}`);
+    if (cand ? !(v.theta >= 0 && v.thetaLow >= 0) : !(v.thetaLow >= 0 && v.theta >= v.thetaLow && v.switchPenalty >= 0)) throw new Error(`chords2 config d2: need 0 <= thetaLow <= theta and switchPenalty >= 0 (candidate: theta, thetaLow >= 0), got ${JSON.stringify(v)}`);
+    if (cfg.stage !== 'V0') throw new Error('chords2 config d2: D2 reads the V0 Viterbi (plan §2.2), stage must be V0');
+    cfg.d2 = v;
+  }
+  if (cfg.octaveChroma || cfg.d2) cfg.f1 = resolveF1Config((f1 ?? {}) as Partial<F1Config>);
+  else if (f1 !== undefined) throw new Error('chords2 config f1: F1 values need octaveChroma or d2 on');
   return deepFreeze(cfg);
 }
 

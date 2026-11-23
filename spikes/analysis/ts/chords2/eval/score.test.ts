@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { editCounts as editCounts6, normalizeTruthSlash, scoreBass, type ScoreBeat, type ScoreChord } from '../../bass/score';
-import { bassOnlyAlternative, editCounts, editDiff, scoreChords, wilson, type EvalChord } from './score';
+import { addConfusion, addFile, newAgg, newConfusion, summarize } from './baselineAgg';
+import { seventhAsTriad } from './gate';
+import { AS_TRIAD, bassOnlyAlternative, editCounts, editDiff, scoreChords, segmentTallies, wilson, type EvalChord, type Measure } from './score';
 
 // 120 BPM, 8 beats; every beat has two points (0.125 / 0.375 into the beat) of weight 0.5: 16 points = 8.0 in all.
 const beats: ScoreBeat[] = Array.from({ length: 8 }, (_, i) => ({ t: i * 0.5 }));
@@ -205,5 +207,44 @@ describe('parity with ts/bass/score.ts', () => {
       const { nameFixableByCandidate: _n, ...rest } = e;
       expect(rest).toEqual(e6);
     }
+  });
+});
+
+describe('spike 8 §5: added-tone columns (T5)', () => {
+  // truth C | G7 | Am7 | C/E, 2 beats each; result C7 then C | G (candidate G7) | Am7 | C7/E
+  const truth = [ch(0, 1, 'C', 'maj'), ch(1, 2, 'G', '7'), ch(2, 3, 'A', 'min7'), ch(3, 4, 'C', 'maj', 'E')];
+  const result = [ch(0, 0.5, 'C', '7'), ch(0.5, 1, 'C', 'maj'), ch(1, 2, 'G', 'maj', null, { candidates: [{ root: 'G', quality: '7' }, { root: 'E', quality: 'min' }] }), ch(2, 3, 'A', 'min7'), ch(3, 4, 'C', '7', 'E')];
+  it('hand calculation: triad names, over-adding, 7th read as triad, added-tone candidates', () => {
+    const a = scoreChords(truth, result, beats, 'full').added;
+    expect(a.triadName).toEqual({ hit: 1, n: 4, rate: 0.25 }); // C (4 points): 2 hit; C/E read C7/E: 0
+    expect(a.overAdd).toEqual({ hit: 1, n: 2, rate: 0.5 }); // C only (C/E has /X); its first beat says C7
+    expect(a.asTriad).toEqual({ '7': 2, min7: 0, '6': 0, m6: 0, mM7: 0 });
+    expect(a.addedCandidate).toEqual({ hit: 2, n: 8, rate: 0.25 }); // G with G7 shown; Em (another root) does not count
+  });
+  it('per-segment tallies sum to the same points', () => {
+    const sums = (m: Measure) => segmentTallies(truth, result, beats, 'full', m).reduce((x, u) => ({ hit: x.hit + u.hit, n: x.n + u.n }), { hit: 0, n: 0 });
+    const a = scoreChords(truth, result, beats, 'full').added;
+    for (const m of ['triadName', 'overAdd', 'addedCandidate'] as const) expect(sums(m)).toEqual({ hit: a[m].hit, n: a[m].n });
+    expect(segmentTallies(truth, result, beats, 'full', 'overAdd')).toEqual([{ hit: 1, n: 2 }]);
+    expect(segmentTallies(truth, result, beats, 'full', 'asTriadE1')).toEqual([{ hit: 2, n: 2 }, { hit: 0, n: 2 }]);
+    expect(segmentTallies(truth, result, beats, 'full', 'addedCandidate')).toEqual([{ hit: 0, n: 2 }, { hit: 2, n: 2 }, { hit: 0, n: 2 }, { hit: 0, n: 2 }]);
+  });
+  it('asTriad = the spike 7 confusion counts (gate.ts seventhAsTriad reads it), E2 qualities too', () => {
+    const t2 = [ch(0, 1, 'C', '6'), ch(1, 2, 'A', 'm6'), ch(2, 3, 'A', 'mM7'), ch(3, 4, 'G', '7')];
+    const r2 = [ch(0, 1, 'C', 'maj'), ch(1, 2, 'A', 'min'), ch(2, 3, 'A', 'min'), ch(3, 4, 'G', 'maj')];
+    const c = newConfusion();
+    addConfusion(c, t2, r2, beats, 'full');
+    const a = scoreChords(t2, r2, beats, 'full').added.asTriad;
+    for (const [tq, rq] of Object.entries(AS_TRIAD.E2)) expect(a[tq as keyof typeof a]).toBe(c.quality[`${tq}|${rq}`] ?? 0);
+    expect(a).toEqual({ '6': 2, m6: 2, mM7: 2, '7': 2, min7: 0 });
+    expect(seventhAsTriad(t2, r2, beats)).toEqual({ d7AsMaj: 2, m7AsMin: 0 });
+    expect(segmentTallies(t2, r2, beats, 'full', 'asTriadE1')).toEqual([{ hit: 2, n: 2 }]);
+    expect(segmentTallies(t2, r2, beats, 'full', 'asTriadE2').map((u) => u.hit)).toEqual([2, 2, 2, 2]);
+  });
+  it('aggregates over files (baselineAgg)', () => {
+    const agg = newAgg();
+    addFile(agg, scoreChords(truth, result, beats, 'full'), editCounts(truth, result, beats, 'full'));
+    addFile(agg, scoreChords(truth, result, beats, 'full'), editCounts(truth, result, beats, 'full'));
+    expect(summarize(agg).added).toEqual({ triadName: 0.25, overAdd: 0.5, addedCandidatePer100: 25, asTriad: { '7': 4, min7: 0, '6': 0, m6: 0, mM7: 0 } });
   });
 });

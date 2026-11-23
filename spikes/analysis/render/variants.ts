@@ -19,6 +19,9 @@ export const ETUDE3_SEED = 3;
 export const LR_TEMPO = 124;
 export const VOCAB_SHARE = 0.2;
 
+/** Spike 8 (T3): the etude seeds of the dev L / LR sets (tuning plays seed 1; the held-out ones 2 and 3). */
+export const DEV_ETUDE_SEEDS = [4, 5] as const;
+
 /** Slow tempo wander: +-6 % sine over 24 bars, whole BPM, first bar = `tempo`. */
 export function driftCurve(tempo: number, bars = SONG_BARS): number[] {
   return Array.from({ length: bars }, (_, i) => Math.round(tempo * (1 + 0.06 * Math.sin((2 * Math.PI * i) / 24))));
@@ -37,7 +40,7 @@ interface Extra {
    * 'etude3' (spike 2: AABA with a 1-beat pickup, seed 3, held out), 'etudevoc' (spike 2: seed 1 with
    * dim / aug / sus4 / m7b5 / dim7 mixed in).
    */
-  etude?: 'etude2' | 'etude7' | 'etude3' | 'etudevoc';
+  etude?: 'etude2' | 'etude7' | 'etude3' | 'etudevoc' | 'etude4' | 'etude5';
   lrGrade?: 0 | 1 | 2;
   modulation?: Modulation;
   recStyle?: 'hard';
@@ -80,6 +83,8 @@ function make(
     v.etudeSeed = ETUDE3_SEED;
     v.etudeForm = 'aaba';
     v.pickupBeats = 1;
+  } else if (x.etude === 'etude4' || x.etude === 'etude5') {
+    v.etudeSeed = DEV_ETUDE_SEEDS[x.etude === 'etude4' ? 0 : 1];
   } else if (x.etude === 'etudevoc') {
     v.vocabShare = VOCAB_SHARE;
   }
@@ -158,5 +163,30 @@ export function allVariants(): Variant[] {
   }
   // Held-out: etude2 (seed 2), last section +2, L0.
   out.push(et({ level: 0, etude: 'etude2', heldOut: true, modulation: modEt(2, [3], 'LastUp2') }));
+  return out;
+}
+
+/**
+ * Spike 8 (T3): the L / LR sets again with the dev etude seeds (the same recipes as the tuning etude's L0-L3 and LR, in
+ * the same order of levels), so the regression watch on dev is a different file set from tuning. Not part of
+ * allVariants(): they are dev material (ts/chords2/eval/guard.ts synthSplit) and render to out/levels-dev with `--dev`.
+ */
+export function allDevVariants(): Variant[] {
+  const out: Variant[] = [];
+  for (const etude of ['etude4', 'etude5'] as const) {
+    const et = (x: Extra) => make('etude', 'full', 90, 'none', false, { etude, ...x });
+    out.push(et({ level: 0 }));
+    out.push(et({ level: 1, soundFont: 'musescore' }));
+    out.push(et({ level: 1, comp: 'arp8' }));
+    out.push(et({ level: 1, comp: 'whole' }));
+    out.push(et({ level: 1, pianoGainDb: -9 }));
+    out.push(et({ level: 2, drift: true }));
+    out.push(make('etude', 'piano', 90, 'none', false, { etude, level: 3, comp: 'whole', drift: true }));
+    const lr = (x: Extra) => make('etude', 'piano', LR_TEMPO, 'none', false, { etude, level: 'LR', comp: 'rec', ...x });
+    for (const recStyle of [undefined, 'hard'] as const) {
+      out.push(lr({ lrGrade: 0, ...(recStyle ? { recStyle } : {}) }));
+      out.push(lr({ lrGrade: 1, soundFont: 'musescore', ...(recStyle ? { recStyle } : {}) }));
+    }
+  }
   return out;
 }

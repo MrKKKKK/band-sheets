@@ -34,7 +34,7 @@ import { bassG2, bassT8, ci, f1, f3, items as tuningItems, slim, table, v2Config
 import { frontEnd, toEvalChords } from './frontEnd';
 import { fixedBroken, handEditsPer100 } from './gate';
 import { handEditsLines, hasGroup, summaryOf as S, wrongSlashLines, type Line } from './g1Common';
-import { beginLook, commitArg, committedBlock, git, readRegistry, ROOT } from './guard';
+import { beginLook, commitArg, readRegistry, requireCommittedDryRun, ROOT } from './guard';
 import { prepareInput } from './input';
 import { devTakes, expectedTruthHeldOut, groupOf } from './r2';
 import { editCounts, scoreChords, type EvalChord } from './score';
@@ -373,8 +373,7 @@ function lookReport(title: string, items: Item[], dir: string): string {
 }
 
 function selftest(argv: string[]): void {
-  const cb = committedBlock({ commit: commitArg(argv) ?? git(['rev-parse', 'HEAD']) ?? undefined, head: git(['rev-parse', 'HEAD']), porcelain: git(['status', '--porcelain']) });
-  if (cb) console.log(`selftest note: ${cb} (a dry run on tuning files; the look itself refuses this)`);
+  requireCommittedDryRun(argv);
   const pick = tuneItems().filter((i) => ['B', 'B1', 'B2', 'LR', 'L0', 'V1'].includes(i.level));
   const items = ['B', 'B1', 'B2', 'LR', 'L0', 'V1'].map((l) => pick.find((i) => i.level === l)!);
   const dir = join(OUT, 'selftest');
@@ -394,7 +393,7 @@ async function look(argv: string[]): Promise<void> {
   const syn = devSynItems();
   const hashes = [chords2ConfigHash(), ...T8_ROWS.filter((s) => s.c2).map((s) => chords2ConfigHash(s.c2)), bassConfigHash(bassT8()), bassConfigHash(bassG2()), bassConfigHash(marksConfig())];
   const { finish, line } = beginLook(
-    { look: LOOK, task: TASK, reason: 'T8: look point 2 before G2 - method B (M3, M1 with the tuning-split values) against the baseline rows on the dev synthetic (+ L watch) and the dev recordings; no tuning after this', configHashes: hashes, takes, synthetic: { split: 'dev', files: syn.length } },
+    { look: LOOK, task: TASK, reason: 'T8: look point 2 before G2 - method B (M3, M1 with the tuning-split values) against the baseline rows on the dev synthetic (+ L watch) and the dev recordings; no tuning after this', configHashes: hashes, takes, synthetic: syn.map((s) => s.name) },
     commitArg(argv),
   );
   console.log(`look-start logged: ${line.look} ${line.task} commit ${line.commit?.slice(0, 7)} takes ${takes.length} synthetic ${syn.length}`);

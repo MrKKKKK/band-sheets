@@ -111,3 +111,39 @@ export const FAMILY_OF: Readonly<Record<string, readonly string[]>> = {
 export function familyOf(quality: string): readonly string[] {
   return FAMILY_OF[quality] ?? [quality];
 }
+
+/** The three triads an added tone is read over (spike 8 plan §2.2), root-position intervals. */
+export type Triad = 'maj' | 'min' | 'dim';
+export const TRIADS: Readonly<Record<Triad, readonly number[]>> = { maj: [0, 4, 7], min: [0, 3, 7], dim: [0, 3, 6] };
+
+/** The added intervals of a range per triad (plan §2.3) and the quality each one names (D2's table; the kind groups of eval/count.ts derive from it). */
+export const ADDS: Readonly<Record<'E1' | 'E2', Readonly<Record<Triad, Readonly<Record<number, string>>>>>> = {
+  E1: { maj: { 10: '7', 11: 'maj7' }, min: { 10: 'min7' }, dim: { 10: 'm7b5' } },
+  E2: { maj: { 9: '6', 10: '7', 11: 'maj7' }, min: { 9: 'm6', 10: 'min7', 11: 'mM7' }, dim: { 10: 'm7b5' } },
+};
+/** Every quality a range names (ADDS values, de-duplicated, in table order). */
+export const addedQualities = (range: 'E1' | 'E2'): string[] => [...new Set(Object.values(ADDS[range]).flatMap((m) => Object.values(m)))];
+
+const TRIAD_OF: Readonly<Record<string, Triad>> = {
+  maj: 'maj',
+  '7': 'maj',
+  maj7: 'maj',
+  '6': 'maj',
+  add9: 'maj',
+  '9': 'maj',
+  maj9: 'maj',
+  min: 'min',
+  min7: 'min',
+  mM7: 'min',
+  m6: 'min',
+  madd9: 'min',
+  m9: 'min',
+  dim: 'dim',
+  m7b5: 'dim',
+};
+
+/**
+ * The triad a quality is built on (spike 8 plan §2.2 step 1: `7` / `maj7` -> maj, `min7` -> min, `m7b5` -> dim), or null
+ * for the qualities without one (aug, sus4, sus2, 7sus4, dim7: D2 passes them through).
+ */
+export const triadOf = (quality: string): Triad | null => TRIAD_OF[quality] ?? null;

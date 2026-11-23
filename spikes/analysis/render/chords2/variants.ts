@@ -25,7 +25,7 @@ import type { Room } from '../bass/variants';
 import type { TimbreId } from '../bass/timbres';
 import { PHRASES, type ChordSet } from './material';
 import type { PianoId } from './pianos';
-import type { LhStyle } from './voicing';
+import { VOICINGS7, type LhStyle, type Voicing7 } from './voicing';
 
 export type C2Split = 'tuning' | 'dev' | 'heldOut';
 export const VARIATIONS = ['clean', 'human', 'piano', 'lh15', 'peaky'] as const;
@@ -53,8 +53,12 @@ export interface C2Variant {
   piano: PianoId;
   /** Bass instrument timbre, null = piano only. */
   bass: TimbreId | null;
+  /** 7th voicing variation (spike 8 T3; tuning and dev only, set B / V1 / V2, variation human). Absent = as in spike 7. */
+  voicing7?: Voicing7;
 }
 
+/** Spike 8 T3: the sets that get the 7th voicing variations (their charts hold the 7th chords; V3's are 9ths). */
+export const VOICING7_SETS = ['B', 'V1', 'V2'] as const;
 const setTag = (set: ChordSet, phrase?: string) => (set === 'pair' ? `pair-${phrase!.toLowerCase()}` : set.toLowerCase());
 
 export function allC2Variants(): C2Variant[] {
@@ -80,6 +84,23 @@ export function allC2Variants(): C2Variant[] {
             bass: withBass ? s.bass(seed) : null,
           });
         }
+  // spike 8 T3: 7th voicing variations, appended after every spike 7 variant (tuning and dev only; the hold-out has none)
+  for (const set of VOICING7_SETS)
+    for (const voicing7 of VOICINGS7)
+      for (const s of C2_SETS)
+        if (s.split !== 'heldOut')
+          for (const seed of s.seeds)
+            out.push({
+              name: `c2-${s.letter}-${setTag(set)}-human-s${seed}-v7${voicing7}`,
+              set,
+              variation: 'human',
+              seed,
+              split: s.split,
+              heldOut: false,
+              piano: s.piano,
+              bass: s.bass(seed),
+              voicing7,
+            });
   return out;
 }
 
@@ -92,7 +113,7 @@ export function splitOfName(name: string): C2Split | null {
 /** Named random stream. `perVariation` adds the variation to the key. */
 export function streamOf(v: C2Variant, tag: string, o: { perVariation?: boolean } = {}): () => number {
   const salt = v.heldOut ? 'chords2-heldout' : 'chords2';
-  return prng(hashSeed(`${salt}:${setTag(v.set, v.phrase)}:s${v.seed}${o.perVariation ? `:${v.variation}` : ''}:${tag}`));
+  return prng(hashSeed(`${salt}:${setTag(v.set, v.phrase)}:s${v.seed}${o.perVariation ? `:${v.variation}${v.voicing7 ? `:${v.voicing7}` : ''}` : ''}:${tag}`));
 }
 
 const uni = (rnd: () => number, lo: number, hi: number) => lo + (hi - lo) * rnd();
@@ -115,6 +136,8 @@ export interface C2SynthParams {
   peaky: boolean;
   room: Room;
   noiseSnrDb: number | null;
+  /** Spike 8 T3: the 7th voicing variation (absent for every spike 7 file). */
+  voicing7?: Voicing7;
 }
 
 export function synthParams(v: C2Variant): C2SynthParams {
@@ -125,6 +148,7 @@ export function synthParams(v: C2Variant): C2SynthParams {
     throw new Error(`${v.name}: piano P2 and bass C are held-out only, and held-out uses only them`);
   }
   if (v.bass !== null && v.bass !== set.bass(v.seed)) throw new Error(`${v.name}: bass timbre not of its split`);
+  if (v.voicing7 !== undefined && (v.heldOut || v.variation !== 'human')) throw new Error(`${v.name}: 7th voicing variations are tuning / dev material with the human variation only`);
   const score = streamOf(v, 'score');
   const bpm = Math.round(uni(score, 72, 126));
   const leadSec = Math.round(uni(score, 50, 120)) / 100;
@@ -156,5 +180,6 @@ export function synthParams(v: C2Variant): C2SynthParams {
     peaky: v.variation === 'peaky',
     room,
     noiseSnrDb: human ? 35 : null,
+    ...(v.voicing7 ? { voicing7: v.voicing7 } : {}),
   };
 }
