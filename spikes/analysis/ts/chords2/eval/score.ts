@@ -76,6 +76,19 @@ export function resultQuality(c: EvalChord, vocab: Vocab): string {
 export interface ScoreOptions {
   /** the ベースにだけある音 rule (default true) */
   bassOnly?: boolean;
+  /** editCounts only: called once per truth run (consecutive scored beats with the same truth name), in order; changes no count */
+  onRun?: (r: EditRun) => void;
+}
+
+/** One truth run of editCounts (pitch classes; qualities in the call's vocabulary): its dominant result piece and name edit. */
+export interface EditRun {
+  truth: { root: number; q: string };
+  /** the longest-overlap result piece (null = a stretch without a result chord) */
+  dom: { root: number; q: string; bass: number | null } | null;
+  beats: number;
+  nameEdit: boolean;
+  /** the name edit is fixed by a shown candidate (counted in nameFixableByCandidate) */
+  fixable: boolean;
 }
 
 const V3 = stageQualities('V3');
@@ -461,11 +474,12 @@ export function editCounts(truth: readonly EvalChord[], result: readonly EvalCho
     c.merge += counts.size - 1;
     const dom = [...counts.values()].reduce((a, b) => (b.n > a.n ? b : a));
     const t = tl[i];
-    if (!dom.l || dom.l.root !== t.root || (dom.l.q !== t.q && dom.l.q !== t.alt)) {
-      c.name++;
-      // either truth name fixes it (ベースにだけある音: the other name is a hit too)
-      if (dom.l && (dom.l.cands.includes(`${t.root}|${t.q}`) || (t.alt !== null && dom.l.cands.includes(`${t.root}|${t.alt}`)))) c.nameFixableByCandidate++;
-    }
+    const nameEdit = !dom.l || dom.l.root !== t.root || (dom.l.q !== t.q && dom.l.q !== t.alt);
+    // either truth name fixes it (ベースにだけある音: the other name is a hit too)
+    const fixable = nameEdit && !!dom.l && (dom.l.cands.includes(`${t.root}|${t.q}`) || (t.alt !== null && dom.l.cands.includes(`${t.root}|${t.alt}`)));
+    if (nameEdit) c.name++;
+    if (fixable) c.nameFixableByCandidate++;
+    opts.onRun?.({ truth: { root: t.root, q: t.q }, dom: dom.l ? { root: dom.l.root, q: dom.l.q, bass: dom.l.bass } : null, beats: j - i + 1, nameEdit, fixable });
     const rb = dom.l ? dom.l.bass : null;
     if (t.bass === null && rb !== null) c.slashRemove++;
     else if (t.bass !== null && rb === null) c.slashAdd++;
