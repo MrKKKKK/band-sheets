@@ -5,16 +5,16 @@
 
 ## 1. 作ったもの
 
-| ファイル                         | 中身                                                                                                                                                                                                                                                                                         |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ts/chords2/d2.ts`（新）         | D2 本体。`evalAdded`（§2.2 の 4）、`smooth`（5 の 2 状態の HMM）、`applyD2`（列ごとに 1〜5）、`d2Candidates`（区間の候補）                                                                                                                                                                   |
-| `ts/chords2/analyze.ts`          | `cfg.d2` のとき、V0 の列に `applyD2` をかけてから `mergeChords` でまとめ直し、区間の `chordCandidates` に D2 の候補を入れる。入力に `f1Beats` を足した                                                                                                                                       |
-| `ts/chords2/config.ts`           | `d2?: D2Values`（`range`・`theta`・`thetaLow`・`switchPenalty`）と `f1?: F1Config`（D1 か D2 が F1 を読むときだけ）。`DEFAULT_D2_VALUES`                                                                                                                                                     |
-| `ts/chords2/pipeline.ts`         | `chords2Inputs`: F1 を使う設定なら 7 オクターブの CQT を 1 回だけ計算し、F1・ベースの段（`bassCqtFrom`、決定 10）・D1 の `f1Chroma` に配る。F1 の最後の拍の終わりは v1a と同じ `lastBeatEnd`。F1 を使わない設定は今までどおりベースの段の CQT だけ（入力はそのまま）                                                                           |
-| `ts/chords2/vocab.ts`            | `triadOf`・`TRIADS`（種類 → 3 和音。D2・採点・前段の当たりの表が同じ表を読む）と、D2 の度数の表 `ADDS`（採点側の種類の和 `count.ts` もここから作る）                                                                                                                                                                                                               |
-| `ts/chords2/eval/score.ts`       | §5 の列（`added`）と、それを区間ごとに出す `segmentTallies` の測り方（`triadName`・`overAdd`・`addedCandidate`・`asTriadE1`・`asTriadE2`）。点の範囲と当たりの規則は `POINT_MEASURES` の 1 か所                                                                                              |
-| `ts/chords2/eval/baselineAgg.ts` | `Agg`・`Summary` に `added`（ファイルをまたいだ合計と率）                                                                                                                                                                                                                                    |
-| `ts/chords2/eval/gate.ts`        | `seventhAsTriad` は `score.ts` の `added.asTriad` を読むだけにした（数は前と同じ。混同表と同じことを試験で確かめた）                                                                                                                                                                         |
+| ファイル                         | 中身                                                                                                                                                                                                                                                                 |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ts/chords2/d2.ts`（新）         | D2 本体。`evalAdded`（§2.2 の 4）、`smooth`（5 の 2 状態の HMM）、`applyD2`（列ごとに 1〜5）、`d2Candidates`（区間の候補）                                                                                                                                           |
+| `ts/chords2/analyze.ts`          | `cfg.d2` のとき、V0 の列に `applyD2` をかけてから `mergeChords` でまとめ直し、区間の `chordCandidates` に D2 の候補を入れる。入力に `f1Beats` を足した                                                                                                               |
+| `ts/chords2/config.ts`           | `d2?: D2Values`（`range`・`theta`・`thetaLow`・`switchPenalty`）と `f1?: F1Config`（D1 か D2 が F1 を読むときだけ）。`DEFAULT_D2_VALUES`                                                                                                                             |
+| `ts/chords2/pipeline.ts`         | `chords2Inputs`: F1 を使う設定なら 7 オクターブの CQT を 1 回だけ計算し、F1・ベースの段（`bassCqtFrom`、決定 10）・D1 の `f1Chroma` に配る。F1 の最後の拍の終わりは v1a と同じ `lastBeatEnd`。F1 を使わない設定は今までどおりベースの段の CQT だけ（入力はそのまま） |
+| `ts/chords2/vocab.ts`            | `triadOf`・`TRIADS`（種類 → 3 和音。D2・採点・前段の当たりの表が同じ表を読む）と、D2 の度数の表 `ADDS`（採点側の種類の和 `count.ts` もここから作る）                                                                                                                 |
+| `ts/chords2/eval/score.ts`       | §5 の列（`added`）と、それを区間ごとに出す `segmentTallies` の測り方（`triadName`・`overAdd`・`addedCandidate`・`asTriadE1`・`asTriadE2`）。点の範囲と当たりの規則は `POINT_MEASURES` の 1 か所                                                                      |
+| `ts/chords2/eval/baselineAgg.ts` | `Agg`・`Summary` に `added`（ファイルをまたいだ合計と率）                                                                                                                                                                                                            |
+| `ts/chords2/eval/gate.ts`        | `seventhAsTriad` は `score.ts` の `added.asTriad` を読むだけにした（数は前と同じ。混同表と同じことを試験で確かめた）                                                                                                                                                 |
 
 T4 の `front/` は θ_low の置き場の移動と `addedRatios` の追加だけ（§3 のハッシュ表と `audio-spike8-t4.md`）。`octaveChroma.ts`（T6）は変えていない。
 
@@ -62,19 +62,13 @@ D1（`octaveChroma`）を入れた設定のハッシュも変わった（`f1` �
 
 `baselineAgg.ts` の `summarize(...).added` がファイルをまたいだ率（`triadName`・`overAdd`・`addedCandidatePer100`）と `asTriad` の点の数を出す。
 
-## 5. T7 が知っておくこと
+## 5. θ_low の効く所
 
-- 走らせ方: `frontEnd` → `chords2Inputs(y, fe.times, fe.duration, fe.input, cfg, appBassConfig().lowCqt)` → `analyze(input, cfg)` → `toEvalChords` → `marksOnV2(low, …, appBassConfig())`。F1 を使う設定でもベースの印は自分で計算した CQT と同じになる（調整用 3 本で確かめた。T4 の `share` と同じ結論）。基準の行（`appBassConfig()`）は `chords2Inputs` に全部切の設定を渡せば今までと同じ道を通る。
-- **θ_low は 2 か所に効く**: 分母の「鳴っている」と、候補の下限。T4 の試験（`front/f1.test.ts`）は 0.3 で固定してあるので、動かしても T4 の線は動かない。`front/cli.ts eval --grid` では θ_low を振れなくなった（`addBeats` の引数で渡す）。
-- 切り替えの罰の単位は「拍あたりの ρ − θ」。`perBeat` が変わっても意味は同じ。
-- 気になる点（調整で見るところ）: HMM は「あり / なし」の 2 状態なので、「あり」が続く間に 7 と maj7 が拍ごとに入れ替わると、その分だけ区間が細かく分かれる（`merge_min_beats` 1 で短い区間を吸わない）。クリシェ（拍ごとに足す音が変わる）を残すためにこうした。ひどければ G1 で「足す音ごとの状態にして罰 1 つ」に変える案を出す。
-- 足しすぎの範囲は「正解が 3 和音で `/X` が無い点」。計画の「a〜f、合成の分数の無い区間」の、どの素材を使うかは T7 が決める（列は素材を選ばない）。
-- 「候補を出した拍」は名前だけで数えるので、v1a の行でも事後確率の上位に同じルートの 7th があれば数える。比べるのは同じ実行の基準の行と。
-- E2 の値は E1 と同じ θ・θ_low を使う。度数ごとの θ が要るなら T9 で足す（今は無い）。
+- **θ_low は 2 か所に効く**: 分母の「鳴っている」と、候補の下限。T4 の試験（`front/f1.test.ts`）は 0.3 で固定してあるので、動かしても T4 の線は動かない。
 
 ## 6. 試験
 
-- `ts/chords2/d2.test.ts`（22 件）: §2.2 の式の手計算（分母 = 鳴っている 3 和音の音の平均、ベースは分母だけ、ρ(10) = 2.5 / 3 など）と読みの規則、2 状態の HMM、列への当てはめ（V0 の 7th を決め直す・aug と和音なしはそのまま・ルートが変われば別の続き・弱い列の名前）、区間の候補（半分の規則・組のもう一方の読みが先頭）。**手作りの倍音の音を本物の F1 に通して**、`C – C7`（2 拍ずつ）が 2 区間、内声のクリシェ `Am – AmM7 – Am7 – Am6`（2 拍ずつ、E2）が 4 区間（`Am6` の候補の先頭が `F#m7b5`）。音色 2 つ。設定とハッシュ、`chords2Inputs`。
-- `eval/score.test.ts` に 4 件: 列の手計算、区間ごとの和 = 列の点、`asTriad` = スパイク 7 の混同表の数、`baselineAgg` の合計。
+- `ts/chords2/d2.test.ts`: §2.2 の式の手計算（分母 = 鳴っている 3 和音の音の平均、ベースは分母だけ、ρ(10) = 2.5 / 3 など）と読みの規則、2 状態の HMM、列への当てはめ（V0 の 7th を決め直す・aug と和音なしはそのまま・ルートが変われば別の続き・弱い列の名前）、区間の候補（半分の規則・組のもう一方の読みが先頭）。**手作りの倍音の音を本物の F1 に通して**、`C – C7`（2 拍ずつ）が 2 区間、内声のクリシェ `Am – AmM7 – Am7 – Am6`（2 拍ずつ、E2）が 4 区間（`Am6` の候補の先頭が `F#m7b5`）。音色 2 つ。設定とハッシュ、`chords2Inputs`。
+- `eval/score.test.ts`: 列の手計算、区間ごとの和 = 列の点、`asTriad` = スパイク 7 の混同表の数、`baselineAgg` の合計。
 - `front/f1.test.ts`: θ_low は 0.3 で固定（レビューで `DEFAULT_D2_VALUES` の読みをやめた）、F1 のハッシュの固定は `cbf11a42c101`。
-- `npx vitest run ts/chords2`: 24 ファイル・255 件すべて通った（固定のテスト `chords2.golden.test.ts` を含む）。`npx tsc --noEmit -p .` エラー 0。
+- `npx vitest run ts/chords2` がすべて通った（固定のテスト `chords2.golden.test.ts` を含む）。`npx tsc --noEmit -p .` エラー 0。
