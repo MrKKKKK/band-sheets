@@ -7,7 +7,7 @@
  *   npx tsx ts/chords2/eval/r2.ts --selftest                     dry run on 4 TUNING synthetic files (not a look)
  *   BAND_SHEETS_COMMIT=SHA npx tsx ts/chords2/eval/r2.ts --look  the one logged look (dev-1, task R2)
  *
- * Both need committed, clean code (guard.ts committedBlock / beginLook; in a worktree pass GIT_DIR / GIT_WORK_TREE).
+ * Both need committed, clean code (guard.ts requireCommittedDryRun / beginLook; in a worktree pass GIT_DIR / GIT_WORK_TREE).
  * The takes are read from recordings/chd-ids.local.json (split 'dev') BEFORE beginLook; held-out takes are never
  * selected, and no recording or truth file is opened before the look-start line is written. Also checked here (T4 open
  * item): spike 6 R3's numbers on the normalized a-d (t9_sweep run on the v1a segments, the same scorer as spike 6).
@@ -26,7 +26,7 @@ import { chords2ConfigHash } from '../config';
 import { newQualities, stageQualities, suffix, type Stage } from '../vocab';
 import { addConfusion, addFile, newAgg, newConfusion, summarize, type Agg, type Confusion } from './baselineAgg';
 import { bassG2, bassT8, ci, f1, f3, items as tuningItems, ROW_LABEL, ROWS, runRows, STAGES, table, v2Config, type RowId } from './baseline';
-import { beginLook, commitArg, committedBlock, git, readRegistry, ROOT, type Registry } from './guard';
+import { beginLook, commitArg, readRegistry, requireCommittedDryRun, ROOT, type Registry } from './guard';
 import { handEditsPer100, newQualityOutput, seventhAsTriad } from './gate';
 import { prepareInput } from './input';
 import { bassOnlyReading, pairReadings, scorePairs, soundOnlyReading, type PairItem, type Reading } from './pairs';
@@ -246,14 +246,9 @@ export function report(title: string, files: Scored[]): void {
   t9Run('G2 default', bassG2(), v1aOnly, false, false, lvAll);
 }
 
-function gitState(argv: string[]) {
-  return { commit: commitArg(argv), head: git(['rev-parse', 'HEAD']), porcelain: git(['status', '--porcelain']) };
-}
-
 /** Dry run: the same pipeline and tables on 4 tuning synthetic files (no look, nothing dev or held out is opened). */
 function selftest(argv: string[]): void {
-  const cb = committedBlock({ ...gitState(argv), commit: commitArg(argv) ?? git(['rev-parse', 'HEAD']) ?? undefined });
-  if (cb) throw new Error(`selftest: ${cb}`);
+  requireCommittedDryRun(argv);
   const pick = tuningItems().filter((i) => i.set === 'spike6' && i.level === 'B1').slice(0, 2).concat(tuningItems().filter((i) => i.set === 'chords2' && (i.level === 'V1' || i.level === 'pair')).slice(0, 2));
   const files = pick.map((it, k) => {
     const t = json<RecTruth>(it.truth);

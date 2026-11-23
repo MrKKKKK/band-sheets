@@ -27,9 +27,10 @@ describe('reclassifyPlan', () => {
   it('lets e/f into a dev look afterwards and keeps them out of the hold-out look', () => {
     const p = ok(reclassifyPlan(spike6, null, null, C, T));
     const git = { commit: C.slice(0, 7), head: C, porcelain: '', changed: null };
-    const req = { look: 'dev-1' as const, task: 'R2', reason: 'r', configHashes: ['h'], takes: ['bas-05-e', 'bas-06-f'] };
+    const req = { look: 's8-dev-1' as const, task: 'R2', reason: 'r', configHashes: ['h'], takes: ['bas-05-e', 'bas-06-f'] };
     expect(startGuard(null, p.registry, req, git, T)).toHaveProperty('line');
-    expect(startGuard(null, p.registry, { ...req, look: 'heldout' }, git, T)).toMatchObject({ refuse: expect.stringMatching(/registered as dev/) });
+    const counted = JSON.stringify({ kind: 'count', input: 'chords2', task: 'T2' }) + '\n';
+    expect(startGuard(counted, p.registry, { ...req, look: 's8-heldout' }, git, T)).toMatchObject({ refuse: expect.stringMatching(/registered as dev/) });
   });
   it('refuses a second time, an unexpected spike 6 registry, or a missing one', () => {
     const p = ok(reclassifyPlan(spike6, null, null, C, T));

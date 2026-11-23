@@ -12,7 +12,9 @@
  *    (a truth X/X is not a slash chord); a result /X counts as /X even if it equals the root (as in scoreBass).
  *  - 名前 (コード名の当たり): root, quality and /X all match (both without /X, or the same bass pitch class).
  *  - 区間単位: each truth segment with a scored point is one unit; it is a hit when at least half of its scored points
- *    (by weight) are hits. The Wilson interval (z = 1.96) is on these units (plan §3.3 "区間単位の数で Wilson").
+ *    (by weight) are hits. The Wilson interval (z = 1.96) is on these units (plan §3.3 "区間単位の数で Wilson"): it is
+ *    the interval of the UNIT rate only. A line on a POINT rate (spike 8 plan §3, carry-over 5) takes its interval
+ *    from segmentTallies + bootstrap.ts segmentBootstrap (segments resampled, the point rate recomputed).
  *  - ベースにだけある音 (user decision 2026-11-15, plan §5): when the note that makes a truth chord's quality is only in
  *    the bass (`AmM7/G#` = Am over G#, `Am7/G`, `Am6/F#`; and the other way round `C/D` = `Cadd9/D`, `Am/G` = `Am7/G`),
  *    both names are a hit (name, edit counts), and those points are left out of `byQuality` and counted in `bassOnly`
@@ -229,10 +231,11 @@ export interface ChordScores {
   bassOnly: { points: Rate; units: UnitRate };
 }
 
+const nameOk = (p: Point): boolean => p.rc !== null && p.rRoot === p.tRoot && (p.rq === p.tq || (p.tAlt !== null && p.rq === p.tAlt)) && p.rBass === p.tBass;
+const rootOk = (p: Point): boolean => p.rRoot === p.tRoot;
+
 export function scoreChords(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab, opts: ScoreOptions = {}): ChordScores {
   const { pts, droppedPoints } = scoredPoints(truth, result, beats, vocab, opts.bassOnly ?? true);
-  const nameOk = (p: Point): boolean => p.rc !== null && p.rRoot === p.tRoot && (p.rq === p.tq || (p.tAlt !== null && p.rq === p.tAlt)) && p.rBass === p.tBass;
-  const rootOk = (p: Point): boolean => p.rRoot === p.tRoot;
   const slashRoot = tally(pts, rootOk, (p) => p.tBass !== null);
   let truthSlash = 0, resultSlash = 0, slashHit = 0, noSlash = 0, falseSlash = 0, noSlashChord = 0, falseSlashChord = 0, noChord = 0;
   for (const p of pts) {
@@ -278,6 +281,31 @@ export function scoreChords(truth: readonly EvalChord[], result: readonly EvalCh
     byQuality,
     bassOnly: tally(pts, nameOk, (p) => p.tAlt !== null),
   };
+}
+
+/** One truth segment of a point-rate line: its hit points and scored points (weights, 0.5 per point). */
+export interface SegmentTally {
+  hit: number;
+  n: number;
+}
+
+/**
+ * The points of `scoreChords`' name / slashRoot per truth segment (segments with a scored point only, in truth order),
+ * so a point-rate line gets its interval from the same unit: segmentBootstrap(..., pointRate) in bootstrap.ts. Their
+ * sums are the line's points (hit / n).
+ */
+export function segmentTallies(truth: readonly EvalChord[], result: readonly EvalChord[], beats: readonly ScoreBeat[], vocab: Vocab, measure: 'name' | 'slashRoot', opts: ScoreOptions = {}): SegmentTally[] {
+  const { pts } = scoredPoints(truth, result, beats, vocab, opts.bassOnly ?? true);
+  const ok = measure === 'name' ? nameOk : rootOk;
+  const seg = new Map<number, SegmentTally>();
+  for (const p of pts) {
+    if (measure === 'slashRoot' && p.tBass === null) continue;
+    const s = seg.get(p.seg) ?? { hit: 0, n: 0 };
+    s.n += W;
+    if (ok(p)) s.hit += W;
+    seg.set(p.seg, s);
+  }
+  return [...seg.entries()].sort((a, b) => a[0] - b[0]).map(([, s]) => s);
 }
 
 /* ------------------------------------------------------------ edit counts (直す手数) */
