@@ -5,7 +5,11 @@ import type { ColumnChord } from '../dsp/chords';
 import { lowCqt } from '../bass/lowCqt';
 import { analyze, chordName, type Chords2Input } from './analyze';
 import { appBassConfig, chords2ConfigHash, DEFAULT_CHORDS2_CONFIG, DEFAULT_D2_VALUES, resolveChords2Config, type D2Values } from './config';
-import { applyD2, d2Candidates, evalAdded, smooth } from './d2';
+import { addedCandidates, applyD2, candidateReading, d2Candidates, evalAdded, smooth } from './d2';
+import { toEvalChords } from './eval/frontEnd';
+import { bassChords } from '../bass/analyze';
+import { bassConfigHash } from '../bass/config';
+import { marksOnV2 } from './pipeline';
 import { DEFAULT_F1_CONFIG } from './front/config';
 import { f1Beats, octaveCqt, type F1Beat, type F1Note } from './front/f1';
 import { chords2Inputs } from './pipeline';
@@ -238,3 +242,95 @@ describe('chords2Inputs: one 7-octave CQT for F1 and the bass stage (decision 10
 
 /** chords2ConfigHash of resolveChords2Config({ d2: true }) (DEFAULT_D2_VALUES + DEFAULT_F1_CONFIG): moves with any D2 / F1 value. */
 const D2_ON_PIN = '944e04c507d1';
+
+/* ------------------------------------------------------------ candidates only (spike 8 G1 §1) */
+
+describe('candidates only: config (d2.output "candidate")', () => {
+  const cand = (o: Record<string, unknown> = {}) => resolveChords2Config({ d2: { range: 'E1', theta: 0.5, thetaLow: 0.3, output: 'candidate', ...o } });
+  it('theta < thetaLow passes, the penalty is fixed 0, the output key is present only for "candidate"', () => {
+    const c = cand({ theta: 0.25 });
+    expect(c.d2).toEqual({ range: 'E1', theta: 0.25, thetaLow: 0.3, switchPenalty: 0, output: 'candidate' });
+    expect(chords2ConfigHash(c)).not.toBe(chords2ConfigHash(cand()));
+    expect(chords2ConfigHash(cand({ theta: 0.5, switchPenalty: 0 }))).toBe(chords2ConfigHash(cand()));
+    expect(() => cand({ switchPenalty: 0.1 })).toThrow(/fixed 0/);
+    expect(() => cand({ output: 'x' })).toThrow(/d2.output/);
+    // 'name' = the key is absent: the hashes of T5 / T7 are unchanged; and theta < thetaLow is still refused there
+    expect(resolveChords2Config({ d2: { output: 'name' } }).d2).toEqual(DEFAULT_D2_VALUES);
+    expect(chords2ConfigHash(resolveChords2Config({ d2: { output: 'name' } }))).toBe(D2_ON_PIN);
+    expect(() => resolveChords2Config({ d2: { output: 'name', theta: 0.2 } })).toThrow(/thetaLow <= theta/);
+    expect(chords2ConfigHash()).toBe('607593f71c46');
+    expect(bassConfigHash(appBassConfig())).toBe('77cc49d1ca67');
+  });
+});
+
+describe('candidates only: candidateReading / addedCandidates on hand-made F1 beats (perBeat 1)', () => {
+  const v = V({ output: 'candidate' as const, switchPenalty: 0 });
+  const Bdim7: F1Note[] = [{ midi: 47, s: 3 }, { midi: 62, s: 3 }, { midi: 65, s: 3 }, { midi: 69, s: 3 }];
+  const seg = (root: number | null, quality: string, startBeat: number, endBeat: number) => ({ root, quality, startBeat, endBeat });
+  it('the stronger 7th of maj (a tie: 7), min7 for min, m7b5 for dim; below θ_c nothing; θ_c may be below θ_low', () => {
+    expect(candidateReading(C7, 0, 'maj', v, F1)).toBe('7');
+    expect(candidateReading(Cmaj7, 0, 'maj', v, F1)).toBe('maj7');
+    expect(candidateReading([...AM, { midi: 55, s: 3 }], 9, 'min', v, F1)).toBe('min7');
+    expect(candidateReading(Bdim7, 11, 'dim', v, F1)).toBe('m7b5');
+    expect(candidateReading(C, 0, 'maj', v, F1)).toBeNull();
+    expect(candidateReading(C7weak, 0, 'maj', v, F1)).toBeNull(); // ρ .4 < .5
+    expect(candidateReading(C7weak, 0, 'maj', V({ theta: 0.25, thetaLow: 0.3 }), F1)).toBe('7');
+  });
+  it('attaches only to maj / min / dim segments; 7, maj7, aug, sus4, dim7 and no-chord get nothing', () => {
+    const beats = [beat(C7), beat(C7), beat(C7), beat(C7), beat(C7), beat(C7), beat(C7)];
+    const segs = [seg(0, 'maj', 0, 1), seg(0, '7', 1, 2), seg(0, 'maj7', 2, 3), seg(0, 'aug', 3, 4), seg(0, 'sus4', 4, 5), seg(0, 'dim7', 5, 6), seg(null, 'maj', 6, 7)];
+    expect(addedCandidates(segs, beats, 1, v, F1)).toEqual([[{ root: 0, quality: '7' }], [], [], [], [], [], []]);
+  });
+  it('the SEGMENT\'s root and triad are read, not the column\'s: C7\'s G over an A-minor segment is its min7', () => {
+    expect(addedCandidates([seg(9, 'min', 0, 1)], [beat(C7)], 1, v, F1)).toEqual([[{ root: 9, quality: 'min7' }]]);
+  });
+  it('the half rule over the segment\'s columns; at most one candidate (a 7 / maj7 tie keeps the first)', () => {
+    const b = [beat(C7), beat(C7), beat(C), beat(C)];
+    expect(addedCandidates([seg(0, 'maj', 0, 4)], b, 1, v, F1)).toEqual([[{ root: 0, quality: '7' }]]); // 2 of 4
+    expect(addedCandidates([seg(0, 'maj', 1, 4)], b, 1, v, F1)).toEqual([[]]); // 1 of 3
+    expect(addedCandidates([seg(0, 'maj', 0, 4)], [beat(C7), beat(Cmaj7), beat(C7), beat(Cmaj7)], 1, v, F1)).toEqual([[{ root: 0, quality: '7' }]]);
+  });
+  it('perBeat 2: column t reads beat floor(t / 2)', () => {
+    expect(addedCandidates([seg(0, 'maj', 0, 4)], [beat(C), beat(C7)], 2, v, F1)).toEqual([[{ root: 0, quality: '7' }]]);
+    expect(addedCandidates([seg(0, 'maj', 0, 2)], [beat(C), beat(C7)], 2, v, F1)).toEqual([[]]);
+  });
+});
+
+describe('candidates only: analyze() keeps the baseline\'s names, segments and /X (by construction)', () => {
+  const candCfg = resolveChords2Config({ d2: { range: 'E1', theta: 0.5, thetaLow: 0.3, output: 'candidate' } });
+  const off = resolveChords2Config();
+  const c = [48, 60, 64, 67];
+  const noCand = <T extends { chordCandidates?: unknown }>(xs: readonly T[]) => xs.map(({ chordCandidates: _x, ...rest }) => rest);
+  it('C – C7: one segment as the baseline (not split in two like the name output), the 7 only as a candidate', () => {
+    const chords = [c, c, [...c, 70], [...c, 70]];
+    const y = struck(chords, TIMBRES.plain);
+    const fb = f1Beats(octaveCqt(y, F1, { tuning: 0 }), chords.map((_, i) => i * BEAT), chords.length * BEAT);
+    const input = triadInput(chords.length, [0, 4, 7], fb);
+    const o = analyze(input, candCfg);
+    const base = analyze({ ...input, f1Beats: undefined }, off);
+    expect(names(o)).toEqual(['C']);
+    expect(noCand(o.segments)).toEqual(noCand(base.segments));
+    expect(o.columns.map((x) => [x.root, x.quality])).toEqual(base.columns.map((x) => [x.root, x.quality]));
+    expect(base.segments.every((s) => s.chordCandidates === undefined)).toBe(true);
+    expect(o.segments[0].chordCandidates).toEqual([{ root: 0, quality: '7' }]);
+  });
+  it('through the bass stage the names and /X are the baseline\'s and the candidate stays (pipeline: shared CQT vs own CQT)', () => {
+    const chords = [[45, 57, 60, 64], [45, 57, 60, 64], [45, 55, 60, 64], [45, 55, 60, 64]];
+    const y = struck(chords, TIMBRES.plain);
+    const times = Float64Array.from([0, 0.5, 1, 1.5]);
+    const app = appBassConfig();
+    const { f1Beats: _f, ...input } = triadInput(4, [9, 0, 4], []);
+    const own = chords2Inputs(y, times, 2, input, off, app.lowCqt);
+    const base = bassChords(own.low, toEvalChords(analyze(input, off).segments, times, 2).map((x) => ({ ...x, bass: x.bass ?? null })), Array.from(times), app);
+    const shared = chords2Inputs(y, times, 2, input, candCfg, app.lowCqt);
+    const timed = toEvalChords(analyze(shared.input, candCfg).segments, times, 2).map((x) => ({ ...x, bass: x.bass ?? null }));
+    const got = marksOnV2(shared.low, timed, Array.from(times), app);
+    const key = (xs: readonly { start: number; end: number; root: string; quality: string; bass?: string | null }[]) => xs.map((x) => [x.start, x.end, x.root, x.quality, x.bass ?? null]);
+    expect(key(got)).toEqual(key(base));
+    expect(got.some((x) => (x.candidates ?? []).some((k) => k.quality === 'min7' && k.root === 'A'))).toBe(true);
+  });
+  it('F1 beats must match the columns', () => {
+    const input = triadInput(2, [0, 4, 7], [beat(C)]);
+    expect(() => analyze(input, candCfg)).toThrow(/F1 beats/);
+  });
+});

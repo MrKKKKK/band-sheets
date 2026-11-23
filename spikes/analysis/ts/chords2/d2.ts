@@ -149,3 +149,43 @@ export function d2Candidates(cands: readonly string[][], start: number, end: num
   const pair = otherReading({ root, quality }, PAIR_STAGE[range]);
   return pair ? [pair, ...held] : held;
 }
+
+/* ------------------------------------------------------------ candidates only (spike 8 G1 §1) */
+
+/** The triads a candidate attaches to (v1a's 7th / aug / sus4 / dim7 segments get none). */
+const CANDIDATE_TRIADS: ReadonlySet<string> = new Set<Triad>(['maj', 'min', 'dim']);
+
+/**
+ * One column's added-tone reading for the candidates-only output (G1 §1): the stronger 7th's name (maj: `7` or `maj7`,
+ * a tie `7`; min: `min7`; dim: `m7b5`) when ρ >= θ_c (`v.theta`), else null. `root` / `triad` are the SEGMENT's (not the
+ * column's own Viterbi name). θ_low (`v.thetaLow`) only decides which triad tones count as sounding in ρ's denominator.
+ */
+export function candidateReading(notes: readonly F1Note[], root: number, triad: Triad, v: D2Values, f1: F1Config): string | null {
+  const e = evalAdded(notes, root, triad, v, f1);
+  return e.evidence >= 0 ? e.added : null;
+}
+
+/** The part of a chords2 segment the candidates read (columns [startBeat, endBeat) at `perBeat`). */
+export interface CandidateSegment {
+  root: number | null;
+  quality: string;
+  startBeat: number;
+  endBeat: number;
+}
+
+/**
+ * Per segment, the added tone's candidate (at most ONE; `d2Candidates`' half rule over the segment's columns, ties: the
+ * reading seen first) for the segments whose quality is maj / min / dim; [] for every other segment. Names, times and
+ * the columns are not touched, so the result's names are the baseline's by construction.
+ */
+export function addedCandidates(segs: readonly CandidateSegment[], f1: readonly F1Beat[], perBeat: number, v: D2Values, f1cfg: F1Config): Reading[][] {
+  return segs.map((s) => {
+    if (s.root === null || !CANDIDATE_TRIADS.has(s.quality)) return [];
+    const cols: string[][] = [];
+    for (let t = s.startBeat; t < s.endBeat; t++) {
+      const r = candidateReading(f1[Math.floor(t / perBeat)].notes, s.root, s.quality as Triad, v, f1cfg);
+      cols.push(r === null ? [] : [r]);
+    }
+    return d2Candidates(cols, 0, cols.length, s.root, s.quality, v.range).slice(0, 1);
+  });
+}

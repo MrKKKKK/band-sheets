@@ -177,6 +177,9 @@ export const UNIT_MEASURES: readonly (readonly [Vocab, Measure])[] = [
   ['full', 'asTriadE1'],
   ['full', 'addedRecallE1'],
   ['full', 'addedPrecisionE1'],
+  // spike 8 G1 (s8dev2.ts): decision 9 read again (the correct 7th not shown) and the 3 和音 points with an added-tone candidate
+  ['full', 'asTriadHidden'],
+  ['full', 'triadCandidate'],
 ];
 const mk = (v: Vocab, m: Measure) => `${v}:${m}`;
 
@@ -209,7 +212,7 @@ export function scoreFile(it: Item, t: { chords: EvalChord[]; beats: Parameters<
 }
 
 /** The split a dev look's / dry run's file must have; a synthetic name's split comes from its recipe only. */
-function checkedSplit(it: Item, want: 'tuning' | 'dev'): 'tuning' | 'dev' {
+export function checkedSplit(it: Item, want: 'tuning' | 'dev'): 'tuning' | 'dev' {
   if (it.kind === 'rec') {
     if (want !== 'dev') throw new Error(`${it.name}: a recording in a tuning run`);
     return 'dev';
@@ -225,7 +228,7 @@ interface Job {
   around?: Omit<D2Values, 'range'>;
 }
 const jobCfgs = (j: Job): Cfg[] => (j.mode === 'tune' ? grid(j.round ?? 1, j.around) : LOOK_CFGS);
-const filesDir = (dir: string) => join(dir, 'files');
+export const filesDir = (dir: string) => join(dir, 'files');
 
 /** One worker (runJobs spawns `<this file> look-worker --list <dir>/look-list-k.json`; the job is <dir>/job.json). */
 function worker(argv: string[]): void {
@@ -251,14 +254,14 @@ async function runAll(items: Item[], dir: string, job: Job, jobs: number): Promi
   await runJobs(items, jobs, SELF, dir);
 }
 
-const readRecs = (dir: string): FileRec[] => {
+export const readRecs = (dir: string): FileRec[] => {
   const d = filesDir(dir);
   return existsSync(d) ? readdirSync(d).filter((f) => f.endsWith('.json')).sort().map((f) => json<FileRec>(join(d, f))) : [];
 };
 
 /* ------------------------------------------------------------ aggregation (from the saved files only) */
 
-const inGroup = (fs: readonly FileRec[], g: string) => fs.filter((f) => f.groups.includes(g));
+export const inGroup = <T extends FileRec>(fs: readonly T[], g: string): T[] => fs.filter((f) => f.groups.includes(g));
 export function aggOf(fs: readonly FileRec[], row: string, v: Vocab, g: string): Agg {
   const a = newAgg();
   for (const f of inGroup(fs, g)) {
@@ -268,12 +271,12 @@ export function aggOf(fs: readonly FileRec[], row: string, v: Vocab, g: string):
   }
   return a;
 }
-const S = (fs: readonly FileRec[], row: string, v: Vocab, g: string) => summarize(aggOf(fs, row, v, g));
+export const S = (fs: readonly FileRec[], row: string, v: Vocab, g: string) => summarize(aggOf(fs, row, v, g));
 /** The row's and the base row's segment units of one measure, paired per file and segment. */
 export const paired = (fs: readonly FileRec[], row: string, base: string, key: string, g: string): PairedUnit[] =>
   pairUnits(inGroup(fs, g).map((f) => ({ a: f.scores[row].units[key], b: f.scores[base].units[key] })));
-const hand = (fs: readonly FileRec[], row: string, g: string) => handEditsPer100(S(fs, row, 'full', g));
-const has = (fs: readonly FileRec[], g: string) => inGroup(fs, g).length > 0;
+export const hand = (fs: readonly FileRec[], row: string, g: string) => handEditsPer100(S(fs, row, 'full', g));
+export const has = (fs: readonly FileRec[], g: string) => inGroup(fs, g).length > 0;
 
 /* ------------------------------------------------------------ lines */
 
@@ -345,7 +348,7 @@ const mark = (l: GateLine) => (l.pass === null ? '–' : l.pass ? 'PASS' : l.use
 const fmt = (x: number | null) => (x === null ? '-' : Math.abs(x) >= 2 ? x.toFixed(2) : f3(x));
 export const fmtLines = (ls: readonly GateLine[]) =>
   ls.map((l) => `| ${l.kind} | ${l.line} | ${fmt(l.value)}${l.note ? `（${l.note}）` : ''} | ${l.ci ? `[${fmt(l.ci.lo)}, ${fmt(l.ci.hi)}]` : '-'} | ${l.op === '>=' ? '≥' : '≤'} ${fmt(l.target)}${l.stop !== undefined ? `（止める ${fmt(l.stop)}）` : ''} | ${mark(l)}${l.crosses ? '・区間が線をまたぐ' : ''} |`).join('\n');
-const LINE_HEAD = '| 区分 | 線 | 値 | 95 % 区間（区間単位） | 線 | 判定 |\n| --- | --- | --- | --- | --- | --- |';
+export const LINE_HEAD = '| 区分 | 線 | 値 | 95 % 区間（区間単位） | 線 | 判定 |\n| --- | --- | --- | --- | --- | --- |';
 
 /* ------------------------------------------------------------ tuning: the selection rule */
 
@@ -505,7 +508,7 @@ function listeningList(fs: readonly FileRec[], path: string): void {
 const lookDir = (which: string) => join(OUT, which);
 
 /** The dev material is complete (manifest / registry names and file existence only; no wav or truth is opened). */
-function checkInputs(): void {
+export function checkInputs(): void {
   const syn = devSynItems();
   const takes = devTakes(readRegistry());
   const recs = recItems(takes);
@@ -561,7 +564,7 @@ function reportAgain(argv: string[]): void {
 }
 
 /** 5 minutes of tuning audio (B set), the look's rows; the difference to the base path (Node; the browser is T11). */
-function timing(): void {
+export function timing(cfgs: readonly Cfg[] = LOOK_CFGS.slice(0, 1)): void {
   const clips = tuneItems().filter((i) => i.level === 'B').slice(0, 3).map((it) => {
     const w = decodeWav(new Uint8Array(readFileSync(it.wav)));
     return prepareInput(toMono(w.channels), w.sampleRate, true).y;
@@ -573,12 +576,12 @@ function timing(): void {
     y.set(c, o);
     o += c.length;
   }
-  const runs = [0, 1, 2].map(() => runFile(y, LOOK_CFGS.slice(0, 1), false).ms);
+  const runs = [0, 1, 2].map(() => runFile(y, cfgs, false).ms);
   const med = (k: string) => [...runs.map((r) => r[k] ?? 0)].sort((a, b) => a - b)[1];
   const keys = Object.keys(runs[0]);
   console.log(`5 分, 3 回の中央値 ms: ${keys.map((k) => `${k} ${med(k).toFixed(0)}`).join(', ')}`);
   // base path: own bass CQT + V0 + marks; E1 path: F1 (one 7-octave CQT, bass gets its lower 5) + V0 with D2 + marks
-  console.log(`E1 − 基準 = ${(med('f1') + med('E1') - med('baseCqt') - med('v0') - med('base')).toFixed(0)} ms（予算 +3000 ms）`);
+  console.log(`${cfgs[0].key} − 基準 = ${(med('f1') + med(cfgs[0].key) - med('baseCqt') - med('v0') - med('base')).toFixed(0)} ms（予算 +3000 ms）`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === SELF) {

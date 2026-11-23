@@ -60,6 +60,14 @@ export interface D2Values {
   theta: number;
   thetaLow: number;
   switchPenalty: number;
+  /**
+   * Spike 8 G1 (docs/audio-spike8-g1.md §1): 'candidate' = the added tone is a CANDIDATE only: the V0 columns, the names and
+   * the segments stay exactly the baseline's, and a chords2 segment with a root-correct triad (maj / min / dim) gets the
+   * added tone's reading in `chordCandidates` when at least half of its columns have ρ >= theta (θ_c; `theta < thetaLow`
+   * is allowed, `switchPenalty` is fixed 0: there is no smoothing). Present only when 'candidate' (absent = the name
+   * output, T5 / T7's form), so every hash without it is unchanged.
+   */
+  output?: 'candidate';
 }
 
 export interface Chords2Config {
@@ -127,6 +135,13 @@ export const DEFAULT_D2_VALUES: D2Values = deepFreeze({ range: 'E1', theta: 0.5,
  * LR triad-point names -.017). No round 2 (its condition, a top that passes every guard, is not met).
  */
 export const T7_E1_D2_VALUES: Omit<D2Values, 'range'> = deepFreeze({ theta: 0.8, thetaLow: 0.3, switchPenalty: 0.3 });
+
+/**
+ * Spike 8 T7c (docs/audio-spike8-g1.md §3): θ_c of the candidates-only E1 (`d2.output: 'candidate'`) that look 's8-dev-2'
+ * runs. null until the single tuning round (eval/s8dev2.ts `tune`) has chosen it on the TUNING split; the look refuses
+ * while it is null. thetaLow stays T5's .3 (denominator only), F1's values stay (`cbf11a42c101`).
+ */
+export const T7C_E1_CANDIDATE_THETA: number | null = null;
 
 /**
  * NOT ADOPTED (G2, 2026-11-22). Kept as switches.
@@ -230,9 +245,14 @@ export function resolveChords2Config(overrides: unknown = {}): Chords2Config {
   if (newSeventh !== undefined) cfg.newSeventh = { weight: Number((newSeventh as Json).weight), margin: Number((newSeventh as Json).margin) };
   if (octaveChroma === true) cfg.octaveChroma = true;
   if (d2 === true || isObj(d2)) {
-    const v = merge(DEFAULT_D2_VALUES as unknown as Json, d2 === true ? {} : d2, 'd2.') as unknown as D2Values;
+    const { output, ...d2v } = d2 === true ? ({} as Json) : d2;
+    if (output !== undefined && output !== 'name' && output !== 'candidate') throw new Error(`chords2 config d2.output: ${JSON.stringify(output)}`);
+    const cand = output === 'candidate';
+    if (cand && d2v.switchPenalty !== undefined && d2v.switchPenalty !== 0) throw new Error('chords2 config d2: switchPenalty is fixed 0 when output is candidate');
+    const v = merge(DEFAULT_D2_VALUES as unknown as Json, cand ? { ...d2v, switchPenalty: 0 } : d2v, 'd2.') as unknown as D2Values;
+    if (cand) v.output = 'candidate';
     if (!['E1', 'E2'].includes(v.range)) throw new Error(`chords2 config d2.range: ${String(v.range)}`);
-    if (!(v.thetaLow >= 0 && v.theta >= v.thetaLow && v.switchPenalty >= 0)) throw new Error(`chords2 config d2: need 0 <= thetaLow <= theta and switchPenalty >= 0, got ${JSON.stringify(v)}`);
+    if (cand ? !(v.theta >= 0 && v.thetaLow >= 0) : !(v.thetaLow >= 0 && v.theta >= v.thetaLow && v.switchPenalty >= 0)) throw new Error(`chords2 config d2: need 0 <= thetaLow <= theta and switchPenalty >= 0 (candidate: theta, thetaLow >= 0), got ${JSON.stringify(v)}`);
     if (cfg.stage !== 'V0') throw new Error('chords2 config d2: D2 reads the V0 Viterbi (plan §2.2), stage must be V0');
     cfg.d2 = v;
   }

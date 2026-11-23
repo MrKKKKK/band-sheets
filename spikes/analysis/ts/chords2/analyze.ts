@@ -18,7 +18,7 @@ import type { ChordState } from '../dsp/vocab';
 import { bassValues, type Chords2Config } from './config';
 import { collapsePosterior, ExpandedPrior, m2Expand, scoreChroma } from './bass';
 import type { Chords2Segment } from './pairRule';
-import { applyD2, d2Candidates } from './d2';
+import { addedCandidates, applyD2, d2Candidates } from './d2';
 import type { F1Beat } from './front/f1';
 import { FamilyPrior } from './prior';
 import * as vocab from './vocab';
@@ -257,7 +257,8 @@ export function analyze(input: Chords2Input, cfg: Chords2Config): Chords2Output 
   let d2: ReturnType<typeof applyD2> | null = null;
   if (cfg.d2) {
     if (!input.f1Beats || !cfg.f1) throw new Error('chords2: d2 needs input.f1Beats and cfg.f1 (resolveChords2Config sets f1)');
-    d2 = applyD2(est.columns, input.f1Beats, input.perBeat, cfg.d2, cfg.f1);
+    // output 'candidate' (spike 8 G1 §1): the V0 columns are not rewritten (no applyD2: no renaming, no HMM)
+    if (cfg.d2.output !== 'candidate') d2 = applyD2(est.columns, input.f1Beats, input.perBeat, cfg.d2, cfg.f1);
   }
   const columns = d2 ? d2.columns : est.columns;
   const segs = mergeChords(columns, cfg.chords, input.perBeat);
@@ -274,7 +275,12 @@ export function analyze(input: Chords2Input, cfg: Chords2Config): Chords2Output 
       seg.root === null ? seg : { ...seg, candidates: segmentCandidates(post, states, n, seg.startBeat, seg.endBeat, cfg.chords.candidates_k) },
     );
   }
-  if (d2 && cfg.d2) {
+  if (cfg.d2?.output === 'candidate' && input.f1Beats && cfg.f1) {
+    // the added tone's reading per segment (before the bass stage), shown with the top-k as `chordCandidates`
+    if (input.f1Beats.length * input.perBeat !== n) throw new Error(`chords2: ${input.f1Beats.length} F1 beats for ${n} columns at perBeat ${input.perBeat}`);
+    const added = addedCandidates(segs, input.f1Beats, input.perBeat, cfg.d2, cfg.f1);
+    segments = segments.map((seg, i) => (added[i].length ? { ...seg, chordCandidates: added[i] } : seg));
+  } else if (d2 && cfg.d2) {
     const { cands } = d2;
     const range = cfg.d2.range;
     segments = segments.map((seg) => {

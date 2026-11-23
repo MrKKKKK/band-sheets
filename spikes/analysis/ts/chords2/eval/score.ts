@@ -286,6 +286,13 @@ const addedCandidateOk = (p: Point): boolean => {
   return shownCandidates({ root: rc.root, quality: rc.quality }, rc.candidates ?? []).some((c) => noteToPc(c.root) === p.rRoot && c.quality !== rc.quality && triadOf(c.quality) === triadOf(rc.quality));
 };
 
+/** the truth's own (root, quality) is among the SHOWN candidates of the result piece */
+const correctShown = (p: Point): boolean => {
+  const rc = p.rc;
+  if (!rc) return false;
+  return shownCandidates({ root: rc.root, quality: rc.quality }, rc.candidates ?? []).some((c) => noteToPc(c.root) === p.tRoot && c.quality === fullTruth(p));
+};
+
 const E1_Q = new Set(addedQualities('E1')); // 7, maj7, min7, m7b5
 const rootQualityOk = (p: Point): boolean => p.rRoot === p.tRoot && p.rq === p.tq;
 const nameOk = (p: Point): boolean => p.rc !== null && p.rRoot === p.tRoot && (p.rq === p.tq || (p.tAlt !== null && p.rq === p.tAlt)) && p.rBass === p.tBass;
@@ -307,6 +314,10 @@ const POINT_MEASURES = {
   asTriadE1: { scope: (p) => (fullTruth(p) ?? '') in AS_TRIAD.E1, ok: (p) => asTriadOf(p, AS_TRIAD.E1) },
   asTriadE2: { scope: (p) => (fullTruth(p) ?? '') in AS_TRIAD.E2, ok: (p) => asTriadOf(p, AS_TRIAD.E2) },
   // spike 8 T7 (plan §5 決め手): the E1 qualities pooled, root + quality as byQuality (ベースにだけある音 points left out)
+  // spike 8 G1 §2 (candidates-only E1): decision 9's points whose correct 7th is also NOT among the shown candidates, and the
+  // 3 和音 points that carry an added-tone candidate (the share of them, a-f recordings)
+  asTriadHidden: { scope: (p) => (fullTruth(p) ?? '') in AS_TRIAD.E1, ok: (p) => asTriadOf(p, AS_TRIAD.E1) && !correctShown(p) },
+  triadCandidate: { scope: (p) => p.tAlt === null && isTriad(fullTruth(p)), ok: addedCandidateOk },
   addedRecallE1: { scope: (p) => p.tAlt === null && E1_Q.has(p.tq), ok: rootQualityOk },
   addedPrecisionE1: { scope: (p) => p.tAlt === null && p.rq !== null && E1_Q.has(p.rq), ok: rootQualityOk },
 } satisfies Record<string, PointMeasure>;
