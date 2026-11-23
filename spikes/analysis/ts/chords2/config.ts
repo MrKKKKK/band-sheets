@@ -119,11 +119,14 @@ export const DEFAULT_CHORDS2_CONFIG: Chords2Config = deepFreeze({
 export const DEFAULT_D2_VALUES: D2Values = deepFreeze({ range: 'E1', theta: 0.5, thetaLow: 0.3, switchPenalty: 0.1 });
 
 /**
- * Spike 8 T7: the E1 values the look 's8-dev-1' runs (eval/s8dev1.ts LOOK_CFGS), chosen on the TUNING split only by the
- * grid and the selection rule fixed before any tuning number (docs/audio-spike8-t7.md §1). PROVISIONAL until the tuning
- * rounds are read: DEFAULT_D2_VALUES' theta / thetaLow / switchPenalty.
+ * Spike 8 T7: the E1 values the look 's8-dev-1' runs (eval/s8dev1.ts LOOK_CFGS), chosen on the TUNING split only (433
+ * files) by the grid and the selection rule fixed before any tuning number (docs/audio-spike8-t7.md §1, §2). Round 1
+ * (θ .25-.8 x θ_low .2 / .3 x penalty 0 / .1 / .3, 27 values): no value passes a decisive line (best recall .377 at
+ * precision .447; best precision .600 at recall .083, base recall .068 / precision .450) and none passes every guard;
+ * the top by the rule (fewest failed guards, then hand edits) is θ .8, θ_low .3, penalty .3 (one guard in the user band:
+ * LR triad-point names -.017). No round 2 (its condition, a top that passes every guard, is not met).
  */
-export const T7_E1_D2_VALUES: Omit<D2Values, 'range'> = deepFreeze({ theta: 0.5, thetaLow: 0.3, switchPenalty: 0.1 });
+export const T7_E1_D2_VALUES: Omit<D2Values, 'range'> = deepFreeze({ theta: 0.8, thetaLow: 0.3, switchPenalty: 0.3 });
 
 /**
  * NOT ADOPTED (G2, 2026-11-22). Kept as switches.
