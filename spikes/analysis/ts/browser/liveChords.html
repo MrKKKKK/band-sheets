@@ -3,10 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <!-- no network: this origin's own scripts + the capture worklet from a blob: URL; connect-src only self (the dev server's own WebSocket) -->
+    <!-- CSP (a meta tag covers this page only, not the Worker's own requests; the no-network rule for the Worker is a test, liveNoNetwork.test.ts).
+         script-src blob: = the capture worklet is loaded from a Blob URL (addModule follows script-src); worker-src 'self' = the analysis Worker's script file;
+         style-src 'unsafe-inline' = the <style> block below; connect-src 'self' = this origin only (the dev server runs with hmr: false, so no WebSocket) -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline' blob:; worker-src 'self' blob:; connect-src 'self' ws:; style-src 'self' 'unsafe-inline'"
+      content="default-src 'none'; script-src 'self' blob:; worker-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:"
     />
     <title>ライブ和音チェック</title>
     <style>
@@ -59,7 +61,7 @@
     <div class="warn">
       <p>ホールドアウトの曲（k〜n）は弾かない（録音でも手でも流さない）。</p>
       <p>a〜j の印象で次のスパイクの値を決めない。</p>
-      <p>% はロジックをまたいで比べられない（v1a・base・s8-D2・s8-cand は同じ数、違うのは s7-V1 と s8-D1）。</p>
+      <p>% はロジックをまたいで比べられない（v1a・base・s8-D2・s8-cand は同じ数、D2＋D1 と D1 だけは同じ数、違うのは s7-V1）。</p>
       <p>拍・前後のつながりは使っていない（スパイクの数字とは別物）。</p>
     </div>
 
@@ -87,7 +89,7 @@
       <div class="muted">% は相対の強さ。アプリの確からしさとは別物</div>
     </div>
 
-    <div class="box stats" id="stats">計算 — ms ・ — 回/秒 ・ — 秒前の音 ・ 調律 — ・ 利得 — ・ 抜け 0</div>
+    <div class="box stats" id="stats">計算 — ms ・ — 回/秒 ・ — 秒前の音 ・ 調律 — ・ 利得 — ・ 開始後の抜け 0 ms</div>
     <script type="module" src="./liveChordsPage.ts"></script>
   </body>
 </html>

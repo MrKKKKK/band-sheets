@@ -53,8 +53,8 @@ function chord(id: VariantId, s: Sig, ctx: Partial<WindowCtx> = {}): Extract<Win
 }
 
 describe('variants', () => {
-  it('has the six rows of plan section 2, in order, with Japanese labels', () => {
-    expect(VARIANTS.map((v) => v.id)).toEqual(['v1a', 'base', 's7-V1', 's8-D2', 's8-D1', 's8-cand']);
+  it('has the seven rows of plan section 2, in order, with Japanese labels', () => {
+    expect(VARIANTS.map((v) => v.id)).toEqual(['v1a', 'base', 's7-V1', 's8-D2', 's8-D2D1', 's8-D1', 's8-cand']);
     for (const v of VARIANTS) expect(v.label + v.note).toMatch(/[぀-ヿ一-鿿]/);
   });
 
@@ -136,6 +136,14 @@ describe('7th and slash signals: what each row does (observed on these signals, 
     expect(chord('s8-cand', 'C7').added?.candidate).toBeNull();
   });
 
+  it('s8-D2D1 and s8-D1 share the chroma, so their top list (names, %, s) is the same; D2 only decides the answer', () => {
+    const a = chord('s8-D2D1', 'C7');
+    const b = chord('s8-D1', 'C7');
+    expect(a.top).toEqual(b.top);
+    expect(a.answer).toBe('C');
+    expect(b.answer).toBe('C7');
+  });
+
   it('G7: v1a reads G7; s8-D2 drops the 7th (G, "replaced by a rule", ρ(10) below θ)', () => {
     expect(chord('v1a', 'G7').answer).toBe('G7');
     const r = chord('s8-D2', 'G7');
@@ -200,6 +208,14 @@ describe('gate, gain, calibration', () => {
     const r = analyzeWindow(variantById('v1a'), signal('C', -70), CTX);
     expect(r.kind).toBe('quiet');
     expect(r.kind === 'quiet' && r.rmsDb).toBeLessThan(GATE_DBFS);
+  });
+
+  it('the gate judges the level after the fixed gain (-55 dBFS = 33 dB below the -22 target)', () => {
+    const v = variantById('v1a');
+    expect(analyzeWindow(v, signal('C', -60), CTX).kind).toBe('quiet'); // raw -60, no gain
+    expect(analyzeWindow(v, signal('C', -60), { ...CTX, gainDb: 20 }).kind).not.toBe('quiet'); // after the gain -40
+    expect(analyzeWindow(v, signal('C', -40), { ...CTX, gainDb: -20 }).kind).toBe('quiet'); // after the gain -60
+    expect(analyzeWindow(v, signal('C', -40), { ...CTX, gainDb: -10 }).kind).not.toBe('quiet'); // -50
   });
 
   it('the session gain is applied after the gate: -50 dBFS is no chord without it, C with +28 dB', () => {

@@ -5,7 +5,7 @@
  */
 import { DEFAULT_D2_VALUES, resolveChords2Config, T10_V1_OVERRIDES, T7_E1_D2_VALUES, T7C_E1_CANDIDATE_THETA, type Chords2Config } from '../chords2/config';
 
-export type VariantId = 'v1a' | 'base' | 's7-V1' | 's8-D2' | 's8-D1' | 's8-cand';
+export type VariantId = 'v1a' | 'base' | 's7-V1' | 's8-D2' | 's8-D2D1' | 's8-D1' | 's8-cand';
 
 /** What a variant runs: v1a's `estimateChords` (with or without spike 6's marks), or chords2 `analyze` + the marks. */
 export type Logic = { kind: 'v1a'; marks: boolean } | { kind: 'chords2'; cfg: Chords2Config };
@@ -24,6 +24,9 @@ export interface Variant {
 /** s8-cand's config for a θ_c (thetaLow = T5's .3, denominator only; switchPenalty is fixed 0 by resolveChords2Config). */
 export const candidateConfig = (theta: number): Chords2Config =>
   resolveChords2Config({ d2: { range: 'E1', theta, thetaLow: DEFAULT_D2_VALUES.thetaLow, output: 'candidate' } });
+
+/** s8-dev-1's second row: D2 (T7's E1 values) + D1, exactly `e1Config(T7_E1_D2_VALUES, true)` of chords2/eval/s8dev1.ts (config hash 462ab1385491; variants.test pins it). */
+export const D2_D1_CONFIG: Chords2Config = resolveChords2Config({ d2: { range: 'E1', ...T7_E1_D2_VALUES }, octaveChroma: true });
 
 export const VARIANTS: readonly Variant[] = [
   {
@@ -51,9 +54,15 @@ export const VARIANTS: readonly Variant[] = [
     logic: { kind: 'chords2', cfg: resolveChords2Config({ d2: { range: 'E1', ...T7_E1_D2_VALUES } }) },
   },
   {
+    id: 's8-D2D1',
+    label: 'スパイク 8 D2＋D1（s8-dev-1 で測った設定）',
+    note: 'スパイク 8 の s8-dev-1 で測った 2 行目と同じ設定（D2 の値は s8-D2 と同じ、クロマは D1）。1 窓では 2 状態のならしが効かない。クロマが違うので、% の大小を「D1 だけ」の行以外と比べない。',
+    logic: { kind: 'chords2', cfg: D2_D1_CONFIG },
+  },
+  {
     id: 's8-D1',
-    label: 's8-D1: F1 のクロマで採点',
-    note: '不採用。F1 の床（ファイルの中央値 × floorRatio）が窓の中の自分自身との比になり、静かな窓でも音を拾う。クロマが違うので、% の大小を他の行と比べない。',
+    label: 'スパイク 8 D1 だけ（測っていない組み合わせ）',
+    note: 'この組み合わせ（D2 なしの D1）はスパイク 8 で一度も測っていない。F1 の床（ファイルの中央値 × floorRatio）が窓の中の自分自身との比になり、静かな窓でも音を拾う。クロマが違うので、% の大小を「D2＋D1」の行以外と比べない。',
     logic: { kind: 'chords2', cfg: resolveChords2Config({ octaveChroma: true }) },
   },
   {

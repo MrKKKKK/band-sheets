@@ -1,7 +1,7 @@
 /**
  * LT3 of the live chord-check tool: the page (docs/live-chord-tool-plan.md section 4.2). Privacy: the input's samples
- * stay in memory (the Worker's 8 s ring); nothing is saved, uploaded or played back; the CSP in liveChords.html allows no
- * request but this origin's own scripts.
+ * stay in memory (the Worker's 8 s ring); nothing is saved, uploaded or played back; the page's CSP (liveChords.html) allows
+ * no request but this origin's own files (it does not cover the Worker; liveNoNetwork.test.ts checks the analysis code).
  *
  * Flow: 「開始」 (user gesture) -> getUserMedia (echo cancellation, noise suppression, auto gain OFF; the chosen device) ->
  * AudioContext at the device's rate -> MediaStreamSource -> capture AudioWorklet (inline module from a Blob URL), which
@@ -66,8 +66,9 @@ for (const v of VARIANTS) {
 }
 variantSel.value = 'base';
 
-const KEYS = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
-for (const [value, label] of [['', 'なし'], ...KEYS.map((k) => [k, k]), ...KEYS.map((k) => [`${k}m`, `${k}m`])]) {
+const MAJOR_KEYS = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+const MINOR_KEYS = ['Cm', 'C#m', 'Dm', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'Bbm', 'Bm'];
+for (const [value, label] of [['', 'なし'], ...[...MAJOR_KEYS, ...MINOR_KEYS].map((k) => [k, k])]) {
   const o = document.createElement('option');
   o.value = value;
   o.textContent = label;
@@ -106,20 +107,25 @@ async function fillDevices(selected: string): Promise<void> {
 async function start(): Promise<void> {
   startBtn.disabled = true;
   setMsg('入力の許可を待っています…');
+  let ctx: AudioContext | null = null;
+  let stream: MediaStream | null = null;
   try {
-    const ctx = new AudioContext();
-    const stream = await navigator.mediaDevices.getUserMedia({
+    ctx = new AudioContext();
+    stream = await navigator.mediaDevices.getUserMedia({
       audio: { ...(deviceSel.value ? { deviceId: { exact: deviceSel.value } } : {}), echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
+    const rate = ctx.sampleRate;
     const url = URL.createObjectURL(new Blob([WORKLET], { type: 'text/javascript' }));
     await ctx.audioWorklet.addModule(url);
     URL.revokeObjectURL(url);
     const node = new AudioWorkletNode(ctx, 'live-capture', { numberOfInputs: 1, numberOfOutputs: 1 });
     const ch = new MessageChannel();
     node.port.postMessage({ port: ch.port1 }, [ch.port1]);
-    send({ type: 'start', port: ch.port2, deviceRate: ctx.sampleRate }, [ch.port2]);
+    send({ type: 'start', port: ch.port2, deviceRate: rate }, [ch.port2]);
     sendConfig();
     node.port.onmessage = (e: MessageEvent<{ peak: number; rms: number }>) => (meter = e.data);
+    const s = stream;
+    for (const t of s.getAudioTracks()) t.addEventListener('ended', () => session?.stream === s && stopOnEnded());
     ctx.createMediaStreamSource(stream).connect(node);
     node.connect(ctx.destination); // pulls the worklet; it writes nothing, so it stays silent
     await ctx.resume();
@@ -127,9 +133,14 @@ async function start(): Promise<void> {
     await fillDevices(stream.getAudioTracks()[0]?.getSettings().deviceId ?? '');
     startBtn.textContent = '停止';
     recalBtn.disabled = false;
-    $('stats').dataset.rate = String(ctx.sampleRate);
+    $('stats').dataset.rate = String(rate);
     setMsg('入力が門を超えるのを待っています…');
   } catch (err) {
+    // failed after getUserMedia / AudioContext: give the device and the context back
+    send({ type: 'stop' });
+    for (const t of stream?.getTracks() ?? []) t.stop();
+    void ctx?.close();
+    session = null;
     setMsg(`始められませんでした: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`);
   } finally {
     startBtn.disabled = false;
@@ -149,6 +160,12 @@ function stop(): void {
   recalBtn.disabled = true;
   meter = { peak: 0, rms: 0 };
   setMsg('止めました。');
+}
+
+/** The input device went away (unplugged): stop, and say so (stop() sets 「止めました。」 first, then this replaces it). */
+function stopOnEnded(): void {
+  stop();
+  setMsg('入力が切れました（機器が外れた？）。つなぎ直して「開始」を押してください。');
 }
 
 startBtn.addEventListener('click', () => (session ? stop() : void start()));
@@ -215,13 +232,13 @@ function drawResult(r: WindowResult, variantId: VariantId): void {
     }),
   );
   const parts: string[] = [];
-  if (r.bass) parts.push(`ベース ${r.bass.note}（${f2(r.bass.confidence)}${r.bass.kind === 'inversion' ? '・転回' : r.bass.kind ? `・${r.bass.kind}` : ''}）`);
+  if (r.bass) parts.push(`ベース ${r.bass.note}（${f2(r.bass.confidence)}${r.bass.kind === 'inversion' ? '・転回' : r.bass.kind === 'passing' ? '・経過' : r.bass.kind === 'pedal' ? '・ペダル' : ''}）`);
   if (r.f1Notes) parts.push(`F1 の音: ${r.f1Notes.join(' ')}`);
   if (r.added) {
     const rho = Object.entries(r.added.rho)
       .map(([d, v]) => `ρ(${d}) ${f2(v)}`)
       .join(' ');
-    parts.push(`added: ${rho}（θ ${f2(r.added.theta)}${r.added.candidate !== undefined ? `・候補 ${r.added.candidate ?? 'なし'}` : ''}）`);
+    parts.push(`足す音: ${rho}（θ ${f2(r.added.theta)}${r.added.candidate !== undefined ? `・候補 ${r.added.candidate ?? 'なし'}` : ''}）`);
   }
   extra.textContent = parts.join(' ・ ');
 }
@@ -244,8 +261,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     drawStats();
   } else if (m.type === 'result') {
     drawResult(m.result, m.variantId);
-    const ms = m.result.kind === 'chord' || m.result.kind === 'noChord' ? `${m.result.ms.total.toFixed(0)} ms` : `${m.ms.toFixed(0)} ms`;
-    lastStats = `計算 ${ms} ・ ${m.perSec.toFixed(1)} 回/秒 ・ ${m.lagSec.toFixed(1)} 秒前の音 ・ 抜け ${m.gapFrames}`;
+    lastStats = `計算 ${m.ms.toFixed(0)} ms ・ ${m.perSec.toFixed(1)} 回/秒 ・ ${m.lagSec.toFixed(1)} 秒前の音 ・ 開始後の抜け ${m.gapMs.toFixed(0)} ms`;
     drawStats();
   } else setMsg(`エラー: ${m.message}`);
 };

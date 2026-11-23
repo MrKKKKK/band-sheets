@@ -42,7 +42,7 @@ import type { Logic, Variant } from './variants';
 export const ANALYZER_SR = LOW_SR;
 /** Low-note wait on each side of the window (plan 1.2): the analysed signal is window + 2 x this. */
 export const WAIT_SEC = 0.8;
-/** Gate on the window's RAW RMS (plan 1.3; provisional, a value of this tool only, not of any analyzer). */
+/** Gate on the window's RMS AFTER the session gain (-55 dBFS = 33 dB below the -22 dBFS target; plan 1.3; provisional, a value of this tool only). The calibration start trigger (capture.ts) uses the raw level. */
 export const GATE_DBFS = -55;
 /** Top states shown (plan 2.1). */
 export const TOP_K = 5;
@@ -51,7 +51,7 @@ const BETA = 20;
 
 /* ------------------------------------------------------------ once per session (plan 1.3) */
 
-/** Tuning (fractions of a bin) of 22,050 Hz mono `y`, as v1a / the bass stage / F1 estimate it. */
+/** Tuning (fractions of a bin) of 22,050 Hz mono `y`. Known difference: v1a estimates it on yHarm (after hpss), this tool on the raw `y`. */
 export const measureTuning = (y: Float32Array): number => estimateTuning(y, { sr: ANALYZER_SR, bpo: 36 });
 
 /** The gain (dB) `normalizeLevel` (the app's input level, RMS -22 dBFS, peak <= -1 dBFS) gives `y`; `y` is not changed. */
@@ -101,13 +101,10 @@ export interface AddedReading {
   candidate?: string | null;
 }
 
-/** Milliseconds per stage ('chroma', 'cqt', 'f1', 'chords', 'bass') and 'total'. */
-export type StageMs = Record<string, number>;
-
 export type WindowResult =
   | { kind: 'unavailable'; reason: string }
   | { kind: 'quiet'; rmsDb: number }
-  | { kind: 'noChord'; ms: StageMs }
+  | { kind: 'noChord' }
   | {
       kind: 'chord';
       /** after the rules (bass marks, D2); several names when the bass stage split the window */
@@ -119,7 +116,6 @@ export type WindowResult =
       added?: AddedReading;
       /** F1's notes C2-B5, strongest first (rows that read F1) */
       f1Notes?: string[];
-      ms: StageMs;
     };
 
 const DUMMY_KEY: BarKey = { bar: 0, tonic: 0, mode: 'major', confidence: 0 }; // n = 1: FamilyPrior's row is never read
@@ -173,47 +169,30 @@ interface Decoded {
   candidate?: string | null;
 }
 
-function decode(logic: Logic, y: Float32Array, c: WindowCtx, ms: StageMs, now: () => number): Decoded {
-  const timed = (k: string, f: () => void): void => {
-    const t = now();
-    f();
-    ms[k] = (ms[k] ?? 0) + now() - t;
-  };
+function decode(logic: Logic, y: Float32Array, c: WindowCtx): Decoded {
   const beats = [c.colStart];
-  let cols!: ReturnType<typeof chordColumns>;
-  timed('chroma', () => {
-    cols = chordColumns(hpss(y).yHarm, beats, c.colEnd, { perBeat: 1, tuningFull: c.tuning, tuningBass: c.tuning });
-  });
+  const cols = chordColumns(hpss(y).yHarm, beats, c.colEnd, { perBeat: 1, tuningFull: c.tuning, tuningBass: c.tuning });
   const timedChords = (segs: Parameters<typeof toEvalChords>[0]): TimedChord[] => toEvalChords(segs, beats, c.colEnd).map((x) => ({ ...x, bass: x.bass ?? null }));
   if (logic.kind === 'v1a') {
-    let column!: ColumnChord;
-    let chords!: TimedChord[];
-    timed('chords', () => {
-      [column] = estimateChords(cols.cChroma, 1, DEFAULT_CHORDS_CONFIG, { perBeat: 1 });
-      chords = timedChords(mergeChords([column], DEFAULT_CHORDS_CONFIG, 1));
-    });
-    let low: LowCqt | undefined;
-    if (logic.marks) timed('cqt', () => (low = lowCqt(y, APP_BASS.lowCqt, { tuning: c.tuning })));
+    const [column] = estimateChords(cols.cChroma, 1, DEFAULT_CHORDS_CONFIG, { perBeat: 1 });
+    const chords = timedChords(mergeChords([column], DEFAULT_CHORDS_CONFIG, 1));
+    const low = logic.marks ? lowCqt(y, APP_BASS.lowCqt, { tuning: c.tuning }) : undefined;
     return { column, states: v1aStates(DEFAULT_CHORDS_CONFIG), scored: cols.cChroma, chords, low };
   }
   // chords2 (pipeline.ts chords2Inputs' own calls, with the session's tuning: chords2Inputs does not take one)
   const cfg = logic.cfg;
   const input: Chords2Input = { chroma: cols.cChroma, n: 1, perBeat: 1, barKeys: [DUMMY_KEY], barOfBeat: [0] };
-  let low!: LowCqt;
+  let low: LowCqt;
   let f1: F1Beat[] | null = null;
   if (cfg.f1) {
     const f1cfg = cfg.f1;
-    let wide!: LowCqt;
-    timed('cqt', () => (wide = octaveCqt(y, f1cfg, { tuning: c.tuning })));
-    timed('f1', () => {
-      f1 = f1Beats(wide, beats, c.colEnd, f1cfg);
-      input.f1Beats = f1;
-      if (cfg.octaveChroma) input.f1Chroma = foldF1(f1, 1, f1cfg);
-    });
-    timed('cqt', () => (low = bassCqtFrom(y, wide, APP_BASS.lowCqt)));
-  } else timed('cqt', () => (low = lowCqt(y, APP_BASS.lowCqt, { tuning: c.tuning })));
-  let out!: ReturnType<typeof analyze>;
-  timed('chords', () => (out = analyze(input, cfg)));
+    const wide = octaveCqt(y, f1cfg, { tuning: c.tuning });
+    f1 = f1Beats(wide, beats, c.colEnd, f1cfg);
+    input.f1Beats = f1;
+    if (cfg.octaveChroma) input.f1Chroma = foldF1(f1, 1, f1cfg);
+    low = bassCqtFrom(y, wide, APP_BASS.lowCqt);
+  } else low = lowCqt(y, APP_BASS.lowCqt, { tuning: c.tuning });
+  const out = analyze(input, cfg);
   const seg = out.segments[0];
   const cand = cfg.d2?.output === 'candidate' ? (seg?.chordCandidates?.[0] ?? null) : undefined;
   return {
@@ -222,37 +201,34 @@ function decode(logic: Logic, y: Float32Array, c: WindowCtx, ms: StageMs, now: (
     scored: input.f1Chroma ?? cols.cChroma,
     chords: timedChords(out.segments),
     low,
-    ...(f1 ? { f1: { beat: (f1 as F1Beat[])[0], cfg } } : {}),
+    ...(f1 ? { f1: { beat: f1[0], cfg } } : {}),
     ...(cand !== undefined ? { candidate: cand === null ? null : NOTE_NAMES[cand.root] + suffix(cand.quality) } : {}),
   };
 }
 
 /**
  * One window of `samples` (22,050 Hz mono, the window plus WAIT_SEC on each side, RAW level: the session gain is applied
- * here after the gate) through one variant. `samples` is not changed.
+ * here; the gate judges the gained level) through one variant. `samples` is not changed.
  */
-export function analyzeWindow(variant: Variant, samples: Float32Array, ctx: WindowCtx, now: () => number = () => performance.now()): WindowResult {
+export function analyzeWindow(variant: Variant, samples: Float32Array, ctx: WindowCtx): WindowResult {
   if (!variant.logic) return { kind: 'unavailable', reason: variant.unavailable ?? '' };
   if (!(ctx.colStart >= 0 && ctx.colEnd > ctx.colStart && Math.round(ctx.colEnd * ANALYZER_SR) <= samples.length))
     throw new Error(`live: window [${ctx.colStart}, ${ctx.colEnd}) s does not fit ${samples.length} samples`);
-  const t0 = now();
   const { rmsDb } = levelDb(samples.subarray(Math.round(ctx.colStart * ANALYZER_SR), Math.round(ctx.colEnd * ANALYZER_SR)));
-  if (rmsDb < GATE_DBFS) return { kind: 'quiet', rmsDb };
+  // the gate judges the level AFTER the session's fixed gain (the target is -22 dBFS, so the gate is 33 dB below it)
+  if (rmsDb + ctx.gainDb < GATE_DBFS) return { kind: 'quiet', rmsDb };
   const k = 10 ** (ctx.gainDb / 20);
   const y = ctx.gainDb === 0 ? samples : samples.map((v) => v * k);
-  const ms: StageMs = {};
-  const d = decode(variant.logic, y, ctx, ms, now);
-  if (d.column.root === null) return { kind: 'noChord', ms: { ...ms, total: now() - t0 } };
+  const d = decode(variant.logic, y, ctx);
+  if (d.column.root === null) return { kind: 'noChord' };
   const key = ctx.key;
   const { top, best } = topOf(d.column, d.states, d.scored, key);
   let answer = top[0].name;
   let bass: BassReading | undefined;
   if (d.low) {
-    const t = now();
     const beats = [ctx.colStart, ctx.colEnd]; // two beats: the whole window is the head beat (uniform weight, plan 1.1)
     const marked = marksOnV2(d.low, d.chords, beats, APP_BASS) as (TimedChord & SlashFields)[]; // bassChords' fields (marksOnV2 keeps them)
     const [b] = segmentBass(d.low, d.chords, beats, APP_BASS.segment);
-    ms.bass = now() - t;
     answer = marked.map((m) => respellChord(nameOf(m), key)).join(' ');
     bass = { note: respellChord(NOTE_NAMES[b.pc], key), confidence: b.confidence, kind: marked.find((m) => m.bassKind)?.bassKind ?? null };
   }
@@ -281,6 +257,5 @@ export function analyzeWindow(variant: Variant, samples: Float32Array, ctx: Wind
     ...(bass ? { bass } : {}),
     ...(added ? { added } : {}),
     ...(f1Notes ? { f1Notes } : {}),
-    ms: { ...ms, total: now() - t0 },
   };
 }

@@ -19,13 +19,13 @@ export type FromWorker =
       variantId: VariantId;
       windowSec: number;
       result: WindowResult;
-      /** seconds from the end of the window to the newest sample when the result was ready */
+      /** seconds from the end of the window to the moment the result was ready (capture.ts windowLagSec) */
       lagSec: number;
       /** results per second over the last ~3 s */
       perSec: number;
       /** wall time of this analyzeWindow call (ms) */
       ms: number;
-      /** frames the worklet never delivered (device rate), since start */
-      gapFrames: number;
+      /** milliseconds of input the worklet never delivered, since the calibration was fixed */
+      gapMs: number;
     }
   | { type: 'error'; message: string };

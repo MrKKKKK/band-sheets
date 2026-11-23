@@ -17,8 +17,6 @@ import { FloatRing, StreamResampler } from './ring';
 export const CALIBRATION_SEC = 3;
 /** The ring holds this much 22,050 Hz audio: the longest window (3 s) + 2 x 0.8 s, and the calibration span, with room. */
 export const RING_SEC = 8;
-/** Longest window the page offers (s). */
-export const MAX_WINDOW_SEC = 3;
 
 export interface ChannelBlock {
   /** the context frame of data[c][0] */
@@ -37,11 +35,16 @@ export class Capture {
     this.resampler = new StreamResampler(deviceRate, ANALYZER_SR);
   }
 
+  /** Seconds of input that arrived but are not in the ring yet (the resampler's context wait). */
+  get pendingSec(): number {
+    return this.resampler.pendingInput / this.deviceRate;
+  }
+
   /** Takes one batch of blocks (any order); returns when the samples are in `ring` (the resampler's context wait aside). */
   ingest(blocks: readonly ChannelBlock[]): void {
     if (blocks.length === 0) return;
     const channels = blocks[0].data.length;
-    const rec = Array.from({ length: channels }, (_, c) => assembleBlocks(blocks.map((b) => ({ frame: b.frame, data: b.data[c] }))));
+    const rec = Array.from({ length: channels }, (_, c) => assembleBlocks(blocks.map((b) => ({ frame: b.frame, data: b.data[c] ?? b.data[0] }))));
     let mono = toMono(rec.map((r) => r.samples));
     this.gapFrames += rec[0].gapFrames;
     let start = rec[0].startFrame;
@@ -55,7 +58,7 @@ export class Capture {
         start += skip;
       }
     }
-    this.nextFrame = start + mono.length;
+    this.nextFrame = Math.max(this.nextFrame ?? 0, start + mono.length); // a late duplicate never moves it back
     this.feed(mono);
   }
 
@@ -92,7 +95,7 @@ export class CalibrationCollector {
   feed(ring: FloatRing): Float32Array | null {
     const hop = Math.round(HOP_SEC * this.sr);
     if (this.onset === null) {
-      this.scanned ??= ring.end; // audio from before the start / reset does not count
+      this.scanned = Math.max(this.scanned ?? ring.end, ring.start); // audio from before the start / reset does not count; never before what the ring holds
       while (this.scanned + hop <= ring.end) {
         const h = ring.slice(this.scanned, this.scanned + hop);
         let e = 0;
@@ -115,6 +118,9 @@ export class CalibrationCollector {
     return y;
   }
 }
+
+/** Seconds from the end of the window to the moment its result is shown: the wait on its right + the compute time + the input still inside the resampler. */
+export const windowLagSec = (computeMs: number, pendingSec: number): number => WAIT_SEC + computeMs / 1000 + pendingSec;
 
 export interface WindowPick {
   /** absolute sample range of the analysed signal (window + WAIT_SEC on each side) */
