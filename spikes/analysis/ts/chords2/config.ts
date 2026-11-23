@@ -62,7 +62,7 @@ export interface D2Values {
   switchPenalty: number;
   /**
    * Spike 8 G1 (docs/audio-spike8-g1.md §1): 'candidate' = the added tone is a CANDIDATE only: the V0 columns, the names and
-   * the segments stay exactly the baseline's, and a chords2 segment with a root-correct triad (maj / min / dim) gets the
+   * the segments stay exactly the baseline's, and a chords2 segment whose quality is a triad with a root (maj / min / dim; the analyzer does not know the truth) gets the
    * added tone's reading in `chordCandidates` when at least half of its columns have ρ >= theta (θ_c; `theta < thetaLow`
    * is allowed, `switchPenalty` is fixed 0: there is no smoothing). Present only when 'candidate' (absent = the name
    * output, T5 / T7's form), so every hash without it is unchanged.

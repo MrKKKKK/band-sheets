@@ -275,10 +275,10 @@ export function analyze(input: Chords2Input, cfg: Chords2Config): Chords2Output 
       seg.root === null ? seg : { ...seg, candidates: segmentCandidates(post, states, n, seg.startBeat, seg.endBeat, cfg.chords.candidates_k) },
     );
   }
-  if (cfg.d2?.output === 'candidate' && input.f1Beats && cfg.f1) {
+  if (cfg.d2?.output === 'candidate') {
     // the added tone's reading per segment (before the bass stage), shown with the top-k as `chordCandidates`
-    if (input.f1Beats.length * input.perBeat !== n) throw new Error(`chords2: ${input.f1Beats.length} F1 beats for ${n} columns at perBeat ${input.perBeat}`);
-    const added = addedCandidates(segs, input.f1Beats, input.perBeat, cfg.d2, cfg.f1);
+    if (input.f1Beats!.length * input.perBeat !== n) throw new Error(`chords2: ${input.f1Beats!.length} F1 beats for ${n} columns at perBeat ${input.perBeat}`);
+    const added = addedCandidates(segs, input.f1Beats!, input.perBeat, cfg.d2, cfg.f1!);
     segments = segments.map((seg, i) => (added[i].length ? { ...seg, chordCandidates: added[i] } : seg));
   } else if (d2 && cfg.d2) {
     const { cands } = d2;

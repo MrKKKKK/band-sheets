@@ -18,7 +18,7 @@
  * unit, `onRun`) the candidate-fixes-it bit, the name check, and the candidate record columns. Held-out is never listed
  * (s8dev1 / guard.ts: recipe split and the truth's own flags are checked before a file is opened). stdout: aggregates only.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { normalizeTruthSlash, noteToPc, type ScoreBeat } from '../../bass/score';
@@ -28,15 +28,13 @@ import { decodeWav } from '../../browser/wav';
 import { toMono } from '../../dsp/core/resample';
 import { appBassConfig, chords2ConfigHash, resolveChords2Config, T7C_E1_CANDIDATE_THETA, type Chords2Config } from '../config';
 import { f1ConfigHash } from '../front/config';
-import { triadOf } from '../vocab';
-import { shownCandidates } from '../candidates';
 import { f1, f3, table } from './baseline';
 import { segmentBootstrap, sumRatio, type PairedUnit } from './bootstrap';
 import { beginLook, commitArg, readRegistry, requireCommittedDryRun, ROOT } from './guard';
 import { prepareInput } from './input';
 import { devTakes } from './r2';
 import { checkedSplit, checkInputs, devSynItems, filesDir, fmtLines, hand, has, inGroup, LINE_HEAD, paired, readRecs, runFile, S, scoreFile, timing, tuneItems, type Cfg, type FileRec, type FileRows, type GateLine } from './s8dev1';
-import { editCounts, type EvalChord, type Interval } from './score';
+import { editCounts, shownAddedCandidates, truthQuality, type EvalChord, type Interval } from './score';
 import { loadTruth, recItems, runJobs, type Item } from './t8';
 
 const OUT = join(ROOT, 'out', 'chords2-s8dev2');
@@ -53,6 +51,7 @@ export const tuneGrid = (): Cfg[] => THETA_GRID.map((t) => ({ key: thetaKey(t), 
 /** The look's row: the θ_c the tuning round chose (config.ts); refuses while none was chosen. */
 export function lookCfgs(theta: number | null = T7C_E1_CANDIDATE_THETA): Cfg[] {
   if (theta === null) throw new Error('config.ts T7C_E1_CANDIDATE_THETA is null: run the tuning round (tune run / tune report), set the value and commit it first');
+  if (!(THETA_GRID as readonly number[]).includes(theta)) throw new Error(`T7C_E1_CANDIDATE_THETA ${theta} is not a value of the tuning grid ${THETA_GRID.join(' / ')}`);
   return [{ key: ROW, cfg: candConfig(theta) }];
 }
 
@@ -100,9 +99,6 @@ export function combineStates(xs: readonly (State | null)[]): State | null {
   return xs.includes('FAIL') ? 'FAIL' : xs.every((x) => x === 'PASS') ? 'PASS' : 'USER';
 }
 
-/** The added-tone candidates a result chord shows (candidates.ts cap; same root and triad as the answer, another quality). */
-const addedShown = (c: EvalChord) => shownCandidates({ root: c.root, quality: c.quality }, c.candidates ?? []).filter((x) => noteToPc(x.root) === noteToPc(c.root) && x.quality !== c.quality && triadOf(c.quality) !== null && triadOf(x.quality) === triadOf(c.quality));
-
 export interface CandStat {
   /** result segments that show an added-tone candidate */
   segs: number;
@@ -119,11 +115,11 @@ export function candStat(truth: readonly EvalChord[], result: readonly EvalChord
   const tt = (normalizeTruthSlash(truth) as EvalChord[]).filter((c) => c.root !== null && c.root !== undefined && !['', 'N'].includes(String(c.root).trim()));
   const s: CandStat = { segs: 0, hit: 0, wrongRoot: 0, unscored: 0, byQ: {} };
   for (const rc of result) {
-    const cands = addedShown(rc);
+    const cands = shownAddedCandidates(rc);
     if (!cands.length) continue;
     s.segs++;
     const tc = at(tt, (rc.start + rc.end) / 2);
-    const tq = tc ? (tc.originalQuality ?? tc.quality) : null;
+    const tq = tc ? truthQuality(tc, 'full') : null;
     if (!tc) {
       s.unscored++;
       continue;
@@ -188,6 +184,16 @@ function worker(argv: string[]): void {
     const r = runFile(prepareInput(toMono(w.channels), w.sampleRate, true).y, jobCfgs(job), false);
     writeFileSync(p, JSON.stringify(scoreFile2(it, t, r)));
   }
+}
+
+/**
+ * An empty results folder for a look / selftest: `worker` skips a file whose result exists, so a re-run (after a harness
+ * fix, or a crash) would otherwise read the first run's stale files. beginLook has logged the start before this is called.
+ */
+export function freshDir(dir: string): string {
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 async function runAll(items: Item[], dir: string, job: Job, jobs: number): Promise<void> {
@@ -269,10 +275,12 @@ export function verdict(l: RowLines, points: (number | null)[]): string {
   const guards = l.guards.every((g) => g.pass === true);
   if (l.guards.some((g) => g.line.startsWith('名前') && g.pass !== true)) return 'harness-fix（名前が基準と同じでない: 結果は使わない）';
   if (l.state === 'FAIL') return '止める（決め手 FAIL。ホールドアウトは開けずに次のスパイクへ）';
-  if (l.state === 'PASS') return guards ? '決め手 PASS・守り全部 PASS（採る側。E2 は s8-dev-3 で）' : '決め手 PASS だが守りに FAIL あり（ユーザーが決める）';
+  if (l.state === 'PASS') return guards ? '決め手 PASS・守り全部 PASS（採る側。E2 は s8-dev-3 で）' : '止める（決め手 PASS だが守りに FAIL あり。決定 9・17）';
   if (l.state === 'USER') return guards && points.every((p) => p !== null && p <= -1.5 + 1e-9) ? '区間が −1.5 をまたぐ。点の値は両方 −1.5 以下・守り全部 PASS（採る側）' : '区間が −1.5 をまたぐ。点の値が −1.5 以下でない、または守りに FAIL あり（止める）';
   return '判定できない（グループが足りない）';
 }
+/** the budget (time +3 s, memory +50 MB) is not in the lines: `timing` checks it separately */
+export const BUDGET_NOTE = '予算（時間 +3 秒・メモリ +50 MB）はこの表に入れていない: `timing` で別に確かめる。';
 
 /* ------------------------------------------------------------ tuning: the selection rule (§3) */
 
@@ -285,7 +293,7 @@ export function rankTheta(fs: readonly FileRec2[], cfgs: readonly Cfg[]) {
     .map((c) => {
       const l = rowLines(fs, c.key, TUNE_OPTS);
       const h = diff(hand(fs, c.key, 'SYN'), hb);
-      return { key: c.key, theta: c.cfg.d2!.theta, guardFails: l.guards.filter((g) => g.line.startsWith('名前') ? false : g.pass === false).length, nameDiff: nameDiffTotal(fs, c.key), hand: h === null ? Infinity : Math.round(h * 10) / 10, lines: l };
+      return { key: c.key, theta: c.cfg.d2!.theta, guardFails: l.guards.filter((g) => g.line.startsWith('名前') ? false : g.pass === false).length, nameDiff: nameDiffTotal(fs, c.key), hand: h === null ? Infinity : Math.round(h * 10) / 10, handRaw: h ?? Infinity, lines: l };
     })
     .sort((a, b) => a.guardFails - b.guardFails || a.hand - b.hand || b.theta - a.theta);
 }
@@ -320,7 +328,7 @@ function tuneReport(argv: string[]): void {
   const top = ranked[0];
   if (top) {
     L.push(`\n## 1 位 ${top.key} の線\n${LINE_HEAD}\n${fmtLines([...top.lines.decisive, ...top.lines.guards])}`);
-    if (top.hand > -0.5) L.push('\n**1 位の手数の差が −0.5 より大きい（決め手から遠い）: 見る時点を使う前にメインに返す。天井 録音 2.50・SYN 3.34 / 100 拍（g1 §2）と並べて見せる。**');
+    if (top.handRaw > -0.5) L.push('\n**1 位の手数の差が −0.5 より大きい（決め手から遠い）: 見る時点を使う前にメインに返す。天井 録音 2.50・SYN 3.34 / 100 拍（g1 §2）と並べて見せる。**');
     if (top.nameDiff) L.push('\n**名前が基準と同じでない: 作りの誤り（harness-fix）。**');
   }
   const text = L.join('\n');
@@ -349,9 +357,10 @@ const sumStat = (fs: readonly FileRec2[], row: string, g: string): CandStat & { 
 export function lookReport(title: string, fs: readonly FileRec2[]): string {
   const rows = rowsOf(fs);
   const out: string[] = [`# ${title}: ${fs.length} files`];
-  out.push(`hashes: all-off ${chords2ConfigHash()}, base = appBassConfig ${bassConfigHash(appBassConfig())}, ${rows.map((r) => `${r} ${chords2ConfigHash(candConfigOfRow(r))}`).join(', ')}, F1 ${f1ConfigHash(candConfig(0.5).f1)}`);
   const bad = rows.filter((r) => nameDiffTotal(fs, r) > 0);
-  if (bad.length) out.push(`\n**名前・区間・/X が基準と同じでない行: ${bad.join(', ')}（${bad.map((r) => nameDiffTotal(fs, r)).join(', ')} 和音）。作りの誤り（harness-fix）: 下の数は使わない。**`);
+  // the names are checked FIRST: a result with other names than the base is unusable, so nothing else is printed or saved
+  if (bad.length) return `${out[0]}\n**名前・区間・/X が基準と同じでない行: ${bad.map((r) => `${r} ${nameDiffTotal(fs, r)} 和音`).join(', ')}。作りの誤り（harness-fix）: 表は出さない。**`;
+  out.push(`hashes: all-off ${chords2ConfigHash()}, base = appBassConfig ${bassConfigHash(appBassConfig())}, ${rows.map((r) => `${r} ${chords2ConfigHash(candConfigOfRow(r))}`).join(', ')}, F1 ${f1ConfigHash(candConfig(0.5).f1)}`);
   const all = ['base', ...rows];
   for (const [kind, groups] of [['syn', SYN_GROUPS], ['rec', REC_GROUPS]] as const) {
     const sub = fs.filter((f) => f.kind === kind);
@@ -375,7 +384,7 @@ export function lookReport(title: string, fs: readonly FileRec2[]): string {
     const l = rowLines(fs, r, LOOK_OPTS);
     const pts = l.decisive.map((d) => d.value);
     out.push(`\n## G1 §2 の線: ${r}（基準 = appBassConfig()、同じ実行。区間 = 続きごとのブートストラップ 2000 回、和の比）\n${LINE_HEAD}\n${fmtLines([...l.decisive, ...l.guards])}`);
-    out.push(`\n決め手: ${l.state ?? '-'} → ${verdict(l, pts)}`);
+    out.push(`\n決め手: ${l.state ?? '-'} → ${verdict(l, pts)}（${BUDGET_NOTE}）`);
   }
   out.push('\n予算: 時間・メモリは `timing` の出力と T4 のメモリの数（G1 §2）。');
   const med = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
@@ -398,7 +407,7 @@ const lookDir = (which: string) => join(OUT, which);
 
 async function selftest(argv: string[]): Promise<void> {
   requireCommittedDryRun(argv);
-  const dir = lookDir('selftest');
+  const dir = freshDir(lookDir('selftest'));
   await runAll(tuneItems(), dir, { mode: 'selftest' }, Number(argOf(argv, '--jobs') ?? '6'));
   const fs = readRecs2(dir);
   const text = lookReport('selftest (tuning, the look path; not a look)', fs);
@@ -423,10 +432,11 @@ async function look(argv: string[]): Promise<void> {
     commitArg(argv),
   );
   console.log(`look-start logged: ${line.look} ${line.task} commit ${line.commit?.slice(0, 7)} takes ${takes.length} synthetic ${syn.length}`);
-  const dir = lookDir('look');
+  const dir = freshDir(lookDir('look')); // after beginLook: the (one) harness-fix re-run recomputes every file
   await runAll([...syn, ...recItems(takes)], dir, { mode: 'look' }, Number(argOf(argv, '--jobs') ?? '6'));
   const fs = readRecs2(dir);
-  const text = lookReport(`T7c ${LOOK}`, fs);
+  for (const g of ['REC', 'SYN']) if (!has(fs, g)) throw new Error(`look ${LOOK}: no ${g} files in the results (the decisive line needs both groups)`);
+  const text = lookReport(`T7c ${LOOK}`, fs); // names checked first: a name difference prints / saves only its count
   writeFileSync(join(OUT, 'look-report.md'), text);
   console.log(text);
   if (nameDiffTotal(fs, ROW) > 0) {
@@ -453,7 +463,7 @@ if (process.argv[1] && resolve(process.argv[1]) === SELF) {
   else if (cmd === 'check-inputs') checkInputs();
   else if (cmd === 'look') look(argv).catch(fail);
   else if (cmd === 'report') reportAgain(argv);
-  else if (cmd === 'timing') timing(lookCfgs(T7C_E1_CANDIDATE_THETA ?? 0.5).map((c) => ({ ...c })));
+  else if (cmd === 'timing') timing(lookCfgs(T7C_E1_CANDIDATE_THETA ?? 0.5));
   else {
     console.error('usage: s8dev2.ts tune run|report | selftest --commit SHA | check-inputs | look --commit SHA | report --dir look|selftest | timing');
     process.exit(2);

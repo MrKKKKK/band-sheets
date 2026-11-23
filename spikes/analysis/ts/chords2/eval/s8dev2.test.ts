@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ScoreBeat } from '../../bass/score';
 import { chords2ConfigHash } from '../config';
-import { candConfig, candStat, combineStates, handDiffStat, lookCfgs, nameDiff, rankTheta, rowLines, runBits, scoreFile2, stateOf, THETA_GRID, tuneGrid, verdict, type FileRec2 } from './s8dev2';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { candConfig, freshDir, lookReport, candStat, combineStates, handDiffStat, lookCfgs, nameDiff, rankTheta, rowLines, runBits, scoreFile2, stateOf, THETA_GRID, tuneGrid, verdict, type FileRec2 } from './s8dev2';
 import { editCounts, type EvalChord } from './score';
 import type { Item } from './t8';
 
@@ -84,6 +87,43 @@ describe('s8dev2: three states and the lines', () => {
     expect(verdict({ ...ok, state: 'USER' }, [-1.6, -2])).toMatch(/採る側/);
     expect(verdict({ ...ok, state: 'USER' }, [-1.4, -2])).toMatch(/止める/);
     expect(verdict({ ...ok, state: 'PASS' }, [-3, -3])).toMatch(/採る側/);
+    const bad = { decisive: [], guards: [{ kind: '守り' as const, line: 'x', value: 11, op: '<=' as const, target: 10, ci: null, pass: false }] };
+    expect(verdict({ ...bad, state: 'PASS' }, [-3, -3])).toMatch(/止める/); // decisive PASS + a guard FAIL = stop (decisions 9, 17)
+    expect(verdict({ ...ok, state: 'PASS' }, [-3, -3])).toMatch(/PASS/);
+  });
+});
+
+describe('s8dev2: push-out under the cap of 2 (G1 §2 guard)', () => {
+  it('the added-note candidate goes first, so the correct top-2 candidate is hidden: hand edits +1 and the guard fails', () => {
+    const t = [ch(0, 1, 'F', 'maj')];
+    const b = [ch(0, 1, 'D', 'min', [['G', 'maj'], ['F', 'maj']])]; // base: F maj is the 2nd shown candidate: fixable by 1 pick
+    const r = [ch(0, 1, 'D', 'min', [['D', 'min7'], ['G', 'maj'], ['F', 'maj']])]; // + the added note first: shown = [D min7, G maj]
+    const bits = (x: EvalChord[]) => runBits(t, x, beats.slice(0, 3));
+    expect(bits(b).fix).toEqual([1]);
+    expect(bits(r).fix).toEqual([0]);
+    expect(handDiffStat([{ d: -1, beats: 2 }])).toBe(50); // fix 1 -> 0: hand edits +1 over 2 beats = +50 / 100 beats
+    const f = scoreFile2(item('etude4-x', 'L1'), { chords: t, beats: beats.slice(0, 3) }, { rows: { base: b, E1c: r }, ms: {} });
+    const l = rowLines([f], 'E1c', { boot: false, decisive: [], push: ['Lpool'], noise: [], dec9: [] });
+    const push = l.guards.find((g) => g.line.startsWith('候補の押し出し'))!;
+    expect(push.value).toBeCloseTo(50, 9);
+    expect(push.pass).toBe(false);
+  });
+});
+
+describe('s8dev2: a re-run recomputes every file', () => {
+  it('a name difference prints only its count (no table)', () => {
+    const f = scoreFile2(item('c2-d-b-x', 'B'), { chords: truth, beats }, { rows: { base: baseRow, 'th0.5': [ch(0, 1, 'C', '7'), ...baseRow.slice(1)] }, ms: {} });
+    const t = lookReport('x', [f]);
+    expect(t).toMatch(/1 和音/);
+    expect(t).not.toMatch(/手で直す数/);
+  });
+  it('freshDir empties a results folder (stale per-file results would be skipped by the worker)', () => {
+    const d = join(mkdtempSync(join(tmpdir(), 's8dev2-')), 'look');
+    mkdirSync(join(d, 'files'), { recursive: true });
+    writeFileSync(join(d, 'files', 'x.json'), '{}');
+    freshDir(d);
+    expect(existsSync(d)).toBe(true);
+    expect(readdirSync(d)).toEqual([]);
   });
 });
 
@@ -106,6 +146,7 @@ describe('s8dev2: tuning grid and selection rule', () => {
   });
   it('the look row needs the chosen θ_c', () => {
     expect(() => lookCfgs(null)).toThrow(/T7C_E1_CANDIDATE_THETA/);
+    expect(() => lookCfgs(0.4)).toThrow(/tuning grid/);
     expect(lookCfgs(0.35)[0].key).toBe('E1c');
     expect(lookCfgs(0.35)[0].cfg).toEqual(candConfig(0.35));
   });

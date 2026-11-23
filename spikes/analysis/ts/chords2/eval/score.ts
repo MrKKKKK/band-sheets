@@ -280,11 +280,10 @@ const asTriadOf = (p: Point, map: Readonly<Record<string, string>>): boolean => 
   const tq = fullTruth(p);
   return p.rc !== null && p.rRoot === p.tRoot && tq !== null && tq in map && p.rc.quality === map[tq];
 };
-const addedCandidateOk = (p: Point): boolean => {
-  const rc = p.rc;
-  if (!rc || triadOf(rc.quality) === null) return false;
-  return shownCandidates({ root: rc.root, quality: rc.quality }, rc.candidates ?? []).some((c) => noteToPc(c.root) === p.rRoot && c.quality !== rc.quality && triadOf(c.quality) === triadOf(rc.quality));
-};
+/** The added-tone candidates a result chord shows: shown (candidates.ts cap), the answer's root and triad, another quality. */
+export const shownAddedCandidates = (rc: EvalChord): { root: string; quality: string }[] =>
+  triadOf(rc.quality) === null ? [] : shownCandidates({ root: rc.root, quality: rc.quality }, rc.candidates ?? []).filter((c) => noteToPc(c.root) === noteToPc(rc.root) && c.quality !== rc.quality && triadOf(c.quality) === triadOf(rc.quality));
+const addedCandidateOk = (p: Point): boolean => p.rc !== null && shownAddedCandidates(p.rc).length > 0;
 
 /** the truth's own (root, quality) is among the SHOWN candidates of the result piece */
 const correctShown = (p: Point): boolean => {
